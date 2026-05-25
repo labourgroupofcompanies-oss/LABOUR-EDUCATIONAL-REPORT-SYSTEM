@@ -78,11 +78,11 @@ const ParentReportView = () => {
     ] = await Promise.all([
       schoolId ? db.schools.get(schoolId) : null,
       schoolId ? db.settings.get(schoolId) : db.settings.get('global'),
-      db.classes.toArray(),
-      db.classSubjects.toArray(),
-      db.subjects.toArray(),
-      db.scores.toArray(),
-      db.reportSummaries.toArray(),
+      schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
+      schoolId ? db.classSubjects.where('schoolId').equals(schoolId).toArray() : [],
+      schoolId ? db.subjects.filter(s => s.schoolId === schoolId).toArray() : [],
+      schoolId ? db.scores.filter(s => s.schoolId === schoolId).toArray() : [],
+      schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : [],
       currentClassId ? db.learners.where('currentClassId').equals(currentClassId).toArray() : []
     ]);
 

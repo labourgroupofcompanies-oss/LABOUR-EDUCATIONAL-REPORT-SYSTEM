@@ -11,11 +11,11 @@ export const useSchoolSetup = () => {
   const [selectedSetupClass, setSelectedSetupClass] = useState('');
   const { user } = useAuth();
 
-  const classes = useLiveQuery(() => db.classes.toArray(), []);
-  const subjects = useLiveQuery(() => db.subjects.toArray(), []);
-  const classSubjects = useLiveQuery(() => db.classSubjects.toArray(), []);
-  const teachers = useLiveQuery(() => db.profiles.where('role').equals('teacher').toArray(), []);
-  const allAssignments = useLiveQuery(() => db.teacherAssignments.toArray(), []);
+  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const subjects = useLiveQuery(() => user?.schoolId ? db.subjects.filter(s => s.schoolId === user.schoolId).toArray() : [], [user]);
+  const classSubjects = useLiveQuery(() => user?.schoolId ? db.classSubjects.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const teachers = useLiveQuery(() => user?.schoolId ? db.profiles.where('schoolId').equals(user.schoolId).and(p => p.role === 'teacher').toArray() : [], [user]);
+  const allAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
 
   // ── Automatic Database Pulling (Self-Healing) ──────────────────────
   useEffect(() => {
@@ -31,7 +31,7 @@ export const useSchoolSetup = () => {
           .eq('school_id', user.schoolId);
 
         if (!classErr && remoteClasses) {
-          const localClasses = await db.classes.toArray();
+          const localClasses = await db.classes.where('schoolId').equals(user.schoolId).toArray();
           
           for (const rc of remoteClasses) {
             // Find if there is a local class with the same name (case-insensitive, trimmed)
@@ -95,7 +95,7 @@ export const useSchoolSetup = () => {
           .eq('school_id', user.schoolId);
 
         if (!subErr && remoteSubjects) {
-          const localSubjects = await db.subjects.toArray();
+          const localSubjects = await db.subjects.filter(s => s.schoolId === user.schoolId).toArray();
           
           for (const rs of remoteSubjects) {
             // Find if there is a local subject with the same name (case-insensitive, trimmed)

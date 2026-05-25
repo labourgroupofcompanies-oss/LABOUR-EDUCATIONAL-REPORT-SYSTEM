@@ -148,7 +148,7 @@ const LearnerList = () => {
   const [profileLearner, setProfileLearner] = useState(null);
   const [profileTab, setProfileTab] = useState('personal');
 
-  const learners = useLiveQuery(() => db.learners.toArray(), []);
+  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
   const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
 
   const schoolInfo = useLiveQuery(
@@ -562,7 +562,7 @@ const LearnerList = () => {
         console.log('Reconciling classes and subjects with Supabase...');
         
         // 1. Sync Classes
-        const localClasses = await db.classes.toArray();
+        const localClasses = await db.classes.where('schoolId').equals(user.schoolId).toArray();
         const { data: remoteClasses, error: classErr } = await supabase
           .from('report_classes')
           .select('*')
@@ -617,7 +617,7 @@ const LearnerList = () => {
         }
 
         // 2. Sync Subjects
-        const localSubjects = await db.subjects.toArray();
+        const localSubjects = await db.subjects.filter(s => s.schoolId === user.schoolId).toArray();
         const { data: remoteSubjects, error: subErr } = await supabase
           .from('report_subjects')
           .select('*')
@@ -691,7 +691,7 @@ const LearnerList = () => {
     const syncUnsyncedLearners = async () => {
       if (navigator.onLine) {
         try {
-          const unsynced = await db.learners.filter(l => !l.synced).toArray();
+          const unsynced = await db.learners.where('schoolId').equals(user.schoolId).filter(l => !l.synced).toArray();
           if (unsynced.length === 0) return;
 
           console.log(`Syncing ${unsynced.length} un-synced learners to the cloud...`);

@@ -31,8 +31,8 @@ const ParentFeesView = () => {
     const schoolId = learner.schoolId;
     const [school, allClasses, summariesList] = await Promise.all([
       schoolId ? db.schools.get(schoolId) : null,
-      db.classes.toArray(),
-      db.reportSummaries.toArray()
+      schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
+      schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : []
     ]);
 
     return {

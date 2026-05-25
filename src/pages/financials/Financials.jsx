@@ -9,9 +9,9 @@ const Financials = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'super_admin';
 
-  const classes = useLiveQuery(() => db.classes.toArray(), []);
-  const learners = useLiveQuery(() => db.learners.toArray(), []);
-  const reportSummaries = useLiveQuery(() => db.reportSummaries.toArray(), []);
+  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
   const schoolInfo = useLiveQuery(() => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]);
 
   const [selectedClass, setSelectedClass] = useState('');
