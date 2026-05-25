@@ -951,7 +951,7 @@ const Reports = () => {
     if (!navigator.onLine) return alert('You must be online to execute bulk promotions.');
     if (!selectedClass || !academicYear || selectedTerm !== 'Term 3') return alert('Invalid criteria for promotion.');
     
-    if (!window.confirm('Are you sure you want to approve and execute all pending promotions for this class? This will move students to their new classes or mark them as Alumni.')) return;
+    if (!await window.confirm('Are you sure you want to approve and execute all pending promotions for this class? This will move students to their new classes or mark them as Alumni.')) return;
     
     setIsPromoting(true);
     try {
@@ -996,7 +996,7 @@ const Reports = () => {
     if (!selectedClass || !academicYear || !selectedTerm) { alert('Missing class, term, or academic year settings.'); return; }
 
     const verb = releaseStatus ? 'release' : 'revoke release of';
-    if (!window.confirm(`Are you sure you want to ${verb} report cards for all students in this class?`)) return;
+    if (!await window.confirm(`Are you sure you want to ${verb} report cards for all students in this class?`)) return;
 
     setIsReleasing(true);
     try {

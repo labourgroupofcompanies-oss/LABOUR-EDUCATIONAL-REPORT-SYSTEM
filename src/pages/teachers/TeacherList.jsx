@@ -248,8 +248,19 @@ const TeacherList = () => {
   };
 
   const handleDeleteTeacher = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
+    if (!await window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
     try {
+      if (!navigator.onLine) {
+        alert('You are offline. Deleting a teacher requires an active internet connection to safely clean up cloud assignments.');
+        return;
+      }
+
+      const { error } = await supabase.from('report_profiles').delete().eq('id', id);
+      if (error) {
+        alert('Failed to delete teacher from cloud: ' + error.message);
+        return;
+      }
+
       await db.profiles.delete(id);
       
       // Cascade delete local assignments
@@ -257,12 +268,9 @@ const TeacherList = () => {
       for (const a of relatedAssigns) {
         await db.teacherAssignments.delete(a.id);
       }
-
-      if (navigator.onLine) {
-        await supabase.from('report_profiles').delete().eq('id', id);
-      }
     } catch (err) {
       console.error('Failed to delete teacher:', err);
+      alert('An error occurred: ' + err.message);
     }
   };
 

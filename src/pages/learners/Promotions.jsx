@@ -68,7 +68,7 @@ const Promotions = () => {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to execute ${pendingCount} promotions for this class? This will officially move students to their new classes.`)) {
+    if (!await window.confirm(`Are you sure you want to execute ${pendingCount} promotions for this class? This will officially move students to their new classes.`)) {
       return;
     }
 

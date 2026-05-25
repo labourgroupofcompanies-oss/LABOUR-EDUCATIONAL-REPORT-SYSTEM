@@ -144,27 +144,32 @@ const Dashboard = () => {
   };
 
   const handleDeleteAnnouncement = async (ann) => {
-    if (!window.confirm(`Are you sure you want to delete the bulletin "${ann.title}"?`)) return;
+    if (!await window.confirm(`Are you sure you want to delete the bulletin "${ann.title}"?`)) return;
 
     try {
-      // 1. Delete locally from Dexie
-      if (ann.id) {
-        await db.announcements.delete(ann.id);
-      }
+      if (ann.supabaseId) {
+        if (!navigator.onLine) {
+          alert('You are offline. Deleting a synced announcement requires an active internet connection.');
+          return;
+        }
 
-      // 2. If synced/exists online, delete from Supabase
-      if (navigator.onLine && ann.supabaseId) {
         const { error } = await supabase
           .from('report_announcements')
           .delete()
           .eq('id', ann.supabaseId);
         
         if (error) {
-          console.error('Failed to delete announcement from Supabase:', error);
+          alert('Failed to delete announcement from cloud: ' + error.message);
+          return;
         }
+      }
+
+      if (ann.id) {
+        await db.announcements.delete(ann.id);
       }
     } catch (err) {
       console.error('Error deleting announcement:', err);
+      alert('An error occurred: ' + err.message);
     }
   };
 

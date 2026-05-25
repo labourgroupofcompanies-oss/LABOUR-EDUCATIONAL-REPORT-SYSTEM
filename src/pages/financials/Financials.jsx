@@ -46,7 +46,7 @@ const Financials = () => {
     const newData = {};
     classLearners.forEach(learner => {
       const summary = reportSummaries.find(
-        s => s.learnerId === learner.id && 
+        s => (s.learnerId === learner.id || s.learnerId === String(learner.id) || (learner.supabaseId && s.learnerId === learner.supabaseId)) && 
              s.academicYear === academicYear && 
              s.term === selectedTerm
       );
@@ -82,16 +82,18 @@ const Financials = () => {
         const data = financialData[learner.id];
         if (!data) continue;
 
+        const resolvedLearnerId = learner.supabaseId || learner.id;
+
         // Find existing summary or create a new one
         let summary = reportSummaries.find(
-          s => s.learnerId === learner.id && 
+          s => (s.learnerId === learner.id || s.learnerId === String(learner.id) || (learner.supabaseId && s.learnerId === learner.supabaseId)) && 
                s.academicYear === academicYear && 
                s.term === selectedTerm
         );
 
         let record = {
           schoolId: user.schoolId,
-          learnerId: learner.id,
+          learnerId: resolvedLearnerId,
           classId: Number(selectedClass),
           academicYear,
           term: selectedTerm,
@@ -112,7 +114,7 @@ const Financials = () => {
           // we need to supply basic defaults to satisfy Supabase row constraints if any.
           const cloud = {
             school_id: user.schoolId,
-            learner_id: learner.id,
+            learner_id: resolvedLearnerId,
             class_id: Number(selectedClass),
             academic_year: academicYear,
             term: selectedTerm,

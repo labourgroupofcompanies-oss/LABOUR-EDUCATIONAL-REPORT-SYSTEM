@@ -593,16 +593,36 @@ const ParentDashboard = () => {
             const existing = await db.messages
               .filter(x => x.supabaseId === m.id).first();
             if (!existing) {
-              await db.messages.add({
-                schoolId: m.school_id,
-                parentPhone: m.parent_phone,
-                senderRole: m.sender_role,
-                content: m.content,
-                created_at: m.created_at,
-                isRead: m.is_read,
-                supabaseId: m.id,
-                synced: true
-              });
+              // Resolve race condition: Check if there's an unsynced local optimistic copy
+              const clean = (p) => (p || '').replace(/[\s\-\+\(\)]/g, '').slice(-9);
+              const cleanPhoneVal = clean(m.parent_phone);
+              const localMatch = await db.messages
+                .filter(x => 
+                  !x.supabaseId && 
+                  x.senderRole === m.sender_role && 
+                  clean(x.parentPhone) === cleanPhoneVal && 
+                  x.content === m.content
+                )
+                .first();
+
+              if (localMatch) {
+                await db.messages.update(localMatch.id, {
+                  supabaseId: m.id,
+                  synced: true,
+                  created_at: m.created_at
+                });
+              } else {
+                await db.messages.add({
+                  schoolId: m.school_id,
+                  parentPhone: m.parent_phone,
+                  senderRole: m.sender_role,
+                  content: m.content,
+                  created_at: m.created_at,
+                  isRead: m.is_read,
+                  supabaseId: m.id,
+                  synced: true
+                });
+              }
             }
           }
         }
@@ -643,16 +663,35 @@ const ParentDashboard = () => {
             try {
               const existing = await db.messages.filter(x => x.supabaseId === record.id).first();
               if (!existing) {
-                await db.messages.add({
-                  schoolId: record.school_id,
-                  parentPhone: record.parent_phone,
-                  senderRole: record.sender_role,
-                  content: record.content,
-                  created_at: record.created_at,
-                  isRead: record.is_read,
-                  supabaseId: record.id,
-                  synced: true
-                });
+                // Resolve race condition: Check if there's an unsynced local optimistic copy
+                const cleanPhoneVal = clean(record.parent_phone);
+                const localMatch = await db.messages
+                  .filter(x => 
+                    !x.supabaseId && 
+                    x.senderRole === record.sender_role && 
+                    clean(x.parentPhone) === cleanPhoneVal && 
+                    x.content === record.content
+                  )
+                  .first();
+
+                if (localMatch) {
+                  await db.messages.update(localMatch.id, {
+                    supabaseId: record.id,
+                    synced: true,
+                    created_at: record.created_at
+                  });
+                } else {
+                  await db.messages.add({
+                    schoolId: record.school_id,
+                    parentPhone: record.parent_phone,
+                    senderRole: record.sender_role,
+                    content: record.content,
+                    created_at: record.created_at,
+                    isRead: record.is_read,
+                    supabaseId: record.id,
+                    synced: true
+                  });
+                }
               }
             } finally {
               // Keep the ID in the set permanently so syncComms never re-inserts

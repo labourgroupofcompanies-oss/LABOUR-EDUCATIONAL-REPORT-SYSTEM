@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../lib/db';
@@ -7,6 +7,7 @@ import { db } from '../../lib/db';
 const Header = ({ title, onMenuClick }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   // Fetch school info to display logo
@@ -26,6 +27,18 @@ const Header = ({ title, onMenuClick }) => {
     };
   }, []);
 
+  const handleBack = () => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      if (location.pathname.startsWith('/parent')) {
+        navigate('/parent/dashboard');
+      } else {
+        navigate('/');
+      }
+    }
+  };
+
   return (
     <header className="app-header">
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
@@ -33,6 +46,18 @@ const Header = ({ title, onMenuClick }) => {
         <button className="hamburger-btn" onClick={onMenuClick} aria-label="Toggle menu">
           <i className="fas fa-bars"></i>
         </button>
+
+        {/* Back Button - modern, premium, micro-animated */}
+        {location.pathname !== '/' && location.pathname !== '/parent/dashboard' && (
+          <button 
+            className="back-btn" 
+            onClick={handleBack} 
+            title="Go Back"
+            aria-label="Go Back"
+          >
+            <i className="fas fa-arrow-left"></i>
+          </button>
+        )}
 
         {/* School Logo */}
         <div 

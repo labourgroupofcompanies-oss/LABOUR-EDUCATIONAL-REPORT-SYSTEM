@@ -416,7 +416,7 @@ const LearnerList = () => {
     
     setImporting(true);
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const data = new Uint8Array(ev.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
@@ -444,7 +444,7 @@ const LearnerList = () => {
 
         const emptyNamesCount = parsed.filter(p => !p.fullName).length;
         if (emptyNamesCount === parsed.length) {
-          if (!window.confirm("Warning: We could not find a 'Name' column in your Excel. The first column will be treated as the Learner Name. Do you want to proceed?")) {
+          if (!await window.confirm("Warning: We could not find a 'Name' column in your Excel. The first column will be treated as the Learner Name. Do you want to proceed?")) {
             setImporting(false);
             return;
           }
@@ -784,13 +784,18 @@ const LearnerList = () => {
   }, [user]);
 
   const handleDeleteLearner = async (l) => {
-    if (!window.confirm(`Are you sure you want to delete ${l.fullName}? This action cannot be undone.`)) return;
+    if (!await window.confirm(`Are you sure you want to delete ${l.fullName}? This action cannot be undone.`)) return;
     
     try {
       if (l.supabaseId) {
         if (navigator.onLine) {
           const { error } = await supabase.from('report_learners').delete().eq('id', l.supabaseId);
           if (error) {
+            const errCode = String(error.code || '');
+            if (errCode.startsWith('23') || errCode.startsWith('42')) {
+              alert('Failed to delete learner from cloud: ' + error.message);
+              return;
+            }
             console.warn('Failed to delete from Supabase, queuing for offline deletion:', error);
             const queue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
             if (!queue.includes(l.supabaseId)) {
@@ -814,7 +819,7 @@ const LearnerList = () => {
       }
     } catch (err) {
       console.error('Error deleting learner:', err);
-      alert('Failed to delete learner. Please try again.');
+      alert('Failed to delete learner: ' + err.message);
     }
   };
 
@@ -1495,7 +1500,7 @@ const LearnerList = () => {
                               alert("Please add a Primary Contact number for the guardian first.");
                               return;
                             }
-                            if (window.confirm("Are you sure you want to reset the parent portal password for " + profileLearner.guardianContact1 + "? It will be reset to a temporary default password '123456'.")) {
+                            if (await window.confirm("Are you sure you want to reset the parent portal password for " + profileLearner.guardianContact1 + "? It will be reset to a temporary default password '123456'.")) {
                               try {
                                 await authService.resetParentPassword(profileLearner.guardianContact1);
                                 alert("Password reset successfully. The parent's new temporary password is: 123456. Please advise them to log in and change it.");

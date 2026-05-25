@@ -289,8 +289,19 @@ export const useSchoolSetup = () => {
   };
 
   const deleteClass = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this class? All learners, scores, assignments, and assigned subjects will be permanently deleted.')) return;
+    if (!await window.confirm('Are you sure you want to delete this class? All learners, scores, assignments, and assigned subjects will be permanently deleted.')) return;
     try {
+      if (!navigator.onLine) {
+        alert('You are offline. Deleting a class requires an active internet connection to safely clean up all database relations and scores.');
+        return;
+      }
+
+      const { error } = await supabase.from('report_classes').delete().eq('id', id);
+      if (error) {
+        alert('Failed to delete class from cloud: ' + error.message);
+        return;
+      }
+
       await db.classes.delete(id);
       
       const relatedAssigns = await db.teacherAssignments.where('classId').equals(id).toArray();
@@ -302,12 +313,9 @@ export const useSchoolSetup = () => {
       for (const cs of relatedClassSubjects) {
         await db.classSubjects.delete(cs.id);
       }
-
-      if (navigator.onLine) {
-        await supabase.from('report_classes').delete().eq('id', id);
-      }
     } catch (err) {
       console.error('Failed to delete class:', err);
+      alert('An error occurred: ' + err.message);
     }
   };
 
@@ -363,8 +371,19 @@ export const useSchoolSetup = () => {
   };
 
   const deleteSubject = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this subject? All scores, teacher assignments, and class-subject mappings associated with it will be permanently deleted.')) return;
+    if (!await window.confirm('Are you sure you want to delete this subject? All scores, teacher assignments, and class-subject mappings associated with it will be permanently deleted.')) return;
     try {
+      if (!navigator.onLine) {
+        alert('You are offline. Deleting a subject requires an active internet connection to safely clean up all database relations and scores.');
+        return;
+      }
+
+      const { error } = await supabase.from('report_subjects').delete().eq('id', id);
+      if (error) {
+        alert('Failed to delete subject from cloud: ' + error.message);
+        return;
+      }
+
       await db.subjects.delete(id);
 
       const relatedAssigns = await db.teacherAssignments.where('subjectId').equals(id).toArray();
@@ -376,12 +395,9 @@ export const useSchoolSetup = () => {
       for (const cs of relatedClassSubjects) {
         await db.classSubjects.delete(cs.id);
       }
-
-      if (navigator.onLine) {
-        await supabase.from('report_subjects').delete().eq('id', id);
-      }
     } catch (err) {
       console.error('Failed to delete subject:', err);
+      alert('An error occurred: ' + err.message);
     }
   };
 

@@ -138,6 +138,36 @@ img, svg { max-width: 100%; display: block; }
 }
 .hamburger-btn:hover { background: var(--background); }
 
+/* ─── Back Button ──────────────────────────────────────────────────────── */
+.back-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  transition: var(--transition);
+  margin-right: 0.25rem;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
+  outline: none;
+}
+.back-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-light);
+  transform: translateX(-2px);
+  box-shadow: var(--shadow-md);
+}
+.back-btn:active {
+  transform: translateX(-4px);
+}
+
+
 /* ─── Sidebar nav links ──────────────────────────────────────────────────── */
 .sidebar-link {
   display: flex;
