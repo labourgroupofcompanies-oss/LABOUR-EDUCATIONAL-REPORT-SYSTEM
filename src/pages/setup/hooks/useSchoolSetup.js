@@ -15,7 +15,7 @@ export const useSchoolSetup = () => {
   const subjects = useLiveQuery(() => user?.schoolId ? db.subjects.filter(s => s.schoolId === user.schoolId).toArray() : [], [user]);
   const classSubjects = useLiveQuery(() => user?.schoolId ? db.classSubjects.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
   const teachers = useLiveQuery(() => user?.schoolId ? db.profiles.where('schoolId').equals(user.schoolId).and(p => p.role === 'teacher').toArray() : [], [user]);
-  const allAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const allAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.filter(a => a.schoolId === user.schoolId).toArray() : [], [user]);
 
   // ── Automatic Database Pulling (Self-Healing) ──────────────────────
   useEffect(() => {
