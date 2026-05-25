@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.report_parent_accounts (
 
 CREATE TABLE IF NOT EXISTS public.report_announcements (
     id BIGSERIAL PRIMARY KEY,
-    school_id UUID NOT NULL,
+    school_id TEXT NOT NULL REFERENCES public.report_schools(id) ON DELETE CASCADE,
     title TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
