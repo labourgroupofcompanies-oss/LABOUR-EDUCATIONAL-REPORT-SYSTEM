@@ -14,7 +14,7 @@ export const useSchoolSetup = () => {
   const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
   const subjects = useLiveQuery(() => user?.schoolId ? db.subjects.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
   const classSubjects = useLiveQuery(() => user?.schoolId ? db.classSubjects.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
-  const teachers = useLiveQuery(() => user?.schoolId ? db.profiles.where('schoolId').equals(user.schoolId).and(p => p.role === 'teacher').toArray() : [], [user]);
+  const teachers = useLiveQuery(() => user?.schoolId ? db.profiles.where('schoolId').equals(user.schoolId).and(p => p.role?.toLowerCase().trim() === 'teacher').toArray() : [], [user]);
   const allAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
 
   // ── Automatic Database Pulling (Self-Healing) ──────────────────────
@@ -181,7 +181,7 @@ export const useSchoolSetup = () => {
           .from('report_profiles')
           .select('*')
           .eq('school_id', user.schoolId)
-          .eq('role', 'teacher');
+          .ilike('role', 'teacher');
         if (teachErr) throw teachErr;
         if (teachersData) {
           const remoteIds = new Set(teachersData.map(p => p.id));
@@ -189,7 +189,7 @@ export const useSchoolSetup = () => {
           // Get all local teachers for this school
           const localTeachers = await db.profiles
             .where('schoolId').equals(user.schoolId)
-            .and(p => p.role === 'teacher')
+            .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
           // Delete any local teacher that is not in the remote list

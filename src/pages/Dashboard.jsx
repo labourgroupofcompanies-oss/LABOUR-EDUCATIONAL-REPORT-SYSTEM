@@ -183,7 +183,7 @@ const Dashboard = () => {
 
   // School-wide stats (Admins)
   const totalLearnerCount = useLiveQuery(() => schoolId ? db.learners.where('schoolId').equals(schoolId).count() : Promise.resolve(0), [schoolId]);
-  const teacherCount = useLiveQuery(() => schoolId ? db.profiles.where('schoolId').equals(schoolId).and(p => p.role === 'teacher').count() : Promise.resolve(0), [schoolId]);
+  const teacherCount = useLiveQuery(() => schoolId ? db.profiles.where('schoolId').equals(schoolId).and(p => p.role?.toLowerCase().trim() === 'teacher').count() : Promise.resolve(0), [schoolId]);
   const classCount = useLiveQuery(() => schoolId ? db.classes.where('schoolId').equals(schoolId).count() : Promise.resolve(0), [schoolId]);
   const subjectCount = useLiveQuery(() => schoolId ? db.subjects.where('schoolId').equals(schoolId).count() : Promise.resolve(0), [schoolId]);
   const pendingScores = useLiveQuery(() => schoolId ? db.scores.where('schoolId').equals(schoolId).and(s => !s.isSubmitted).count() : Promise.resolve(0), [schoolId]);
@@ -378,7 +378,7 @@ const Dashboard = () => {
           .from('report_profiles')
           .select('*')
           .eq('school_id', user.schoolId)
-          .eq('role', 'teacher');
+          .ilike('role', 'teacher');
         if (teachErr) throw teachErr;
         if (teachersData) {
           const remoteIds = new Set(teachersData.map(p => p.id));
@@ -386,7 +386,7 @@ const Dashboard = () => {
           // Get all local teachers for this school
           const localTeachers = await db.profiles
             .where('schoolId').equals(user.schoolId)
-            .and(p => p.role === 'teacher')
+            .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
           // Delete any local teacher that is not in the remote list

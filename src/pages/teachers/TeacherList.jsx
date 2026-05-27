@@ -58,7 +58,7 @@ const TeacherList = () => {
 
   const schoolId = user?.schoolId;
   const teachers = useLiveQuery(
-    () => schoolId ? db.profiles.where('schoolId').equals(schoolId).and(p => p.role === 'teacher').toArray() : [], 
+    () => schoolId ? db.profiles.where('schoolId').equals(schoolId).and(p => p.role?.toLowerCase().trim() === 'teacher').toArray() : [], 
     [schoolId]
   );
   const classes = useLiveQuery(
@@ -112,7 +112,7 @@ const TeacherList = () => {
           .from('report_profiles')
           .select('*')
           .eq('school_id', user.schoolId)
-          .eq('role', 'teacher');
+          .ilike('role', 'teacher');
         if (teachErr) throw teachErr;
         if (teachersData) {
           const remoteIds = new Set(teachersData.map(p => p.id));
@@ -120,7 +120,7 @@ const TeacherList = () => {
           // Get all local teachers for this school
           const localTeachers = await db.profiles
             .where('schoolId').equals(user.schoolId)
-            .and(p => p.role === 'teacher')
+            .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
           // Delete any local teacher that is not in the remote list
