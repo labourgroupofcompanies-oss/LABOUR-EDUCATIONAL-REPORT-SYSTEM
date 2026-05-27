@@ -223,6 +223,19 @@ const Dashboard = () => {
       if (!navigator.onLine || !user?.schoolId) return;
       console.log('[Dashboard] Executing resilient self-healing sync...');
       
+      // 0. Self-heal: Ensure auth user metadata contains school_id for RLS policies
+      try {
+        const { data: { user: authUser } } = await supabase.auth.getUser();
+        if (authUser && (!authUser.user_metadata?.school_id || authUser.user_metadata.school_id !== user.schoolId)) {
+          console.log('[Dashboard Sync] Repairing missing or outdated school_id in auth user metadata...');
+          await supabase.auth.updateUser({
+            data: { school_id: user.schoolId }
+          });
+        }
+      } catch (err) {
+        console.warn('[Dashboard Sync] Auth metadata self-healing skipped:', err);
+      }
+      
       // 1. Sync & Reconcile Classes
       try {
         const { data: remoteClasses, error: classErr } = await supabase
