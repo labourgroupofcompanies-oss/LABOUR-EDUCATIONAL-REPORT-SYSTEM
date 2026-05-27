@@ -2602,6 +2602,63 @@ const ParentDashboard = () => {
           opacity: 0.65;
           cursor: not-allowed;
         }
+
+        .btn-logout.btn-change-password:hover {
+          background: rgba(13, 148, 136, 0.2);
+          border-color: rgba(13, 148, 136, 0.3);
+          color: #2dd4bf;
+        }
+
+        /* ── Responsive Header Layout on Mobile Screens ── */
+        @media (max-width: 768px) {
+          .dashboard-header {
+            padding: 0.85rem 1.25rem;
+          }
+          .header-content {
+            gap: 1rem;
+          }
+          .welcome-title h2 {
+            font-size: 1.15rem;
+            letter-spacing: -0.015em;
+          }
+          .welcome-title p {
+            font-size: 0.75rem;
+            gap: 6px;
+          }
+          .header-school-logo {
+            width: 18px;
+            height: 18px;
+          }
+        }
+
+        @media (max-width: 600px) {
+          .header-right-actions {
+            gap: 0.5rem;
+          }
+          .header-right-actions .btn-logout {
+            width: 38px;
+            height: 38px;
+            padding: 0;
+            justify-content: center;
+            border-radius: 12px;
+          }
+          .header-right-actions .btn-logout span {
+            display: none;
+          }
+          .header-right-actions .btn-logout i {
+            font-size: 0.95rem;
+            margin: 0;
+          }
+        }
+
+        @media (max-width: 400px) {
+          .welcome-title h2 {
+            font-size: 1.05rem;
+          }
+          .welcome-title p {
+            font-size: 0.72rem;
+          }
+        }
       `}</style>
 
       {/* ── Change Password Modal ── */}
@@ -2947,12 +3004,21 @@ const ParentDashboard = () => {
               </div>
             )}
 
-            <button className="btn-logout" onClick={() => setChangePwdOpen(true)} style={{ background: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.12)' }}>
-              <i className="fas fa-key"></i> Change Password
+            <button 
+              className="btn-logout btn-change-password" 
+              onClick={() => setChangePwdOpen(true)} 
+              style={{ background: 'rgba(255, 255, 255, 0.08)', borderColor: 'rgba(255, 255, 255, 0.12)' }}
+              title="Change Password"
+            >
+              <i className="fas fa-key"></i> <span>Change Password</span>
             </button>
 
-            <button className="btn-logout" onClick={handleLogout}>
-              <i className="fas fa-sign-out-alt"></i> Sign Out
+            <button 
+              className="btn-logout" 
+              onClick={handleLogout}
+              title="Sign Out"
+            >
+              <i className="fas fa-sign-out-alt"></i> <span>Sign Out</span>
             </button>
           </div>
         </div>
