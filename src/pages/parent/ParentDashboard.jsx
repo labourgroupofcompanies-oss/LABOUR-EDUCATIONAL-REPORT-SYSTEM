@@ -2014,9 +2014,17 @@ const ParentDashboard = () => {
 
         /* Quick actions grid */
         .quick-actions-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-          gap: 1.25rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        @media (min-width: 992px) {
+          .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1.25rem;
+          }
         }
 
         .qa-grid-btn {
