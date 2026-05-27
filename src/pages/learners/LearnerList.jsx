@@ -156,6 +156,50 @@ const LearnerList = () => {
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
 
+  // Sync the last registration number from the database whenever learners list changes
+  useEffect(() => {
+    if (learners && learners.length > 0) {
+      const prefix = getPrefix().toUpperCase();
+      let maxNum = 0;
+      
+      learners.forEach(l => {
+        if (!l.regNumber) return;
+        const regStr = String(l.regNumber).trim().toUpperCase();
+        
+        if (regStr.startsWith(prefix)) {
+          const suffixPart = regStr.substring(prefix.length);
+          const match = suffixPart.match(/(\d+)/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
+        } else {
+          const match = regStr.match(/(\d+)$/);
+          if (match) {
+            const num = parseInt(match[1], 10);
+            if (!isNaN(num) && num > maxNum) maxNum = num;
+          }
+        }
+      });
+
+      if (maxNum > 0) {
+        localStorage.setItem(REG_KEY, String(maxNum));
+        
+        // Asynchronously update the form registration number if it is currently in "new student" mode and hasn't been edited yet
+        setForm(prev => {
+          if (!editingId && (!prev.fullName || prev.fullName.trim() === '')) {
+            return {
+              ...prev,
+              regNumber: peekNextRegNumber()
+            };
+          }
+          return prev;
+        });
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [learners, editingId]);
+
   const activeAcademicYear = schoolInfo?.currentAcademicYear || '';
   const activeTerm = schoolInfo?.currentTerm || 'Term 1';
 
