@@ -475,8 +475,47 @@ const ParentDashboard = () => {
     [schoolId, parent?.phone_number]
   );
 
-  const unreadNotifCount = localNotifications?.filter(n => !n.isRead).length || 0;
   const unreadChatCount = localMessages?.filter(m => m.senderRole === 'head_teacher' && !m.isRead).length || 0;
+
+  const mergedNotifications = React.useMemo(() => {
+    const list = [];
+    
+    // Add real notifications
+    if (localNotifications) {
+      localNotifications.forEach(n => {
+        list.push({
+          id: `notif-${n.id}`,
+          type: 'notif',
+          rawId: n.id,
+          title: n.title,
+          content: n.content,
+          parentPhone: n.parentPhone,
+          isRead: !!n.isRead,
+          created_at: n.created_at
+        });
+      });
+    }
+    
+    // Add unread head teacher messages
+    if (localMessages) {
+      localMessages.filter(m => m.senderRole === 'head_teacher' && !m.isRead).forEach(m => {
+        list.push({
+          id: `msg-${m.id}`,
+          type: 'msg',
+          rawId: m.id,
+          title: 'New Message from Head Teacher',
+          content: m.content,
+          isRead: false,
+          created_at: m.created_at
+        });
+      });
+    }
+    
+    // Sort all by created_at desc
+    return list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [localNotifications, localMessages]);
+
+  const unreadNotifCount = mergedNotifications.filter(n => !n.isRead).length;
 
   // Watch localMessages to trigger in-chat notifications
   useEffect(() => {
@@ -785,6 +824,24 @@ const ParentDashboard = () => {
     const unread = localNotifications?.filter(n => !n.isRead) || [];
     for (const n of unread) {
       await db.notifications.update(n.id, { isRead: true });
+    }
+
+    // Also mark unread messages as read in local Dexie + remote Supabase
+    if (localMessages) {
+      const unreadMsgs = localMessages.filter(m => m.senderRole === 'head_teacher' && !m.isRead);
+      for (const msg of unreadMsgs) {
+        await db.messages.update(msg.id, { isRead: true });
+        if (navigator.onLine && msg.supabaseId) {
+          try {
+            await supabase
+              .from('report_messages')
+              .update({ is_read: true })
+              .eq('id', msg.supabaseId);
+          } catch (e) {
+            console.warn('Failed to mark read in Supabase:', e);
+          }
+        }
+      }
     }
   };
 
@@ -2836,22 +2893,46 @@ const ParentDashboard = () => {
                   )}
                 </div>
                 <div className="notif-list">
-                  {(!localNotifications || localNotifications.length === 0) ? (
+                  {(!mergedNotifications || mergedNotifications.length === 0) ? (
                     <div className="notif-empty">
                       <i className="fas fa-bell-slash"></i>
                       <p>No notifications yet</p>
                     </div>
                   ) : (
-                    localNotifications.map((n) => (
+                    mergedNotifications.map((n) => (
                       <div
                         key={n.id}
                         className={`notif-item ${!n.isRead ? 'unread' : ''}`}
                         onClick={async () => {
-                          await db.notifications.update(n.id, { isRead: true });
+                          if (n.type === 'msg') {
+                            // Clicked on a chat message notification
+                            // 1. Mark as read
+                            await db.messages.update(n.rawId, { isRead: true });
+                            if (navigator.onLine) {
+                              const msgObj = localMessages?.find(m => m.id === n.rawId);
+                              if (msgObj?.supabaseId) {
+                                try {
+                                  await supabase
+                                    .from('report_messages')
+                                    .update({ is_read: true })
+                                    .eq('id', msgObj.supabaseId);
+                                } catch (e) {
+                                  console.warn('Failed to mark read in Supabase:', e);
+                                }
+                              }
+                            }
+                            // 2. Open chat drawer and close notif list
+                            setChatOpen(true);
+                            setNotifOpen(false);
+                          } else {
+                            // Clicked on standard notification
+                            await db.notifications.update(n.rawId, { isRead: true });
+                          }
                         }}
                       >
-                        <div className={`notif-type-icon ${n.parentPhone ? 'notif-icon-direct' : 'notif-icon-broadcast'}`}>
-                          <i className={`fas ${n.parentPhone ? 'fa-envelope-open-text' : 'fa-bullhorn'}`}></i>
+                        <div className={`notif-type-icon ${n.type === 'msg' ? 'notif-icon-direct' : (n.parentPhone ? 'notif-icon-direct' : 'notif-icon-broadcast')}`}
+                             style={n.type === 'msg' ? { background: 'rgba(139,92,246,0.12)', color: '#a78bfa' } : undefined}>
+                          <i className={`fas ${n.type === 'msg' ? 'fa-comment-alt' : (n.parentPhone ? 'fa-envelope-open-text' : 'fa-bullhorn')}`}></i>
                         </div>
                         <div className="notif-text-block">
                           <div className="notif-item-title">{n.title}</div>
