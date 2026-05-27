@@ -425,28 +425,30 @@ export const useSchoolSetup = () => {
 
         // Trigger Supabase sync in the background
         if (navigator.onLine) {
-          supabase
-            .from('report_class_subjects')
-            .insert([{
-              school_id: user.schoolId,
-              class_id: classIdNum,
-              subject_id: subjectIdNum
-            }])
-            .select()
-            .single()
-            .then(({ data, error }) => {
+          (async () => {
+            try {
+              const { data, error } = await supabase
+                .from('report_class_subjects')
+                .insert([{
+                  school_id: user.schoolId,
+                  class_id: classIdNum,
+                  subject_id: subjectIdNum
+                }])
+                .select()
+                .single();
+
               if (!error && data) {
-                db.classSubjects.update(localId, {
+                await db.classSubjects.update(localId, {
                   synced: true,
                   supabaseId: data.id
                 });
               } else if (error) {
                 console.warn('Failed to assign subject online in background:', error);
               }
-            })
-            .catch(err => {
+            } catch (err) {
               console.warn('Background subject assignment exception:', err);
-            });
+            }
+          })();
         }
       } else {
         const existing = await db.classSubjects
@@ -461,11 +463,19 @@ export const useSchoolSetup = () => {
           if (existing.supabaseId) {
             if (navigator.onLine) {
               // Delete from Supabase in the background
-              supabase
-                .from('report_class_subjects')
-                .delete()
-                .eq('id', existing.supabaseId)
-                .catch(err => console.warn('Background subject deletion exception:', err));
+              (async () => {
+                try {
+                  const { error } = await supabase
+                    .from('report_class_subjects')
+                    .delete()
+                    .eq('id', existing.supabaseId);
+                  if (error) {
+                    console.warn('Failed to delete subject online in background:', error);
+                  }
+                } catch (err) {
+                  console.warn('Background subject deletion exception:', err);
+                }
+              })();
             } else {
               const queue = JSON.parse(localStorage.getItem('pending_deleted_class_subjects') || '[]');
               queue.push(existing.supabaseId);
@@ -484,11 +494,19 @@ export const useSchoolSetup = () => {
           if (existingAssign.supabaseId) {
             if (navigator.onLine) {
               // Delete teacher assignment from Supabase in the background
-              supabase
-                .from('report_teacher_assignments')
-                .delete()
-                .eq('id', existingAssign.supabaseId)
-                .catch(err => console.warn('Background teacher assignment deletion exception:', err));
+              (async () => {
+                try {
+                  const { error } = await supabase
+                    .from('report_teacher_assignments')
+                    .delete()
+                    .eq('id', existingAssign.supabaseId);
+                  if (error) {
+                    console.warn('Failed to delete teacher assignment online in background:', error);
+                  }
+                } catch (err) {
+                  console.warn('Background teacher assignment deletion exception:', err);
+                }
+              })();
             } else {
               const queue = JSON.parse(localStorage.getItem('pending_deleted_assignments') || '[]');
               queue.push(existingAssign.supabaseId);
@@ -546,11 +564,19 @@ export const useSchoolSetup = () => {
           if (existing.supabaseId) {
             if (navigator.onLine) {
               // Delete teacher assignment from Supabase in the background
-              supabase
-                .from('report_teacher_assignments')
-                .delete()
-                .eq('id', existing.supabaseId)
-                .catch(err => console.warn('Background delete teacher assignment exception:', err));
+              (async () => {
+                try {
+                  const { error } = await supabase
+                    .from('report_teacher_assignments')
+                    .delete()
+                    .eq('id', existing.supabaseId);
+                  if (error) {
+                    console.warn('Failed to delete teacher assignment online in background:', error);
+                  }
+                } catch (err) {
+                  console.warn('Background delete teacher assignment exception:', err);
+                }
+              })();
             } else {
               const queue = JSON.parse(localStorage.getItem('pending_deleted_assignments') || '[]');
               queue.push(existing.supabaseId);
@@ -567,18 +593,21 @@ export const useSchoolSetup = () => {
         
         let cloudId = existing.supabaseId;
         if (navigator.onLine && cloudId) {
-          supabase
-            .from('report_teacher_assignments')
-            .update({ teacher_id: teacherId })
-            .eq('id', cloudId)
-            .then(({ error }) => {
+          (async () => {
+            try {
+              const { error } = await supabase
+                .from('report_teacher_assignments')
+                .update({ teacher_id: teacherId })
+                .eq('id', cloudId);
               if (!error) {
-                db.teacherAssignments.update(existing.id, { synced: true });
+                await db.teacherAssignments.update(existing.id, { synced: true });
               } else {
                 console.warn('Failed to update teacher assignment online in background:', error);
               }
-            })
-            .catch(err => console.warn('Background update teacher assignment exception:', err));
+            } catch (err) {
+              console.warn('Background update teacher assignment exception:', err);
+            }
+          })();
         }
       } else {
         // Instantly add to local database as unsynced
@@ -594,27 +623,31 @@ export const useSchoolSetup = () => {
 
         // Trigger Supabase insertion in the background
         if (navigator.onLine) {
-          supabase
-            .from('report_teacher_assignments')
-            .insert([{
-              school_id: user.schoolId,
-              teacher_id: teacherId,
-              class_id: classIdNum,
-              subject_id: subjectIdNum
-            }])
-            .select()
-            .single()
-            .then(({ data, error }) => {
+          (async () => {
+            try {
+              const { data, error } = await supabase
+                .from('report_teacher_assignments')
+                .insert([{
+                  school_id: user.schoolId,
+                  teacher_id: teacherId,
+                  class_id: classIdNum,
+                  subject_id: subjectIdNum
+                }])
+                .select()
+                .single();
+
               if (!error && data) {
-                db.teacherAssignments.update(localId, {
+                await db.teacherAssignments.update(localId, {
                   synced: true,
                   supabaseId: data.id
                 });
               } else if (error) {
                 console.warn('Failed to assign teacher online in background:', error);
               }
-            })
-            .catch(err => console.warn('Background teacher assignment exception:', err));
+            } catch (err) {
+              console.warn('Background teacher assignment exception:', err);
+            }
+          })();
         }
       }
     } catch (err) {
