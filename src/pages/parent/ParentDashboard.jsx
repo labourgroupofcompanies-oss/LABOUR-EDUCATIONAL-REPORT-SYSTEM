@@ -1394,8 +1394,22 @@ const ParentDashboard = () => {
         @media (min-width: 992px) {
           .dashboard-body {
             grid-template-columns: 360px 1fr;
+            grid-template-rows: auto 1fr;
             gap: 2.25rem;
             margin-top: 2.5rem;
+          }
+          .left-column {
+            grid-column: 1;
+            grid-row: 1;
+          }
+          .right-column {
+            grid-column: 2;
+            grid-row: 1 / span 2;
+          }
+          .contact-card {
+            grid-column: 1;
+            grid-row: 2;
+            align-self: start;
           }
           .selector-landing-container {
             margin-top: 2.5rem !important;
@@ -1405,8 +1419,22 @@ const ParentDashboard = () => {
         @media (min-width: 1200px) {
           .dashboard-body {
             grid-template-columns: 400px 1fr;
+            grid-template-rows: auto 1fr;
             gap: 2.5rem;
             margin-top: 3rem;
+          }
+          .left-column {
+            grid-column: 1;
+            grid-row: 1;
+          }
+          .right-column {
+            grid-column: 2;
+            grid-row: 1 / span 2;
+          }
+          .contact-card {
+            grid-column: 1;
+            grid-row: 2;
+            align-self: start;
           }
           .selector-landing-container {
             margin-top: 3rem !important;
@@ -2163,6 +2191,32 @@ const ParentDashboard = () => {
           color: #fff;
         }
 
+        .qa-btn-chat {
+          background: linear-gradient(135deg, rgba(139, 92, 246, 0.04) 0%, rgba(139, 92, 246, 0.01) 100%);
+          border-color: rgba(139, 92, 246, 0.15);
+        }
+
+        .qa-btn-chat:hover {
+          transform: translateY(-4px);
+          background: #8b5cf6;
+          border-color: #8b5cf6;
+          box-shadow: 0 12px 30px rgba(139, 92, 246, 0.2);
+        }
+
+        .qa-btn-chat .qa-btn-icon {
+          background: rgba(139, 92, 246, 0.1);
+          color: #a78bfa;
+        }
+
+        .qa-btn-chat:hover .qa-btn-icon {
+          background: rgba(255, 255, 255, 0.2);
+          color: #fff;
+        }
+
+        .qa-btn-chat .qa-btn-action-indicator {
+          color: #a78bfa;
+        }
+
         .qa-btn-text {
           flex: 1;
         }
@@ -2262,8 +2316,10 @@ const ParentDashboard = () => {
         }
 
         .contact-detail-row i {
-          color: #94a3b8;
-          width: 14px;
+          color: #0d9488;
+          width: 18px;
+          text-align: center;
+          font-size: 0.85rem;
         }
 
         /* Announcement feed */
@@ -3108,78 +3164,55 @@ const ParentDashboard = () => {
               </div>
             )}
             {activeSibling ? (
-              <>
-                <div className="id-card">
-                  <div className="id-header">
-                    <div className="school-badge-info" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {schoolInfo?.logoUrl && (
-                        <img src={schoolInfo.logoUrl} alt="Logo" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
-                      )}
-                      <div>
-                        <h3>{schoolInfo?.name || 'Labour Basic School'}</h3>
-                        <span>Official ID Card</span>
-                      </div>
-                    </div>
-                    <div className="id-chip">Student</div>
-                  </div>
-                  <div className="id-body">
-                    {activeSibling.photoUrl || activeSibling.photo ? (
-                      <img src={activeSibling.photoUrl || activeSibling.photo} alt={activeSibling.fullName} className="id-photo-frame" />
-                    ) : (
-                      <div 
-                        className="id-photo-placeholder"
-                        style={{ 
-                          background: activeSibling.gender === 'Female' ? 'rgba(236,72,153,0.15)' : 'rgba(59,130,246,0.15)',
-                          color: activeSibling.gender === 'Female' ? '#ec4899' : '#3b82f6',
-                          borderColor: activeSibling.gender === 'Female' ? 'rgba(236,72,153,0.25)' : 'rgba(59,130,246,0.25)'
-                        }}
-                      >
-                        <i className="fas fa-user-graduate"></i>
-                      </div>
+              <div className="id-card">
+                <div className="id-header">
+                  <div className="school-badge-info" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {schoolInfo?.logoUrl && (
+                      <img src={schoolInfo.logoUrl} alt="Logo" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.2)' }} />
                     )}
-                    <div className="id-details">
-                      <div className="id-name" title={activeSibling.fullName}>{activeSibling.fullName}</div>
-                      <div className="id-row">
-                        <span className="id-lbl">Reg Number</span>
-                        <span className="id-val">{activeSibling.regNumber}</span>
-                      </div>
-                      <div className="id-row">
-                        <span className="id-lbl">Current Grade</span>
-                        <span className="id-val">{getClassName(activeSibling.currentClassId)}</span>
-                      </div>
-                      <div className="id-row">
-                        <span className="id-lbl">Grade Average</span>
-                        <span className="id-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : '—'}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="id-footer">
-                    <span>Issued: {schoolInfo?.currentAcademicYear || 'Current Year'}</span>
-                    <span>Active</span>
-                  </div>
-                </div>
-                <div className="contact-card">
-                  <div className="contact-header">
-                    <div className="contact-avatar"><i className="fas fa-user-tie"></i></div>
                     <div>
-                      <div className="contact-title">Administrative Contacts</div>
-                      <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Labour Edu Support</span>
+                      <h3>{schoolInfo?.name || 'Labour Basic School'}</h3>
+                      <span>Official ID Card</span>
                     </div>
                   </div>
-                  <div className="contact-detail-row">
-                    <i className="fas fa-phone-alt"></i>
-                    <span>Main Office: {schoolInfo?.phone || '054 220 2200'}</span>
-                  </div>
-                  <div className="contact-detail-row">
-                    <i className="fas fa-envelope"></i>
-                    <span>{schoolInfo?.email || 'support@laboureduc.org'}</span>
-                  </div>
-                  <div className="contact-detail-row">
-                    <i className="fas fa-map-marker-alt"></i>
-                    <span>{schoolInfo?.location || 'Accra, Ghana'}</span>
+                  <div className="id-chip">Student</div>
+                </div>
+                <div className="id-body">
+                  {activeSibling.photoUrl || activeSibling.photo ? (
+                    <img src={activeSibling.photoUrl || activeSibling.photo} alt={activeSibling.fullName} className="id-photo-frame" />
+                  ) : (
+                    <div 
+                      className="id-photo-placeholder"
+                      style={{ 
+                        background: activeSibling.gender === 'Female' ? 'rgba(236,72,153,0.15)' : 'rgba(59,130,246,0.15)',
+                        color: activeSibling.gender === 'Female' ? '#ec4899' : '#3b82f6',
+                        borderColor: activeSibling.gender === 'Female' ? 'rgba(236,72,153,0.25)' : 'rgba(59,130,246,0.25)'
+                      }}
+                    >
+                      <i className="fas fa-user-graduate"></i>
+                    </div>
+                  )}
+                  <div className="id-details">
+                    <div className="id-name" title={activeSibling.fullName}>{activeSibling.fullName}</div>
+                    <div className="id-row">
+                      <span className="id-lbl">Reg Number</span>
+                      <span className="id-val">{activeSibling.regNumber}</span>
+                    </div>
+                    <div className="id-row">
+                      <span className="id-lbl">Current Grade</span>
+                      <span className="id-val">{getClassName(activeSibling.currentClassId)}</span>
+                    </div>
+                    <div className="id-row">
+                      <span className="id-lbl">Grade Average</span>
+                      <span className="id-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : '—'}</span>
+                    </div>
                   </div>
                 </div>
-              </>
+                <div className="id-footer">
+                  <span>Issued: {schoolInfo?.currentAcademicYear || 'Current Year'}</span>
+                  <span>Active</span>
+                </div>
+              </div>
             ) : (
               <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
                 <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}></i>
@@ -3280,16 +3313,11 @@ const ParentDashboard = () => {
                       </button>
                       {/* ── Chat with Head Teacher ── */}
                       <button
-                        className="qa-grid-btn"
-                        style={{
-                          background: 'linear-gradient(135deg, rgba(139,92,246,0.07) 0%, rgba(139,92,246,0.02) 100%)',
-                          borderColor: 'rgba(139,92,246,0.22)',
-                          position: 'relative'
-                        }}
+                        className="qa-grid-btn qa-btn-chat"
                         onClick={() => { setChatOpen(true); setNotifOpen(false); }}
                       >
                         <div className="qa-btn-main">
-                          <div className="qa-btn-icon" style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa', position: 'relative' }}>
+                          <div className="qa-btn-icon" style={{ position: 'relative' }}>
                             <i className="fas fa-comment-alt"></i>
                             {unreadChatCount > 0 && (
                               <span className="chat-badge" style={{
@@ -3312,11 +3340,11 @@ const ParentDashboard = () => {
                             )}
                           </div>
                           <div className="qa-btn-text">
-                            <div className="qa-btn-title" style={{ color: '#0f172a' }}>Chat with Head Teacher</div>
+                            <div className="qa-btn-title">Chat with Head Teacher</div>
                             <div className="qa-btn-desc">Send a private message directly to school administration.</div>
                           </div>
                         </div>
-                        <div className="qa-btn-action-indicator" style={{ color: '#a78bfa' }}>
+                        <div className="qa-btn-action-indicator">
                           Open Chat <i className="fas fa-arrow-right"></i>
                         </div>
                       </button>
@@ -3328,6 +3356,30 @@ const ParentDashboard = () => {
               </>
             )}
           </div>
+
+          {activeSibling && (
+            <div className="contact-card">
+              <div className="contact-header">
+                <div className="contact-avatar"><i className="fas fa-user-tie"></i></div>
+                <div>
+                  <div className="contact-title">Administrative Contacts</div>
+                  <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>Labour Edu Support</span>
+                </div>
+              </div>
+              <div className="contact-detail-row">
+                <i className="fas fa-phone-alt"></i>
+                <span>Main Office: {schoolInfo?.phone || '054 220 2200'}</span>
+              </div>
+              <div className="contact-detail-row">
+                <i className="fas fa-envelope"></i>
+                <span>{schoolInfo?.email || 'support@laboureduc.org'}</span>
+              </div>
+              <div className="contact-detail-row">
+                <i className="fas fa-map-marker-alt"></i>
+                <span>{schoolInfo?.location || 'Accra, Ghana'}</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
