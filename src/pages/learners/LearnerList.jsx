@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
 import { compressImage } from '../../utils/imageUtils';
 import authService from '../../services/authService';
+import { enqueueSync } from '../../services/syncEngine';
 import * as XLSX from 'xlsx';
 
 // ── Registration number helpers ──────────────────────────────────────────────
@@ -788,28 +789,9 @@ const LearnerList = () => {
     
     try {
       if (l.supabaseId) {
-        if (navigator.onLine) {
-          const { error } = await supabase.from('report_learners').delete().eq('id', l.supabaseId);
-          if (error) {
-            const errCode = String(error.code || '');
-            if (errCode.startsWith('23') || errCode.startsWith('42')) {
-              alert('Failed to delete learner from cloud: ' + error.message);
-              return;
-            }
-            console.warn('Failed to delete from Supabase, queuing for offline deletion:', error);
-            const queue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
-            if (!queue.includes(l.supabaseId)) {
-              queue.push(l.supabaseId);
-              localStorage.setItem('pending_deleted_learners', JSON.stringify(queue));
-            }
-          }
-        } else {
-          const queue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
-          if (!queue.includes(l.supabaseId)) {
-            queue.push(l.supabaseId);
-            localStorage.setItem('pending_deleted_learners', JSON.stringify(queue));
-          }
-        }
+        await enqueueSync('delete', 'report_learners', {
+          filter: { id: l.supabaseId }
+        }, user.schoolId);
       }
       
       await db.learners.delete(l.id);

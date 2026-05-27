@@ -1,9 +1,11 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
+import { useSyncEngine } from '../../store/SyncEngineProvider';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
+  const { pendingCount, failedCount, isSyncing, retryFailed } = useSyncEngine();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'super_admin';
 
@@ -13,7 +15,6 @@ const Sidebar = ({ isOpen, onClose }) => {
   };
 
   const handleNavClick = () => {
-    // Close sidebar on mobile after navigation
     if (window.innerWidth <= 768) onClose();
   };
 
@@ -37,33 +38,77 @@ const Sidebar = ({ isOpen, onClose }) => {
     return true;
   });
 
+  const hasPending = pendingCount > 0;
+  const hasFailed = failedCount > 0;
+
   return (
     <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       {/* Logo */}
       <div style={{ padding: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', minWidth: '40px', background: 'var(--accent)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <i className="fas fa-graduation-cap" style={{ color: 'white', fontSize: '1.1rem' }}></i>
+          <div style={{ width: '40px', height: '40px', minWidth: '40px', background: 'white', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+            <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <div>
             <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '1rem', color: 'white' }}>Labour Edu</div>
             <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.45)', marginTop: '1px' }}>Report Management</div>
           </div>
         </div>
-        {/* Close button (mobile) */}
         <button
           onClick={onClose}
           style={{ background: 'rgba(255,255,255,0.07)', border: 'none', color: 'rgba(255,255,255,0.6)', borderRadius: 'var(--radius-md)', width: '30px', height: '30px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
           className="hamburger-btn"
-          style2={{ display: 'flex' }}
         >
           <i className="fas fa-times"></i>
         </button>
       </div>
 
+      {/* Sync Status Bar */}
+      {(hasPending || hasFailed || isSyncing) && (
+        <div style={{
+          margin: '0.75rem 1rem 0',
+          padding: '0.6rem 0.75rem',
+          borderRadius: '10px',
+          background: hasFailed
+            ? 'rgba(239, 68, 68, 0.12)'
+            : isSyncing
+              ? 'rgba(59, 130, 246, 0.12)'
+              : 'rgba(245, 158, 11, 0.12)',
+          border: `1px solid ${hasFailed ? 'rgba(239,68,68,0.25)' : isSyncing ? 'rgba(59,130,246,0.25)' : 'rgba(245,158,11,0.25)'}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <i
+            className={`fas ${isSyncing ? 'fa-sync fa-spin' : hasFailed ? 'fa-triangle-exclamation' : 'fa-cloud-arrow-up'}`}
+            style={{
+              fontSize: '0.8rem',
+              color: hasFailed ? '#f87171' : isSyncing ? '#60a5fa' : '#fbbf24'
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: hasFailed ? '#fca5a5' : isSyncing ? '#93c5fd' : '#fde68a' }}>
+              {isSyncing
+                ? 'Syncing to cloud...'
+                : hasFailed
+                  ? `${failedCount} sync failed`
+                  : `${pendingCount} pending sync`
+              }
+            </div>
+            {hasFailed && !isSyncing && (
+              <button
+                onClick={retryFailed}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', fontSize: '0.62rem', fontWeight: 600, padding: 0, marginTop: '2px', fontFamily: 'inherit', textDecoration: 'underline' }}
+              >
+                Retry failed items
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Nav Links */}
       <nav style={{ flex: 1, padding: '1rem', overflowY: 'auto' }}>
-        {/* Role badge */}
         <div style={{ padding: '0.5rem 1rem', marginBottom: '0.75rem' }}>
           <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.35)' }}>
             {isAdmin ? 'Admin Menu' : 'Teacher Menu'}

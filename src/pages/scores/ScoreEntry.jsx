@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade } from '../../lib/grading';
 import { useAuth } from '../../store/AuthContext';
 import { useSearchParams } from 'react-router-dom';
+import { enqueueSync } from '../../services/syncEngine';
 
 const ScoreEntry = () => {
   const [searchParams] = useSearchParams();
@@ -438,31 +439,35 @@ const ScoreEntry = () => {
       }
     }
 
-    // Sync to Cloud
-    if (navigator.onLine && cloudEntries.length > 0) {
+    // — Sync to Cloud via Outbox (works online AND offline) —
+    if (cloudEntries.length > 0) {
       try {
-        // Because report_scores does not have a unique constraint on (learner_id, class_id, subject_id, term, academic_year)
-        // Upsert by matching those columns won't work out of the box unless we added a constraint.
-        // Actually, deleting existing for this class/subject/term/year and re-inserting is a clean way to bulk sync.
-        await supabase
-           .from('report_scores')
-           .delete()
-           .eq('school_id', user.schoolId)
-           .eq('class_id', Number(selectedClass))
-           .eq('subject_id', Number(selectedSubject))
-           .eq('term', selectedTerm)
-           .eq('academic_year', selectedAcademicYear)
-           .in('learner_id', cloudEntries.map(e => e.learner_id));
-
-        const { error } = await supabase.from('report_scores').insert(cloudEntries);
-        if (error) throw error;
-        alert('Scores saved & synced to cloud successfully!');
+        // Enqueue a delete_insert operation: clears stale scores then re-inserts fresh batch.
+        // If offline, the outbox will drain automatically when connectivity returns.
+        await enqueueSync(
+          'delete_insert',
+          'report_scores',
+          {
+            deleteFilter: {
+              school_id: user.schoolId,
+              class_id: Number(selectedClass),
+              subject_id: Number(selectedSubject),
+              term: selectedTerm,
+              academic_year: selectedAcademicYear
+            },
+            insertData: cloudEntries
+          },
+          user.schoolId
+        );
+        alert(navigator.onLine
+          ? 'Scores saved & synced to cloud successfully!'
+          : 'Scores saved offline! They will sync automatically when you reconnect.');
       } catch (err) {
-        console.error('Failed to sync scores to cloud:', err);
-        alert('Scores saved offline only. Cloud sync failed.');
+        console.error('Failed to enqueue score sync:', err);
+        alert('Scores saved locally. Background sync will push them to the cloud.');
       }
     } else {
-      alert('Scores saved successfully (Offline)');
+      alert('Scores saved successfully!');
     }
 
     setIsSaving(false);

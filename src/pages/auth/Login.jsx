@@ -412,8 +412,8 @@ const Login = () => {
     <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
       <div className="card fade-in" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
         <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-          <div style={{ width: '64px', height: '64px', background: 'var(--accent)', borderRadius: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(13, 148, 136, 0.3)' }}>
-            <i className="fas fa-graduation-cap" style={{ color: 'white', fontSize: '2rem' }}></i>
+          <div style={{ width: '70px', height: '70px', background: 'white', borderRadius: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(0, 0, 0, 0.15)', overflow: 'hidden', padding: '4px' }}>
+            <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <h1 style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>Labour Edu</h1>
           <p style={{ color: 'var(--text-muted)' }}>Report Management System</p>

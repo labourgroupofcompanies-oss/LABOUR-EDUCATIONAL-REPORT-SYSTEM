@@ -4,6 +4,9 @@ import { useAuth } from '../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
+import { enqueueSync } from '../services/syncEngine';
+import AdminAnalytics from '../components/analytics/AdminAnalytics';
+import TeacherAnalytics from '../components/analytics/TeacherAnalytics';
 
 // Premium Green-Themed Stat Card with Micro-Animations
 const StatCard = ({ icon, iconColor, value, label, badge, badgeColor }) => (
@@ -108,28 +111,21 @@ const Dashboard = () => {
       // 1. Save locally in Dexie first for offline compatibility
       const localId = await db.announcements.add(newAnnouncement);
 
-      // 2. If online, insert to Supabase
-      if (navigator.onLine) {
-        const { data, error } = await supabase
-          .from('report_announcements')
-          .insert([{
-            school_id: user.schoolId,
-            title: newAnnouncement.title,
-            content: newAnnouncement.content,
-            created_at: newAnnouncement.created_at
-          }])
-          .select();
+      // 2. Enqueue cloud sync via outbox (works online & offline)
+      await enqueueSync(
+        'insert',
+        'report_announcements',
+        {
+          school_id: user.schoolId,
+          title: newAnnouncement.title,
+          content: newAnnouncement.content,
+          created_at: newAnnouncement.created_at
+        },
+        user.schoolId
+      );
 
-        if (!error && data && data.length > 0) {
-          // Update local record to mark it synced and save remote Supabase ID
-          await db.announcements.update(localId, {
-            synced: true,
-            supabaseId: data[0].id
-          });
-        } else if (error) {
-          console.error('Failed to sync announcement to Supabase:', error);
-        }
-      }
+      // Mark local record as queued for sync
+      await db.announcements.update(localId, { synced: true });
 
       // Reset form and close modal
       setAnnTitle('');
@@ -147,25 +143,19 @@ const Dashboard = () => {
     if (!await window.confirm(`Are you sure you want to delete the bulletin "${ann.title}"?`)) return;
 
     try {
-      if (ann.supabaseId) {
-        if (!navigator.onLine) {
-          alert('You are offline. Deleting a synced announcement requires an active internet connection.');
-          return;
-        }
-
-        const { error } = await supabase
-          .from('report_announcements')
-          .delete()
-          .eq('id', ann.supabaseId);
-        
-        if (error) {
-          alert('Failed to delete announcement from cloud: ' + error.message);
-          return;
-        }
-      }
-
+      // Always delete locally first
       if (ann.id) {
         await db.announcements.delete(ann.id);
+      }
+
+      // Enqueue remote delete via outbox (works online & offline)
+      if (ann.supabaseId) {
+        await enqueueSync(
+          'delete',
+          'report_announcements',
+          { filter: { id: ann.supabaseId } },
+          user.schoolId
+        );
       }
     } catch (err) {
       console.error('Error deleting announcement:', err);
@@ -223,6 +213,9 @@ const Dashboard = () => {
     () => user && user.role === 'teacher' ? db.teacherAssignments.where('teacherId').equals(user.id).toArray() : Promise.resolve([]),
     [user]
   );
+  // Settings needed for analytics (grading scale thresholds)
+  const settings = useLiveQuery(() => db.settings.get('global'), []);
+
 
   // ── Seeding & Sync (Self-Healing on Load) ────────────────────────────
   useEffect(() => {
@@ -767,6 +760,16 @@ const Dashboard = () => {
               </div>
 
             </div>
+
+            <AdminAnalytics
+              scores={allScores}
+              learners={allLearners}
+              classes={allClasses}
+              subjects={allSubjects}
+              settings={settings}
+              currentTerm={currentSchool?.currentTerm}
+              currentAcademicYear={currentSchool?.currentAcademicYear}
+            />
           </>
         ) : (
           /* ==========================================
@@ -993,6 +996,17 @@ const Dashboard = () => {
                 </div>
               </div>
 
+            </div>
+
+            <div style={{ marginTop: '1.5rem' }}>
+              <TeacherAnalytics
+                progressList={progressList}
+                allScores={allScores}
+                allLearners={allLearners}
+                settings={settings}
+                currentTerm={currentSchool?.currentTerm}
+                currentAcademicYear={currentSchool?.currentAcademicYear}
+              />
             </div>
           </>
         )}

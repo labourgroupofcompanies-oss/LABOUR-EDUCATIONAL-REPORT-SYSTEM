@@ -4,6 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
+import { enqueueSync } from '../../services/syncEngine';
 
 const getNextStaffId = (teachersList) => {
   if (!teachersList || teachersList.length === 0) return 'TCH-001';
@@ -319,40 +320,24 @@ const TeacherList = () => {
       }
     }
 
-    let cloudId = null;
-    if (navigator.onLine) {
-      try {
-        const { data, error } = await supabase
-          .from('report_teacher_assignments')
-          .insert([{
-            school_id: user.schoolId,
-            teacher_id: selectedTeacher.id,
-            class_id: Number(assignClassId),
-            subject_id: subjectIdVal
-          }])
-          .select()
-          .single();
-        if (!error && data) {
-          cloudId = data.id;
-        } else if (error) {
-          console.warn('Supabase assignment error:', error);
-        }
-      } catch (err) {
-        console.warn('Failed to save assignment online:', err);
-      }
-    }
-
     const newAssign = {
       schoolId: user.schoolId,
       teacherId: selectedTeacher.id,
       classId: Number(assignClassId),
       subjectId: subjectIdVal,
       termId: null,
-      synced: !!cloudId,
-      supabaseId: cloudId
+      synced: false,
+      supabaseId: null
     };
 
     await db.teacherAssignments.add(newAssign);
+    await enqueueSync('insert', 'report_teacher_assignments', {
+      school_id: user.schoolId,
+      teacher_id: selectedTeacher.id,
+      class_id: Number(assignClassId),
+      subject_id: subjectIdVal
+    }, user.schoolId);
+
     setAssignClassId('');
     setAssignSubjectId('');
   };
@@ -360,12 +345,10 @@ const TeacherList = () => {
   const handleDeleteAssignment = async (assignment) => {
     try {
       await db.teacherAssignments.delete(assignment.id);
-      if (navigator.onLine && assignment.supabaseId) {
-        await supabase.from('report_teacher_assignments').delete().eq('id', assignment.supabaseId);
-      } else if (assignment.supabaseId) {
-        const queue = JSON.parse(localStorage.getItem('pending_deleted_assignments') || '[]');
-        queue.push(assignment.supabaseId);
-        localStorage.setItem('pending_deleted_assignments', JSON.stringify(queue));
+      if (assignment.supabaseId) {
+        await enqueueSync('delete', 'report_teacher_assignments', {
+          filter: { id: assignment.supabaseId }
+        }, user.schoolId);
       }
     } catch (err) {
       console.error('Failed to delete assignment:', err);
