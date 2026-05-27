@@ -113,7 +113,8 @@ const TeacherList = () => {
           .select('*')
           .eq('school_id', user.schoolId)
           .eq('role', 'teacher');
-        if (!teachErr && teachersData) {
+        if (teachErr) throw teachErr;
+        if (teachersData) {
           const remoteIds = new Set(teachersData.map(p => p.id));
           
           // Get all local teachers for this school
@@ -233,19 +234,16 @@ const TeacherList = () => {
       // Save profile locally
       await db.profiles.add(record);
 
-      // Save profile online if connected
-      if (navigator.onLine) {
-        const { error } = await supabase.from('report_profiles').insert([{
-          id: teacherId,
-          school_id: user.schoolId,
-          full_name: newTeacher.fullName,
-          role: 'teacher',
-          staff_id: newTeacher.staffId,
-          email: newTeacher.email,
-          is_claimed: false
-        }]);
-        if (error) throw error;
-      }
+      // Enqueue sync for insert
+      await enqueueSync('insert', 'report_profiles', {
+        id: teacherId,
+        school_id: user.schoolId,
+        full_name: newTeacher.fullName,
+        role: 'teacher',
+        staff_id: newTeacher.staffId,
+        email: newTeacher.email,
+        is_claimed: false
+      }, user.schoolId);
 
       setIsModalOpen(false);
       setNewTeacher({ fullName: '', staffId: '', email: '', role: 'teacher' });
@@ -259,17 +257,12 @@ const TeacherList = () => {
   const handleDeleteTeacher = async (id) => {
     if (!await window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
     try {
-      if (!navigator.onLine) {
-        alert('You are offline. Deleting a teacher requires an active internet connection to safely clean up cloud assignments.');
-        return;
-      }
+      // Enqueue sync for delete
+      await enqueueSync('delete', 'report_profiles', {
+        filter: { id: id }
+      }, user.schoolId);
 
-      const { error } = await supabase.from('report_profiles').delete().eq('id', id);
-      if (error) {
-        alert('Failed to delete teacher from cloud: ' + error.message);
-        return;
-      }
-
+      // Delete locally
       await db.profiles.delete(id);
       
       // Cascade delete local assignments

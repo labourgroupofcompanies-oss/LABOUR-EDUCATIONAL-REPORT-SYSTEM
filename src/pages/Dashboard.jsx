@@ -379,7 +379,8 @@ const Dashboard = () => {
           .select('*')
           .eq('school_id', user.schoolId)
           .eq('role', 'teacher');
-        if (!teachErr && teachersData) {
+        if (teachErr) throw teachErr;
+        if (teachersData) {
           const remoteIds = new Set(teachersData.map(p => p.id));
           
           // Get all local teachers for this school
