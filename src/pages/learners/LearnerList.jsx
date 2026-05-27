@@ -662,7 +662,7 @@ const LearnerList = () => {
         }
 
         // 2. Sync Subjects
-        const localSubjects = await db.subjects.filter(s => s.schoolId === user.schoolId).toArray();
+        const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
         const { data: remoteSubjects, error: subErr } = await supabase
           .from('report_subjects')
           .select('*')

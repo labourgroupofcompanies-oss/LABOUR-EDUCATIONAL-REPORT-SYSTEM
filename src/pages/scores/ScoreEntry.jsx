@@ -39,7 +39,7 @@ const ScoreEntry = () => {
     [schoolId]
   );
   const allSubjects = useLiveQuery(
-    () => schoolId ? db.subjects.filter(s => s.schoolId === schoolId).toArray() : [], 
+    () => schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [], 
     [schoolId]
   );
   const settings = useLiveQuery(() => db.settings.get('global'), []);
@@ -68,10 +68,10 @@ const ScoreEntry = () => {
   useEffect(() => {
     const pullAssignmentsAndSetup = async () => {
       if (!navigator.onLine || !user?.schoolId) return;
+      console.log('Pulling setup data for Score Entry with resilient sync...');
+      
+      // 1. Pull Classes
       try {
-        console.log('Pulling setup data for Score Entry...');
-        
-        // 1. Pull Classes
         const { data: remoteClasses, error: classErr } = await supabase
           .from('report_classes')
           .select('*')
@@ -92,8 +92,12 @@ const ScoreEntry = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[ScoreEntry Sync] Classes sync failed:', err);
+      }
 
-        // 2. Pull Subjects
+      // 2. Pull Subjects
+      try {
         const { data: remoteSubjects, error: subErr } = await supabase
           .from('report_subjects')
           .select('*')
@@ -113,8 +117,12 @@ const ScoreEntry = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[ScoreEntry Sync] Subjects sync failed:', err);
+      }
 
-        // 3. Pull Teacher Assignments
+      // 3. Pull Teacher Assignments
+      try {
         let query = supabase.from('report_teacher_assignments').select('*').eq('school_id', user.schoolId);
         if (user.role === 'teacher') {
           query = query.eq('teacher_id', user.id);
@@ -143,8 +151,12 @@ const ScoreEntry = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[ScoreEntry Sync] Teacher assignments sync failed:', err);
+      }
 
-        // 4. Pull Class-Subject Assignments
+      // 4. Pull Class-Subject Assignments
+      try {
         const { data: classSubsData, error: classSubsErr } = await supabase
           .from('report_class_subjects')
           .select('*')
@@ -161,17 +173,18 @@ const ScoreEntry = () => {
             });
           }
         }
-        // 5. Pull Global Settings
+      } catch (err) {
+        console.error('[ScoreEntry Sync] Class-Subject assignments sync failed:', err);
+      }
+
+      // 5. Pull Global Settings
+      try {
         const { data: settingsData, error: settingsErr } = await supabase
           .from('report_settings')
           .select('*')
           .eq('id', user.schoolId)
           .single();
           
-        if (settingsErr) {
-          console.warn('Failed to fetch settings from Supabase:', settingsErr);
-        }
-
         if (settingsData && !settingsErr) {
           await db.settings.put({
             id: 'global',
@@ -184,7 +197,7 @@ const ScoreEntry = () => {
           });
         }
       } catch (err) {
-        console.error('Failed to pull setup data:', err);
+        console.error('[ScoreEntry Sync] Global settings sync failed:', err);
       }
     };
 

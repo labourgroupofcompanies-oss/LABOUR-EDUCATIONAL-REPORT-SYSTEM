@@ -12,19 +12,19 @@ export const useSchoolSetup = () => {
   const { user } = useAuth();
 
   const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
-  const subjects = useLiveQuery(() => user?.schoolId ? db.subjects.filter(s => s.schoolId === user.schoolId).toArray() : [], [user]);
+  const subjects = useLiveQuery(() => user?.schoolId ? db.subjects.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
   const classSubjects = useLiveQuery(() => user?.schoolId ? db.classSubjects.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
   const teachers = useLiveQuery(() => user?.schoolId ? db.profiles.where('schoolId').equals(user.schoolId).and(p => p.role === 'teacher').toArray() : [], [user]);
-  const allAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.filter(a => a.schoolId === user.schoolId).toArray() : [], [user]);
+  const allAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
 
   // ── Automatic Database Pulling (Self-Healing) ──────────────────────
   useEffect(() => {
     const pullSetupData = async () => {
       if (!navigator.onLine || !user?.schoolId) return;
+      console.log('Syncing setup data via custom hooks with resilient sync...');
+      
+      // 1. Pull & Reconcile Classes
       try {
-        console.log('Syncing setup data via custom hooks...');
-        
-        // 1. Pull & Reconcile Classes
         const { data: remoteClasses, error: classErr } = await supabase
           .from('report_classes')
           .select('*')
@@ -87,15 +87,19 @@ export const useSchoolSetup = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[Setup Sync] Classes sync failed:', err);
+      }
 
-        // 2. Pull & Reconcile Subjects
+      // 2. Pull & Reconcile Subjects
+      try {
         const { data: remoteSubjects, error: subErr } = await supabase
           .from('report_subjects')
           .select('*')
           .eq('school_id', user.schoolId);
 
         if (!subErr && remoteSubjects) {
-          const localSubjects = await db.subjects.filter(s => s.schoolId === user.schoolId).toArray();
+          const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
           
           for (const rs of remoteSubjects) {
             // Find if there is a local subject with the same name (case-insensitive, trimmed)
@@ -144,8 +148,12 @@ export const useSchoolSetup = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[Setup Sync] Subjects sync failed:', err);
+      }
 
-        // 3. Pull Class-Subject Assignments
+      // 3. Pull Class-Subject Assignments
+      try {
         const { data: classSubsData, error: classSubsErr } = await supabase
           .from('report_class_subjects')
           .select('*')
@@ -163,8 +171,12 @@ export const useSchoolSetup = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[Setup Sync] Class-Subject assignments sync failed:', err);
+      }
 
-        // 4. Pull Teachers
+      // 4. Pull Teachers
+      try {
         const { data: teachersData, error: teachErr } = await supabase
           .from('report_profiles')
           .select('*')
@@ -198,8 +210,12 @@ export const useSchoolSetup = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[Setup Sync] Teachers sync failed:', err);
+      }
 
-        // 5. Pull Teacher Assignments
+      // 5. Pull Teacher Assignments
+      try {
         const { data: assignData, error: assignErr } = await supabase
           .from('report_teacher_assignments')
           .select('*')
@@ -219,7 +235,7 @@ export const useSchoolSetup = () => {
           }
         }
       } catch (err) {
-        console.error('Failed to sync setup hook data:', err);
+        console.error('[Setup Sync] Teacher assignments sync failed:', err);
       }
     };
 

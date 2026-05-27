@@ -550,7 +550,7 @@ const Reports = () => {
     [schoolId]
   );
   const subjects           = useLiveQuery(
-    () => schoolId ? db.subjects.filter(s => s.schoolId === schoolId).toArray() : [],
+    () => schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
   );
   const classSubjects      = useLiveQuery(
@@ -567,7 +567,7 @@ const Reports = () => {
     [schoolId]
   );
   const teacherAssignments = useLiveQuery(
-    () => schoolId ? db.teacherAssignments.filter(s => s.schoolId === schoolId).toArray() : [],
+    () => schoolId ? db.teacherAssignments.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
   );
   const globalSettings     = useLiveQuery(() => db.settings.get('global'), []);
@@ -583,7 +583,7 @@ const Reports = () => {
   const [selectedIndividualId, setSelectedIndividualId] = useState('');
 
   const localScores = useLiveQuery(
-    () => schoolId ? db.scores.filter(s => s.schoolId === schoolId).toArray() : [],
+    () => schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
   );
   const [cloudScores, setCloudScores] = useState([]);

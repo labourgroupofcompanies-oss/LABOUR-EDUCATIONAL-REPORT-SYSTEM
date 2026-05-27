@@ -185,8 +185,8 @@ const Dashboard = () => {
   const totalLearnerCount = useLiveQuery(() => schoolId ? db.learners.where('schoolId').equals(schoolId).count() : Promise.resolve(0), [schoolId]);
   const teacherCount = useLiveQuery(() => schoolId ? db.profiles.where('schoolId').equals(schoolId).and(p => p.role === 'teacher').count() : Promise.resolve(0), [schoolId]);
   const classCount = useLiveQuery(() => schoolId ? db.classes.where('schoolId').equals(schoolId).count() : Promise.resolve(0), [schoolId]);
-  const subjectCount = useLiveQuery(() => schoolId ? db.subjects.filter(s => s.schoolId === schoolId).count() : Promise.resolve(0), [schoolId]);
-  const pendingScores = useLiveQuery(() => schoolId ? db.scores.filter(s => s.schoolId === schoolId && !s.isSubmitted).count() : Promise.resolve(0), [schoolId]);
+  const subjectCount = useLiveQuery(() => schoolId ? db.subjects.where('schoolId').equals(schoolId).count() : Promise.resolve(0), [schoolId]);
+  const pendingScores = useLiveQuery(() => schoolId ? db.scores.where('schoolId').equals(schoolId).and(s => !s.isSubmitted).count() : Promise.resolve(0), [schoolId]);
 
   // Teacher-specific local tables (scoped to current school to avoid cross-school data)
   const allClasses = useLiveQuery(
@@ -194,7 +194,7 @@ const Dashboard = () => {
     [schoolId]
   );
   const allSubjects = useLiveQuery(
-    () => schoolId ? db.subjects.filter(s => s.schoolId === schoolId).toArray() : Promise.resolve([]),
+    () => schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : Promise.resolve([]),
     [schoolId]
   );
   const classSubjects = useLiveQuery(
@@ -206,7 +206,7 @@ const Dashboard = () => {
     [schoolId]
   );
   const allScores = useLiveQuery(
-    () => schoolId ? db.scores.filter(s => s.schoolId === schoolId).toArray() : Promise.resolve([]),
+    () => schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : Promise.resolve([]),
     [schoolId]
   );
   const assignments = useLiveQuery(
@@ -221,10 +221,10 @@ const Dashboard = () => {
   useEffect(() => {
     const pullAllSetupData = async () => {
       if (!navigator.onLine || !user?.schoolId) return;
+      console.log('[Dashboard] Executing resilient self-healing sync...');
+      
+      // 1. Sync & Reconcile Classes
       try {
-        console.log('[Dashboard] Executing self-healing sync...');
-        
-        // 1. Sync & Reconcile Classes
         const { data: remoteClasses, error: classErr } = await supabase
           .from('report_classes')
           .select('*')
@@ -286,14 +286,18 @@ const Dashboard = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Classes sync failed:', err);
+      }
 
-        // 2. Sync & Reconcile Subjects
+      // 2. Sync & Reconcile Subjects
+      try {
         const { data: remoteSubjects, error: subErr } = await supabase
           .from('report_subjects')
           .select('*')
           .eq('school_id', user.schoolId);
         if (!subErr && remoteSubjects) {
-          const localSubjects = await db.subjects.filter(s => s.schoolId === user.schoolId).toArray();
+          const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
           
           for (const rs of remoteSubjects) {
             // Find if there is a local subject with the same name (case-insensitive, trimmed)
@@ -342,8 +346,12 @@ const Dashboard = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Subjects sync failed:', err);
+      }
 
-        // 3. Sync Class-Subject Mappings
+      // 3. Sync Class-Subject Mappings
+      try {
         const { data: classSubsData, error: classSubsErr } = await supabase
           .from('report_class_subjects')
           .select('*')
@@ -360,8 +368,51 @@ const Dashboard = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Class-Subject mappings sync failed:', err);
+      }
 
-        // 4. Sync Teacher Assignments
+      // 4a. Sync Teacher Profiles
+      try {
+        const { data: teachersData, error: teachErr } = await supabase
+          .from('report_profiles')
+          .select('*')
+          .eq('school_id', user.schoolId)
+          .eq('role', 'teacher');
+        if (!teachErr && teachersData) {
+          const remoteIds = new Set(teachersData.map(p => p.id));
+          
+          // Get all local teachers for this school
+          const localTeachers = await db.profiles
+            .where('schoolId').equals(user.schoolId)
+            .and(p => p.role === 'teacher')
+            .toArray();
+            
+          // Delete any local teacher that is not in the remote list
+          for (const lt of localTeachers) {
+            if (!remoteIds.has(lt.id)) {
+              await db.profiles.delete(lt.id);
+            }
+          }
+
+          // Save/Update remote active profiles
+          for (const p of teachersData) {
+            await db.profiles.put({
+              id: p.id,
+              schoolId: p.school_id,
+              fullName: p.full_name,
+              role: p.role,
+              staffId: p.staff_id,
+              email: p.email
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[Dashboard Sync] Teacher profiles sync failed:', err);
+      }
+
+      // 4b. Sync Teacher Assignments
+      try {
         let query = supabase.from('report_teacher_assignments').select('*').eq('school_id', user.schoolId);
         if (user.role === 'teacher') {
           query = query.eq('teacher_id', user.id);
@@ -389,8 +440,12 @@ const Dashboard = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Teacher assignments sync failed:', err);
+      }
 
-        // 5. Sync Learners
+      // 5. Sync Learners
+      try {
         const { data: remoteLearners, error: learnErr } = await supabase
           .from('report_learners')
           .select('*')
@@ -468,8 +523,12 @@ const Dashboard = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Learners sync failed:', err);
+      }
 
-        // 6. Sync Scores
+      // 6. Sync Scores
+      try {
         const { data: cloudScores, error: scoreErr } = await supabase
           .from('report_scores')
           .select('*')
@@ -495,6 +554,7 @@ const Dashboard = () => {
               termId: null,
               term: cs.term || '',
               academicYear: cs.academic_year || '',
+              schoolId: cs.school_id,
               updatedAt: cs.updated_at
             };
 
@@ -505,8 +565,12 @@ const Dashboard = () => {
             }
           }
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Scores sync failed:', err);
+      }
 
-        // 7. Sync Global Settings
+      // 7. Sync Global Settings
+      try {
         const { data: settingsData, error: settingsErr } = await supabase
           .from('report_settings')
           .select('*')
@@ -523,8 +587,12 @@ const Dashboard = () => {
             gradingScale: settingsData.grading_scale || []
           });
         }
+      } catch (err) {
+        console.error('[Dashboard Sync] Global Settings sync failed:', err);
+      }
 
-        // 8. Sync School Announcements & PTA Bulletins
+      // 8. Sync School Announcements & PTA Bulletins
+      try {
         const { data: annData, error: annErr } = await supabase
           .from('report_announcements')
           .select('*')
@@ -543,9 +611,8 @@ const Dashboard = () => {
             });
           }
         }
-
       } catch (err) {
-        console.error('Self-healing sync in Dashboard failed:', err);
+        console.error('[Dashboard Sync] Announcements sync failed:', err);
       }
     };
 

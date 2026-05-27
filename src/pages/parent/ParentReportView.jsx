@@ -80,8 +80,8 @@ const ParentReportView = () => {
       schoolId ? db.settings.get(schoolId) : db.settings.get('global'),
       schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
       schoolId ? db.classSubjects.where('schoolId').equals(schoolId).toArray() : [],
-      schoolId ? db.subjects.filter(s => s.schoolId === schoolId).toArray() : [],
-      schoolId ? db.scores.filter(s => s.schoolId === schoolId).toArray() : [],
+      schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [],
+      schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : [],
       schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : [],
       currentClassId ? db.learners.where('currentClassId').equals(currentClassId).toArray() : []
     ]);

@@ -206,6 +206,27 @@ db.version(13).stores({
   outbox: '++id, operation, table, schoolId, status, createdAt'
 });
 
+// v14 — adds schoolId index to subjects, teacherAssignments, and scores for optimized querying and reactivity
+db.version(14).stores({
+  schools: 'id, name, location, district, region, circuit',
+  settings: 'id',
+  academicYears: '++id, schoolId, name, isCurrent',
+  terms: '++id, academicYearId, name, status',
+  classes: '++id, schoolId, name',
+  subjects: '++id, name, schoolId',
+  profiles: 'id, schoolId, fullName, role, email',
+  learners: '++id, schoolId, currentClassId, learnerId, regNumber, fullName, synced, supabaseId, status',
+  teacherAssignments: '++id, teacherId, classId, subjectId, termId, schoolId',
+  scores: '++id, learnerId, classId, subjectId, termId, term, academicYear, isSubmitted, lastSyncedAt, schoolId',
+  classSubjects: '++id, classId, subjectId, schoolId',
+  reportSummaries: '++id, schoolId, learnerId, classId, academicYear, term, synced, supabaseId, promotionStatus, isReleased',
+  parentAccounts: 'phone_number, password_hash, synced',
+  announcements: '++id, title, content, synced, supabaseId, schoolId, created_at',
+  messages: '++id, schoolId, parentPhone, senderRole, content, created_at, isRead, supabaseId, synced',
+  notifications: '++id, schoolId, parentPhone, title, content, created_at, isRead, supabaseId',
+  outbox: '++id, operation, table, schoolId, status, createdAt'
+});
+
 export default db;
 
 

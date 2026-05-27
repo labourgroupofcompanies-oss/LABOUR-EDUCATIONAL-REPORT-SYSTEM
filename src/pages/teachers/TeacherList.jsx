@@ -66,11 +66,11 @@ const TeacherList = () => {
     [schoolId]
   );
   const subjects = useLiveQuery(
-    () => schoolId ? db.subjects.filter(s => s.schoolId === schoolId).toArray() : [], 
+    () => schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [], 
     [schoolId]
   );
   const allAssignments = useLiveQuery(
-    () => schoolId ? db.teacherAssignments.filter(s => s.schoolId === schoolId).toArray() : [], 
+    () => schoolId ? db.teacherAssignments.where('schoolId').equals(schoolId).toArray() : [], 
     [schoolId]
   );
   const classSubjects = useLiveQuery(
@@ -104,10 +104,10 @@ const TeacherList = () => {
   useEffect(() => {
     const pullTeachersAndAssignments = async () => {
       if (!navigator.onLine || !user?.schoolId) return;
+      console.log('Pulling teachers, assignments, and class-subjects from Supabase with resilient sync...');
+      
+      // 1. Pull Teachers
       try {
-        console.log('Pulling teachers, assignments, and class-subjects from Supabase...');
-        
-        // 1. Pull Teachers
         const { data: teachersData, error: teachErr } = await supabase
           .from('report_profiles')
           .select('*')
@@ -141,8 +141,12 @@ const TeacherList = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[TeacherList Sync] Teachers sync failed:', err);
+      }
 
-        // 2. Pull Assignments
+      // 2. Pull Assignments
+      try {
         const { data: assignData, error: assignErr } = await supabase
           .from('report_teacher_assignments')
           .select('*')
@@ -161,8 +165,12 @@ const TeacherList = () => {
             });
           }
         }
+      } catch (err) {
+        console.error('[TeacherList Sync] Teacher assignments sync failed:', err);
+      }
 
-        // 3. Pull Class-Subject Assignments
+      // 3. Pull Class-Subject Assignments
+      try {
         const { data: classSubsData, error: classSubsErr } = await supabase
           .from('report_class_subjects')
           .select('*')
@@ -180,7 +188,7 @@ const TeacherList = () => {
           }
         }
       } catch (err) {
-        console.error('Failed to sync assignments/teachers/class-subjects:', err);
+        console.error('[TeacherList Sync] Class-Subject assignments sync failed:', err);
       }
     };
 
