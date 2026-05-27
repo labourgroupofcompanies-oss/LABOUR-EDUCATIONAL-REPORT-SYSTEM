@@ -104,6 +104,7 @@ const ScoreEntry = () => {
             if (!local) {
               await db.subjects.put({
                 id: rs.id,
+                schoolId: user.schoolId,
                 name: rs.name,
                 createdAt: rs.created_at
               });

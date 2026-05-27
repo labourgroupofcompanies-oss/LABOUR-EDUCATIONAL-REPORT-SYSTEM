@@ -255,6 +255,7 @@ const ParentDashboard = () => {
           for (const rs of remoteSubjects) {
             await db.subjects.put({
               id: rs.id,
+              schoolId: rs.school_id,
               name: rs.name,
               createdAt: rs.created_at
             });

@@ -122,6 +122,7 @@ export const useSchoolSetup = () => {
                 await db.subjects.delete(oldId);
                 await db.subjects.put({
                   id: newId,
+                  schoolId: rs.school_id,
                   name: rs.name,
                   createdAt: rs.created_at
                 });
@@ -135,6 +136,7 @@ export const useSchoolSetup = () => {
               if (!localById) {
                 await db.subjects.put({
                   id: rs.id,
+                  schoolId: rs.school_id,
                   name: rs.name,
                   createdAt: rs.created_at
                 });

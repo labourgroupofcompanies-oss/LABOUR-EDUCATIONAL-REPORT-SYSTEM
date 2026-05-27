@@ -702,6 +702,7 @@ const LearnerList = () => {
               await db.subjects.delete(oldId);
               await db.subjects.put({
                 id: newId,
+                schoolId: user.schoolId,
                 name: ls.name,
                 createdAt: ls.createdAt || new Date().toISOString()
               });
