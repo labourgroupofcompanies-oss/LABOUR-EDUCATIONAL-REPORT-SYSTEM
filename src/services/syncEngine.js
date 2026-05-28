@@ -3,7 +3,7 @@
  * 
  * Provides a structured queue (Dexie outbox table) that stores cloud mutations
  * made while offline. When connectivity is restored, the engine drains the
- * queue sequentially, retrying failed items up to 3 times.
+ * queue sequentially, retrying failed items up to 5 times.
  *
  * Supported operations:
  *   - 'insert'        : supabase.from(table).insert(payload)
@@ -15,7 +15,7 @@
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 let _isSyncing = false;
 
 // ─── Public Getters ───────────────────────────────────────────────────────────
@@ -177,10 +177,37 @@ export const retryFailed = async () => {
   await drainOutbox();
 };
 
+// ─── Promote any 'processing' items stuck from a previous crashed session ────
+// If the app was killed mid-sync, items can be stuck as 'processing' forever.
+export const resetStuckItems = async () => {
+  await db.outbox
+    .where('status').equals('processing')
+    .modify({ status: 'pending' });
+};
+
 // ─── Register the online listener (module-level, fires once) ─────────────────
 if (typeof window !== 'undefined') {
-  window.addEventListener('online', () => {
-    console.log('[SyncEngine] Network online — draining outbox...');
-    drainOutbox();
+  window.addEventListener('online', async () => {
+    console.log('[SyncEngine] Network online — resetting stuck items and draining outbox...');
+    await resetStuckItems();
+    // Also reset failed items so they get another chance when coming back online
+    await db.outbox
+      .where('status').equals('failed')
+      .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+    await drainOutbox();
   });
+
+  // Periodically retry failed items every 2 minutes while the app is open and online
+  setInterval(async () => {
+    if (navigator.onLine) {
+      const failedCount = await db.outbox.where('status').equals('failed').count();
+      if (failedCount > 0) {
+        console.log(`[SyncEngine] Periodic retry: resetting ${failedCount} failed item(s)...`);
+        await db.outbox
+          .where('status').equals('failed')
+          .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+        await drainOutbox();
+      }
+    }
+  }, 2 * 60 * 1000); // every 2 minutes
 }

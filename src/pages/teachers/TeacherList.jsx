@@ -219,6 +219,7 @@ const TeacherList = () => {
     if (!user?.schoolId) return;
 
     const teacherId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
     const record = {
       id: teacherId,
       fullName: newTeacher.fullName,
@@ -227,14 +228,29 @@ const TeacherList = () => {
       role: 'teacher',
       isClaimed: false,
       schoolId: user.schoolId,
-      createdAt: new Date().toISOString()
+      createdAt
     };
 
     try {
-      // Save profile locally
+      // Self-heal: ensure the auth user's JWT metadata contains school_id.
+      // This is required by the RLS INSERT policy on report_profiles.
+      // If missing, Supabase will reject the insert with a policy violation.
+      if (navigator.onLine) {
+        try {
+          const { data: { user: authUser } } = await supabase.auth.getUser();
+          if (authUser && (!authUser.user_metadata?.school_id || authUser.user_metadata.school_id !== user.schoolId)) {
+            console.log('[TeacherList] Self-healing auth metadata with school_id...');
+            await supabase.auth.updateUser({ data: { school_id: user.schoolId } });
+          }
+        } catch (metaErr) {
+          console.warn('[TeacherList] Auth metadata self-heal skipped:', metaErr);
+        }
+      }
+
+      // Save profile locally first (always works offline)
       await db.profiles.add(record);
 
-      // Enqueue sync for insert
+      // Enqueue sync for cloud insert (works online & offline via outbox)
       await enqueueSync('insert', 'report_profiles', {
         id: teacherId,
         school_id: user.schoolId,
@@ -242,7 +258,8 @@ const TeacherList = () => {
         role: 'teacher',
         staff_id: newTeacher.staffId,
         email: newTeacher.email,
-        is_claimed: false
+        is_claimed: false,
+        created_at: createdAt
       }, user.schoolId);
 
       setIsModalOpen(false);
@@ -253,6 +270,7 @@ const TeacherList = () => {
       alert(err.message || 'Failed to register teacher. Please check if the email address is already in use.');
     }
   };
+
 
   const handleDeleteTeacher = async (id) => {
     if (!await window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;

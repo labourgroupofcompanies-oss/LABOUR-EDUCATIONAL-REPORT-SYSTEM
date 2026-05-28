@@ -4,7 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { compressImage } from '../../utils/imageUtils';
+import { compressImageToBlob } from '../../utils/imageUtils';
 
 const Settings = () => {
   const { user } = useAuth();
@@ -42,6 +42,7 @@ const Settings = () => {
   });
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   // Sync from Cloud on mount
   useEffect(() => {
@@ -135,38 +136,50 @@ const Settings = () => {
     }
   }, [schoolData]);
 
-  const handleLogoUpload = (e) => {
+  const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      alert("Image size should be less than 2MB.");
+
+    // Accept ANY image format — we convert everything to WebP regardless.
+    // No arbitrary file-size cap: compressImageToBlob will scale it down to
+    // at most 500×500 px, so even a 20 MB RAW photo becomes a tiny WebP.
+    if (!file.type.startsWith('image/')) {
+      alert('Please select a valid image file (JPEG, PNG, GIF, WebP, BMP, AVIF, SVG, etc.).');
       return;
     }
-    // Step 1: Read file as base64 data URL
-    const reader = new FileReader();
-    reader.onload = async (uploadEvent) => {
-      const base64DataUrl = uploadEvent.target.result;
-      // Step 2: Compress the image (compressImage expects a base64 string)
-      const compressedBase64 = await compressImage(base64DataUrl, 400, 400, 0.85);
-      // Step 3: Convert compressed base64 to Blob for Supabase upload
-      const response = await fetch(compressedBase64);
-      const blob = await response.blob();
+
+    setIsUploadingLogo(true);
+    try {
+      // Step 1: Decode + resize + convert to WebP Blob — zero base64 in this pipeline
+      const webpBlob = await compressImageToBlob(file, 500, 500, 0.85);
+
+      // Step 2: Upload the Blob directly to Supabase Storage
       const fileName = `${user?.schoolId ?? 'logo'}_logo_${Date.now()}.webp`;
       const { error: uploadError } = await supabase.storage
         .from('school-logos')
-        .upload(fileName, blob, { upsert: true, contentType: 'image/webp' });
+        .upload(fileName, webpBlob, { upsert: true, contentType: 'image/webp' });
+
       if (uploadError) {
         console.error('Logo upload error:', uploadError);
         alert('Failed to upload logo: ' + uploadError.message);
         return;
       }
-      // Step 4: Get public URL and save to state
+
+      // Step 3: Save only the public URL — never a base64 string
       const { data } = supabase.storage.from('school-logos').getPublicUrl(fileName);
       const publicUrl = data?.publicUrl || '';
       setSchool(prev => ({ ...prev, logoUrl: publicUrl }));
-    };
-    reader.readAsDataURL(file);
+      alert('School logo uploaded successfully!');
+    } catch (err) {
+      console.error('Logo processing error:', err);
+      alert('Failed to process image: ' + err.message + '\nPlease try a different image file.');
+    } finally {
+      setIsUploadingLogo(false);
+      // Reset the input so the same file can be re-selected if needed
+      e.target.value = '';
+    }
   };
+
 
   const handleSave = async (e) => {
     e.preventDefault();
@@ -321,9 +334,31 @@ const Settings = () => {
                     <i className="fas fa-university" style={{ fontSize: '3rem', color: 'var(--text-muted)', opacity: 0.5 }}></i>
                   )}
                 </div>
-                <label className="btn" style={{ padding: '0.35rem 0.75rem', fontSize: '0.75rem', background: 'var(--accent)', color: 'white', cursor: 'pointer', borderRadius: '6px', fontWeight: 600 }}>
-                  <i className="fas fa-camera" style={{ marginRight: '4px' }}></i> Upload Logo
-                  <input type="file" accept="image/*" onChange={handleLogoUpload} style={{ display: 'none' }} />
+                <label 
+                  className="btn" 
+                  style={{ 
+                    padding: '0.35rem 0.75rem', 
+                    fontSize: '0.75rem', 
+                    background: isUploadingLogo ? 'var(--text-muted)' : 'var(--accent)', 
+                    color: 'white', 
+                    cursor: isUploadingLogo ? 'not-allowed' : 'pointer', 
+                    borderRadius: '6px', 
+                    fontWeight: 600,
+                    opacity: isUploadingLogo ? 0.7 : 1
+                  }}
+                >
+                  {isUploadingLogo 
+                    ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: '4px' }}></i>Uploading...</>
+                    : <><i className="fas fa-camera" style={{ marginRight: '4px' }}></i>Upload Logo</>
+                  }
+                  {/* Accept all image formats — we convert to WebP internally */}
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    onChange={handleLogoUpload} 
+                    disabled={isUploadingLogo}
+                    style={{ display: 'none' }} 
+                  />
                 </label>
               </div>
 

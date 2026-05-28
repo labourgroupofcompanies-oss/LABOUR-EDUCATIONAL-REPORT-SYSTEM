@@ -4,45 +4,105 @@ import { supabase } from '../lib/supabase';
 // ─── Auth Service ────────────────────────────────────────────────────────────
 export const authService = {
   async login(email, password) {
-    // 1. Try real Supabase login
-    try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      if (!supabaseUrl || supabaseUrl.includes('your-project')) {
-        throw new Error('Supabase is not configured. Please check your .env file.');
-      }
-
-      const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-
-      // Use correct table name report_profiles
-      const { data: profile, error: profileError } = await supabase
-        .from('report_profiles')
-        .select('*')
-        .eq('id', authData.user.id)
-        .single();
-      
-      if (profileError) throw profileError;
-
-      // Map Supabase snake_case to CamelCase for local Dexie DB
-      const profileToSave = { 
-        id: profile.id,
-        email: profile.email,
-        fullName: profile.full_name,
-        role: profile.role,
-        schoolId: profile.school_id,
-        staffId: profile.staff_id,
-        lastLogin: new Date().toISOString() 
-      };
-
-      await db.profiles.put(profileToSave);
-      return { profile: profileToSave };
-    } catch (err) {
-      // 3. Offline fallback
-      const cached = await db.profiles.where('email').equals(email).first();
-      if (cached) return { profile: cached, isOffline: true };
-      throw new Error(err.message || 'Login failed. Please check your credentials.');
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    if (!supabaseUrl || supabaseUrl.includes('your-project')) {
+      throw new Error('Supabase is not configured. Please check your .env file.');
     }
+
+    // ── Step 1: Authenticate with Supabase (always remote) ──────────────────
+    // This is separated from profile fetch so we never show "invalid credentials"
+    // when the actual problem is a profile lookup failure (e.g. cleared storage).
+    let authData = null;
+    let authError = null;
+
+    try {
+      const result = await supabase.auth.signInWithPassword({ email, password });
+      authData = result.data;
+      authError = result.error;
+    } catch (networkErr) {
+      // Network completely unreachable — fall through to offline cache
+      authError = networkErr;
+    }
+
+    // ── Step 2: If auth succeeded, fetch the profile from Supabase ──────────
+    if (authData?.user && !authError) {
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('report_profiles')
+          .select('*')
+          .eq('id', authData.user.id)
+          .single();
+
+        if (profile && !profileError) {
+          // Happy path: map Supabase snake_case → camelCase and cache locally
+          const profileToSave = {
+            id: profile.id,
+            email: profile.email,
+            fullName: profile.full_name,
+            role: profile.role,
+            schoolId: profile.school_id,
+            staffId: profile.staff_id,
+            lastLogin: new Date().toISOString()
+          };
+          await db.profiles.put(profileToSave);
+          return { profile: profileToSave };
+        }
+
+        // Profile query failed (likely RLS / cleared JWT metadata).
+        // Auth credentials are VALID — build a fallback profile from auth metadata.
+        console.warn('[Auth] Profile query failed, falling back to auth metadata:', profileError?.message);
+        const meta = authData.user.user_metadata || {};
+        const appMeta = authData.user.app_metadata || {};
+
+        const fallbackProfile = {
+          id: authData.user.id,
+          email: authData.user.email,
+          fullName: meta.full_name || meta.fullName || appMeta.full_name || email,
+          role: meta.role || appMeta.role || 'super_admin',
+          schoolId: meta.school_id || appMeta.school_id || null,
+          staffId: meta.staff_id || appMeta.staff_id || null,
+          lastLogin: new Date().toISOString()
+        };
+
+        // Cache the fallback so subsequent loads work offline
+        await db.profiles.put(fallbackProfile);
+        return { profile: fallbackProfile };
+
+      } catch (profileFetchErr) {
+        // Profile fetch threw (e.g. network dropped after auth).
+        // Auth succeeded — still return a minimal profile from metadata.
+        console.warn('[Auth] Profile fetch threw, using metadata fallback:', profileFetchErr.message);
+        const meta = authData.user.user_metadata || {};
+        const appMeta = authData.user.app_metadata || {};
+
+        const fallbackProfile = {
+          id: authData.user.id,
+          email: authData.user.email,
+          fullName: meta.full_name || meta.fullName || appMeta.full_name || email,
+          role: meta.role || appMeta.role || 'super_admin',
+          schoolId: meta.school_id || appMeta.school_id || null,
+          staffId: meta.staff_id || appMeta.staff_id || null,
+          lastLogin: new Date().toISOString()
+        };
+
+        await db.profiles.put(fallbackProfile);
+        return { profile: fallbackProfile };
+      }
+    }
+
+    // ── Step 3: Offline / auth-failed fallback — try local Dexie cache ──────
+    // Only reached if auth itself failed (wrong password, network down, etc.)
+    const cached = await db.profiles.where('email').equals(email).first();
+    if (cached) return { profile: cached, isOffline: true };
+
+    // Nothing worked — only NOW do we say "invalid credentials"
+    throw new Error(
+      authError?.message?.includes('Invalid login credentials')
+        ? 'Incorrect email or password. Please try again.'
+        : (authError?.message || 'Login failed. Please check your internet connection and try again.')
+    );
   },
+
 
   async logout() {
     try {

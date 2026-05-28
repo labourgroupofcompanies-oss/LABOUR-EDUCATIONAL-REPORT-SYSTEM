@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import authService from '../services/authService';
+import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 
 const AuthContext = createContext();
 
@@ -13,6 +15,12 @@ export const AuthProvider = ({ children }) => {
       try {
         const currentUser = await authService.getCurrentUser();
         setUser(currentUser);
+
+        // If the user is logged in but has no schoolId (e.g. after cleared storage
+        // where we fell back to auth metadata), try to heal the profile from Supabase.
+        if (currentUser && !currentUser.schoolId && navigator.onLine) {
+          healProfileFromSupabase(currentUser, setUser);
+        }
       } catch (error) {
         console.error('Auth initialization error:', error);
       } finally {
@@ -26,6 +34,12 @@ export const AuthProvider = ({ children }) => {
     const { profile } = await authService.login(email, password);
     authService.saveSession(profile);
     setUser(profile);
+
+    // Post-login self-heal: if schoolId is missing from the profile, re-fetch
+    // from Supabase now that the session token is fresh and JWT is populated.
+    if (!profile.schoolId && navigator.onLine) {
+      healProfileFromSupabase(profile, setUser);
+    }
   };
 
   const logout = async () => {
@@ -41,6 +55,38 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+// ─── Post-Login Profile Heal ──────────────────────────────────────────────────
+// If we logged in via auth-metadata fallback (e.g. cleared storage), the profile
+// may have schoolId = null. This function re-fetches the full profile from Supabase
+// after the JWT session is established and updates the user state.
+async function healProfileFromSupabase(currentProfile, setUser) {
+  try {
+    console.log('[AuthContext] Healing profile from Supabase (schoolId missing)...');
+    const { data: profile, error } = await supabase
+      .from('report_profiles')
+      .select('*')
+      .eq('id', currentProfile.id)
+      .single();
+
+    if (profile && !error) {
+      const healed = {
+        id: profile.id,
+        email: profile.email,
+        fullName: profile.full_name,
+        role: profile.role,
+        schoolId: profile.school_id,
+        staffId: profile.staff_id,
+        lastLogin: new Date().toISOString()
+      };
+      await db.profiles.put(healed);
+      setUser(healed);
+      console.log('[AuthContext] Profile healed successfully. schoolId:', healed.schoolId);
+    }
+  } catch (err) {
+    console.warn('[AuthContext] Profile heal failed (will retry on next login):', err.message);
+  }
+}
+
 export const useAuth = () => useContext(AuthContext);
 
 export const ProtectedRoute = ({ children, role }) => {
@@ -54,3 +100,4 @@ export const ProtectedRoute = ({ children, role }) => {
 
   return children;
 };
+

@@ -40,12 +40,29 @@ export const SyncEngineProvider = ({ children }) => {
   const pendingCount = (outboxPendingCount || 0) + (unsyncedLearnersCount || 0);
   const failedCount = outboxFailedCount || 0;
 
-  // Drain outbox on mount if online
+  // On startup: reset stuck/failed items and drain the outbox
   useEffect(() => {
-    if (navigator.onLine) {
+    const startupSync = async () => {
+      if (!navigator.onLine) return;
       setIsSyncing(true);
-      drainOutbox().finally(() => setIsSyncing(false));
-    }
+      try {
+        // 1. Reset any items stuck as 'processing' from a previously crashed session
+        await db.outbox
+          .where('status').equals('processing')
+          .modify({ status: 'pending' });
+
+        // 2. Reset all 'failed' items so they get another chance on every fresh app load
+        await db.outbox
+          .where('status').equals('failed')
+          .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+
+        // 3. Drain the outbox
+        await drainOutbox();
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+    startupSync();
   }, []);
 
   // Update isSyncing based on sync engine state
