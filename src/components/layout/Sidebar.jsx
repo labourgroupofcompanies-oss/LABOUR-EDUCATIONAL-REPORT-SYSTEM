@@ -73,34 +73,26 @@ const Sidebar = ({ isOpen, onClose }) => {
       </div>
 
       {/* Session Expired Warning — shown when Supabase JWT cannot be refreshed */}
-      {authExpired && (
-        <div style={{
-          margin: '0.75rem 1rem 0',
-          padding: '0.7rem 0.75rem',
-          borderRadius: '10px',
-          background: 'rgba(239, 68, 68, 0.15)',
-          border: '1px solid rgba(239,68,68,0.35)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
-            <i className="fas fa-exclamation-circle" style={{ fontSize: '0.85rem', color: '#f87171', marginTop: '2px', flexShrink: 0 }} />
-            <div>
-              <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#fca5a5', marginBottom: '4px' }}>
-                Session Expired — Sync Disabled
-              </div>
-              <div style={{ fontSize: '0.63rem', color: 'rgba(252,165,165,0.8)', lineHeight: 1.4, marginBottom: '6px' }}>
-                Your data is saved locally. Log out and back in to restore cloud sync.
-              </div>
-              <button
-                onClick={handleLogout}
-                style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '6px', color: '#fca5a5', cursor: 'pointer', fontSize: '0.63rem', fontWeight: 700, padding: '0.25rem 0.6rem', fontFamily: 'inherit' }}
-              >
-                <i className="fas fa-sign-out-alt" style={{ marginRight: '4px' }} />
-                Log Out &amp; Re‑Login
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      // Session Expired Toast – stays until user clicks Log Out
+{authExpired && (
+  <div className="auth-toast" style={{
+    margin: '0.75rem 1rem 0',
+    padding: '0.7rem 0.75rem',
+    borderRadius: '10px',
+    background: 'rgba(239, 68, 68, 0.15)',
+    border: '1px solid rgba(239,68,68,0.35)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  }}>
+    <span style={{ color: '#fca5a5', fontWeight: 600 }}>Session expired – click to log out and re‑login.</span>
+    <button onClick={handleLogout}
+      style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '6px', color: '#fca5a5', cursor: 'pointer', fontSize: '0.63rem', fontWeight: 700, padding: '0.25rem 0.6rem', fontFamily: 'inherit' }}
+    >
+      Log Out &amp; Re‑Login
+    </button>
+  </div>
+)}
 
       {/* Sync Status Bar */}
       {(hasPending || hasFailed || isSyncing) && (

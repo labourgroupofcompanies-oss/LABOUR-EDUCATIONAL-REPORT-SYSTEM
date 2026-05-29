@@ -14,6 +14,7 @@
 
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
+import { ensureAuth } from '../lib/authUtils';
 
 const MAX_RETRIES = 5;
 let _isSyncing = false;
@@ -69,11 +70,12 @@ export const drainOutbox = async () => {
 
   try {
     // Use getUser() – it will automatically refresh the JWT via the refresh token (valid for ~1 year).
-    const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
-    if (userError || !authUser) {
+    let authUser = null;
+    try {
+      authUser = await ensureAuth();
+    } catch (e) {
       const hasCustomSession = !!localStorage.getItem('labour_edu_session');
       if (hasCustomSession) {
-        // Both access and refresh tokens are gone – user must log in again.
         console.warn('[SyncEngine] ⚠️ Auth session fully expired – user must re‑login to restore sync.');
         window.dispatchEvent(new CustomEvent('sync-auth-expired'));
       } else {

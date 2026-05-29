@@ -62,8 +62,15 @@ const Login = () => {
     setError('');
 
     try {
-      await login(email, password);
-      navigate('/');
+      // Validate inputs before attempting login
+      if (!email?.trim() || !password) {
+        setError('Please enter both email and password');
+        setLoading(false);
+        return;
+      }
+      // Ensure email is trimmed and lower‑cased for Supabase
+      const cleanedEmail = email.trim().toLowerCase();
+      await login(cleanedEmail, password);
     } catch (err) {
       setError(err.message || 'Login failed. Please check your credentials and try again.');
     } finally {
