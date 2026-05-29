@@ -10,15 +10,13 @@ const Sidebar = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const isAdmin = user?.role === 'super_admin';
 
-  // Check if the Supabase session is still alive.
-  // If missing, sync will silently fail and the user needs to log out and back in.
-  const [sessionExpired, setSessionExpired] = useState(false);
+  // Listen for a custom event that indicates the auth session is completely expired.
+  const [authExpired, setAuthExpired] = useState(false);
   useEffect(() => {
-    if (!user) return;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSessionExpired(!session);
-    });
-  }, [user]);
+    const handler = () => setAuthExpired(true);
+    window.addEventListener('sync-auth-expired', handler);
+    return () => window.removeEventListener('sync-auth-expired', handler);
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -74,8 +72,8 @@ const Sidebar = ({ isOpen, onClose }) => {
         </button>
       </div>
 
-      {/* Session Expired Warning — shown when Supabase JWT is gone but app thinks user is logged in */}
-      {sessionExpired && (
+      {/* Session Expired Warning — shown when Supabase JWT cannot be refreshed */}
+      {authExpired && (
         <div style={{
           margin: '0.75rem 1rem 0',
           padding: '0.7rem 0.75rem',
@@ -97,7 +95,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                 style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '6px', color: '#fca5a5', cursor: 'pointer', fontSize: '0.63rem', fontWeight: 700, padding: '0.25rem 0.6rem', fontFamily: 'inherit' }}
               >
                 <i className="fas fa-sign-out-alt" style={{ marginRight: '4px' }} />
-                Log Out &amp; Re-Login
+                Log Out &amp; Re‑Login
               </button>
             </div>
           </div>

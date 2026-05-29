@@ -68,37 +68,22 @@ export const drainOutbox = async () => {
   console.log('[SyncEngine] Draining outbox...');
 
   try {
-    // Check if there is an active Supabase session before attempting sync.
-    const { data: { session: activeSession } } = await supabase.auth.getSession();
-    if (!activeSession) {
-      // Distinguish between truly logged-out vs session-expired states for clearer diagnostics
+    // Use getUser() – it will automatically refresh the JWT via the refresh token (valid for ~1 year).
+    const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
+    if (userError || !authUser) {
       const hasCustomSession = !!localStorage.getItem('labour_edu_session');
       if (hasCustomSession) {
-        console.warn(
-          '[SyncEngine] ⚠️ Supabase session is missing even though the app shows you as logged in. ' +
-          'This usually means your session token expired (e.g. you logged in while offline, or the token expired). ' +
-          'Please log out and log back in — your local data is safe and will sync automatically after re-login.'
-        );
+        // Both access and refresh tokens are gone – user must log in again.
+        console.warn('[SyncEngine] ⚠️ Auth session fully expired – user must re‑login to restore sync.');
+        window.dispatchEvent(new CustomEvent('sync-auth-expired'));
       } else {
-        console.log('[SyncEngine] No active session — skipping drain.');
+        console.log('[SyncEngine] Not logged in – skipping drain.');
       }
       _isSyncing = false;
       return;
     }
-
-    const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
-    if (sessionError) {
-      const errMsg = sessionError.message || '';
-      if (errMsg.includes('session') || errMsg.includes('missing') || errMsg.includes('expired') || errMsg.includes('refresh_token_not_found')) {
-        console.log('[SyncEngine] Session expired or missing — skipping outbox drain.');
-      } else {
-        console.warn('[SyncEngine] Session refresh failed — aborting drain:', errMsg);
-      }
-      _isSyncing = false;
-      return;
-    }
-    console.log('[SyncEngine] Session refreshed. school_id in token:',
-      sessionData.session.user?.user_metadata?.school_id ?? '(not set yet)'
+    console.log('[SyncEngine] Auth OK – school_id from token:',
+      authUser.user_metadata?.school_id ?? '(not in token – will use DB fallback)'
     );
 
     // Diagnostic: log full outbox state before processing
