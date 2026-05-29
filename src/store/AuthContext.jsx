@@ -14,6 +14,23 @@ export const AuthProvider = ({ children }) => {
     const initAuth = async () => {
       try {
         const currentUser = await authService.getCurrentUser();
+
+        if (currentUser && navigator.onLine) {
+          // Verify the Supabase session is still alive when online.
+          // If it is missing (e.g. user logged in while offline, token expired, or
+          // storage was cleared), the sync engine cannot make authenticated API calls.
+          // In this case we force a logout so the user can re-authenticate and get a
+          // fresh Supabase JWT — without this, all syncs silently fail.
+          const { data: { session: supabaseSession } } = await supabase.auth.getSession();
+          if (!supabaseSession) {
+            console.warn('[AuthContext] Supabase session missing for logged-in user. Forcing re-login to restore sync.');
+            authService.clearSession();
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+        }
+
         setUser(currentUser);
 
         // If the user is logged in but has no schoolId (e.g. after cleared storage

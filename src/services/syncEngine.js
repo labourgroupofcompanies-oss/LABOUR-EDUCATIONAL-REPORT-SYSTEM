@@ -68,11 +68,20 @@ export const drainOutbox = async () => {
   console.log('[SyncEngine] Draining outbox...');
 
   try {
-    // Check if there is an active session before attempting a refresh.
-    // This prevents spurious 'Auth session missing' warning logs when not logged in.
+    // Check if there is an active Supabase session before attempting sync.
     const { data: { session: activeSession } } = await supabase.auth.getSession();
     if (!activeSession) {
-      console.log('[SyncEngine] No active session — skipping drain.');
+      // Distinguish between truly logged-out vs session-expired states for clearer diagnostics
+      const hasCustomSession = !!localStorage.getItem('labour_edu_session');
+      if (hasCustomSession) {
+        console.warn(
+          '[SyncEngine] ⚠️ Supabase session is missing even though the app shows you as logged in. ' +
+          'This usually means your session token expired (e.g. you logged in while offline, or the token expired). ' +
+          'Please log out and log back in — your local data is safe and will sync automatically after re-login.'
+        );
+      } else {
+        console.log('[SyncEngine] No active session — skipping drain.');
+      }
       _isSyncing = false;
       return;
     }
