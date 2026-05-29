@@ -92,16 +92,22 @@ export const drainOutbox = async () => {
       sessionData.session.user?.user_metadata?.school_id ?? '(not set yet)'
     );
 
+    // Diagnostic: log full outbox state before processing
+    const allItems = await db.outbox.toArray();
+    const statusSummary = allItems.reduce((acc, i) => { acc[i.status] = (acc[i.status] || 0) + 1; return acc; }, {});
+    console.log('[SyncEngine] Outbox state:', statusSummary, '| Total:', allItems.length);
+
     const pending = await db.outbox
       .where('status').equals('pending')
       .toArray();
 
     if (pending.length === 0) {
+      console.log('[SyncEngine] No pending items — drain complete.');
       _isSyncing = false;
       return;
     }
 
-    console.log(`[SyncEngine] Found ${pending.length} pending item(s)`);
+    console.log(`[SyncEngine] Found ${pending.length} pending item(s):`, pending.map(i => `${i.operation}→${i.table}`));
 
 
     for (const item of pending) {
@@ -202,6 +208,16 @@ export const retryFailed = async () => {
   await drainOutbox();
 };
 
+// ─── Force drain: reset ALL non-pending items then drain ─────────────────────
+// Use this when you want to force a full sync regardless of current item state.
+export const forceDrain = async () => {
+  console.log('[SyncEngine] 🔄 Force drain requested — resetting all stuck/failed items...');
+  await db.outbox
+    .where('status').anyOf(['failed', 'processing'])
+    .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+  await drainOutbox();
+};
+
 // ─── Promote any 'processing' items stuck from a previous crashed session ────
 // If the app was killed mid-sync, items can be stuck as 'processing' forever.
 export const resetStuckItems = async () => {
@@ -222,16 +238,23 @@ if (typeof window !== 'undefined') {
     await drainOutbox();
   });
 
-  // Listen for user sign-in events to automatically trigger outbox drain
+  // Listen for ALL relevant auth events to automatically trigger outbox drain.
+  // IMPORTANT: 'INITIAL_SESSION' fires when the app reloads with an existing session
+  // (the user is already logged in). Without this, reloading the app never drains
+  // the outbox because no SIGNED_IN event fires for pre-existing sessions.
   supabase.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-      console.log(`[SyncEngine] Auth event (${event}) triggered — resetting failed items and draining outbox...`);
+    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+      if (!session) return; // INITIAL_SESSION fires with null when logged out — skip
+      console.log(`[SyncEngine] Auth event (${event}) — resetting failed items and draining outbox...`);
       try {
         await db.outbox
           .where('status').equals('failed')
           .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+        await db.outbox
+          .where('status').equals('processing')
+          .modify({ status: 'pending' });
       } catch (err) {
-        console.warn('[SyncEngine] Failed to reset failed outbox items:', err);
+        console.warn('[SyncEngine] Failed to reset outbox items:', err);
       }
       await drainOutbox();
     }
@@ -241,8 +264,9 @@ if (typeof window !== 'undefined') {
   setInterval(async () => {
     if (navigator.onLine) {
       const failedCount = await db.outbox.where('status').equals('failed').count();
-      if (failedCount > 0) {
-        console.log(`[SyncEngine] Periodic retry: resetting ${failedCount} failed item(s)...`);
+      const pendingCount = await db.outbox.where('status').equals('pending').count();
+      if (failedCount > 0 || pendingCount > 0) {
+        console.log(`[SyncEngine] Periodic retry: ${failedCount} failed, ${pendingCount} pending item(s)...`);
         await db.outbox
           .where('status').equals('failed')
           .modify({ status: 'pending', retryCount: 0, errorMessage: null });

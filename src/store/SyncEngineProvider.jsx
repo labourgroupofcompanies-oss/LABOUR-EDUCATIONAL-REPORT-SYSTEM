@@ -1,13 +1,14 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
-import { drainOutbox, retryFailed, getIsSyncing } from '../services/syncEngine';
+import { drainOutbox, retryFailed, forceDrain, getIsSyncing } from '../services/syncEngine';
 
 const SyncEngineContext = createContext({
   pendingCount: 0,
   failedCount: 0,
   isSyncing: false,
-  retryFailed: async () => {}
+  retryFailed: async () => {},
+  forceDrain: async () => {}
 });
 
 export const useSyncEngine = () => useContext(SyncEngineContext);
@@ -40,29 +41,29 @@ export const SyncEngineProvider = ({ children }) => {
   const pendingCount = (outboxPendingCount || 0) + (unsyncedLearnersCount || 0);
   const failedCount = outboxFailedCount || 0;
 
-  // On startup: reset stuck/failed items and drain the outbox
+  // On startup: only reset items stuck as 'processing' from a previously crashed session.
+  // NOTE: We do NOT call drainOutbox() here directly because the Supabase session may not
+  // be restored yet (race condition — auth initialisation is async). The actual drain is
+  // triggered safely by the INITIAL_SESSION event handler inside syncEngine.js, which
+  // fires AFTER the Supabase client has fully restored the session. This guarantees that
+  // getSession() will return a valid session when drainOutbox() checks for it.
   useEffect(() => {
-    const startupSync = async () => {
-      if (!navigator.onLine) return;
-      setIsSyncing(true);
+    const resetStuck = async () => {
       try {
-        // 1. Reset any items stuck as 'processing' from a previously crashed session
-        await db.outbox
+        const stuckCount = await db.outbox
           .where('status').equals('processing')
-          .modify({ status: 'pending' });
-
-        // 2. Reset all 'failed' items so they get another chance on every fresh app load
-        await db.outbox
-          .where('status').equals('failed')
-          .modify({ status: 'pending', retryCount: 0, errorMessage: null });
-
-        // 3. Drain the outbox
-        await drainOutbox();
-      } finally {
-        setIsSyncing(false);
+          .count();
+        if (stuckCount > 0) {
+          console.log(`[SyncEngineProvider] Resetting ${stuckCount} stuck 'processing' item(s) to pending...`);
+          await db.outbox
+            .where('status').equals('processing')
+            .modify({ status: 'pending' });
+        }
+      } catch (err) {
+        console.warn('[SyncEngineProvider] Failed to reset stuck items:', err);
       }
     };
-    startupSync();
+    resetStuck();
   }, []);
 
   // Update isSyncing based on sync engine state
@@ -79,12 +80,19 @@ export const SyncEngineProvider = ({ children }) => {
     setIsSyncing(false);
   }, []);
 
+  const handleForceDrain = useCallback(async () => {
+    setIsSyncing(true);
+    await forceDrain();
+    setIsSyncing(false);
+  }, []);
+
   return (
     <SyncEngineContext.Provider value={{
       pendingCount,
       failedCount,
       isSyncing,
-      retryFailed: handleRetryFailed
+      retryFailed: handleRetryFailed,
+      forceDrain: handleForceDrain
     }}>
       {children}
     </SyncEngineContext.Provider>

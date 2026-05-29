@@ -5,7 +5,7 @@ import { useSyncEngine } from '../../store/SyncEngineProvider';
 
 const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
-  const { pendingCount, failedCount, isSyncing, retryFailed } = useSyncEngine();
+  const { pendingCount, failedCount, isSyncing, retryFailed, forceDrain } = useSyncEngine();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'super_admin';
 
@@ -147,6 +147,38 @@ const Sidebar = ({ isOpen, onClose }) => {
             </div>
           </div>
         </div>
+        {/* Force Sync + Logout */}
+        <button
+          onClick={forceDrain}
+          disabled={isSyncing}
+          style={{
+            width: '100%',
+            padding: '0.6rem',
+            marginBottom: '0.5rem',
+            background: isSyncing ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.15)',
+            border: '1px solid rgba(99,102,241,0.25)',
+            borderRadius: 'var(--radius-md)',
+            color: isSyncing ? 'rgba(165,180,252,0.5)' : '#a5b4fc',
+            cursor: isSyncing ? 'not-allowed' : 'pointer',
+            fontSize: '0.78rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '7px',
+            transition: 'var(--transition)',
+            fontFamily: 'inherit'
+          }}
+          title="Force a full sync of all local data to the cloud"
+        >
+          <i className={`fas ${isSyncing ? 'fa-sync fa-spin' : 'fa-cloud-upload-alt'}`}></i>
+          <span>{isSyncing ? 'Syncing...' : 'Force Sync Now'}</span>
+          {(pendingCount > 0 || failedCount > 0) && !isSyncing && (
+            <span style={{ background: failedCount > 0 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)', color: failedCount > 0 ? '#fca5a5' : '#fde68a', borderRadius: '10px', fontSize: '0.6rem', padding: '0.1rem 0.4rem', fontWeight: 700 }}>
+              {failedCount > 0 ? `${failedCount} failed` : `${pendingCount} pending`}
+            </span>
+          )}
+        </button>
         <button
           onClick={handleLogout}
           style={{ width: '100%', padding: '0.6rem', background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 'var(--radius-md)', color: '#fca5a5', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'var(--transition)', fontFamily: 'inherit' }}
