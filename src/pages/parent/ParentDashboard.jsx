@@ -182,11 +182,11 @@ const ParentDashboard = () => {
         console.log('[ParentDashboard] Syncing multi-school sibling data for school ID:', schoolId);
 
         // 1. Sync report_schools for the active sibling's school
-        const { data: remoteSchool, error: schoolError } = await supabase
+        const { data: remoteSchoolList, error: schoolError } = await supabase
           .from('report_schools')
           .select('*')
-          .eq('id', schoolId)
-          .maybeSingle();
+          .eq('id', schoolId);
+        const remoteSchool = remoteSchoolList?.[0];
 
         if (remoteSchool && !schoolError) {
           await db.schools.put({
@@ -208,11 +208,11 @@ const ParentDashboard = () => {
         }
 
         // 2. Sync report_settings for this school
-        const { data: settingsData, error: settingsError } = await supabase
+        const { data: settingsList, error: settingsError } = await supabase
           .from('report_settings')
           .select('*')
-          .eq('id', schoolId)
-          .maybeSingle();
+          .eq('id', schoolId);
+        const settingsData = settingsList?.[0];
 
         if (settingsData && !settingsError) {
           await db.settings.put({

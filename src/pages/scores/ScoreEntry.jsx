@@ -179,11 +179,11 @@ const ScoreEntry = () => {
 
       // 5. Pull Global Settings
       try {
-        const { data: settingsData, error: settingsErr } = await supabase
+        const { data: settingsList, error: settingsErr } = await supabase
           .from('report_settings')
           .select('*')
-          .eq('id', user.schoolId)
-          .maybeSingle();
+          .eq('id', user.schoolId);
+        const settingsData = settingsList?.[0];
           
         if (settingsData && !settingsErr) {
           await db.settings.put({

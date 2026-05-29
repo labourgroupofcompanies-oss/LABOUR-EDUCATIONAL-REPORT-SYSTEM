@@ -68,19 +68,18 @@ export const drainOutbox = async () => {
   console.log('[SyncEngine] Draining outbox...');
 
   try {
-    // Always refresh the session before processing outbox items.
-    // This ensures the JWT token contains the latest user_metadata
-    // (including school_id) so RLS policies pass correctly.
-    // Without this, stale tokens from before school_id was set will
-    // cause 401 / RLS violation errors on every insert.
-    const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
-    if (sessionError) {
-      console.warn('[SyncEngine] Session refresh failed — aborting drain:', sessionError.message);
+    // Check if there is an active session before attempting a refresh.
+    // This prevents spurious 'Auth session missing' warning logs when not logged in.
+    const { data: { session: activeSession } } = await supabase.auth.getSession();
+    if (!activeSession) {
+      console.log('[SyncEngine] No active session — skipping drain.');
       _isSyncing = false;
       return;
     }
-    if (!sessionData?.session) {
-      console.warn('[SyncEngine] No active session — aborting drain (user not logged in).');
+
+    const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
+    if (sessionError) {
+      console.warn('[SyncEngine] Session refresh failed — aborting drain:', sessionError.message);
       _isSyncing = false;
       return;
     }

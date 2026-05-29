@@ -50,11 +50,11 @@ const Settings = () => {
       if (!navigator.onLine || !user?.schoolId) return;
       try {
         // 1. Hydrate grading & assessment settings
-        const { data: settingsData, error: settingsError } = await supabase
+        const { data: settingsList, error: settingsError } = await supabase
           .from('report_settings')
           .select('*')
-          .eq('id', user.schoolId)
-          .maybeSingle();
+          .eq('id', user.schoolId);
+        const settingsData = settingsList?.[0];
 
         if (settingsData && !settingsError) {
           await db.settings.put({
@@ -69,11 +69,11 @@ const Settings = () => {
         }
 
         // 2. Hydrate school motto, logo, dates
-        const { data: remoteSchool, error: schoolError } = await supabase
+        const { data: remoteSchoolList, error: schoolError } = await supabase
           .from('report_schools')
           .select('*')
-          .eq('id', user.schoolId)
-          .maybeSingle();
+          .eq('id', user.schoolId);
+        const remoteSchool = remoteSchoolList?.[0];
 
         if (remoteSchool && !schoolError) {
           await db.schools.put({
