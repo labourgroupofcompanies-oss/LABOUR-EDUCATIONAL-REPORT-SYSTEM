@@ -54,7 +54,7 @@ const Settings = () => {
           .from('report_settings')
           .select('*')
           .eq('id', user.schoolId)
-          .single();
+          .maybeSingle();
 
         if (settingsData && !settingsError) {
           await db.settings.put({
@@ -73,7 +73,7 @@ const Settings = () => {
           .from('report_schools')
           .select('*')
           .eq('id', user.schoolId)
-          .single();
+          .maybeSingle();
 
         if (remoteSchool && !schoolError) {
           await db.schools.put({

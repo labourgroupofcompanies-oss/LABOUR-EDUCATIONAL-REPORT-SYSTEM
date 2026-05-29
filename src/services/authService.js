@@ -31,7 +31,7 @@ export const authService = {
           .from('report_profiles')
           .select('*')
           .eq('id', authData.user.id)
-          .single();
+          .maybeSingle();
 
         if (profile && !profileError) {
           // Happy path: map Supabase snake_case → camelCase and cache locally

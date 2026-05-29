@@ -589,7 +589,7 @@ const Dashboard = () => {
           .from('report_settings')
           .select('*')
           .eq('id', user.schoolId)
-          .single();
+          .maybeSingle();
         if (settingsData && !settingsErr) {
           await db.settings.put({
             id: 'global',

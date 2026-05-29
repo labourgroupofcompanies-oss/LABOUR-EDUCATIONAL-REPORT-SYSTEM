@@ -66,7 +66,7 @@ async function healProfileFromSupabase(currentProfile, setUser) {
       .from('report_profiles')
       .select('*')
       .eq('id', currentProfile.id)
-      .single();
+      .maybeSingle();
 
     if (profile && !error) {
       const healed = {

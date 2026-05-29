@@ -9,7 +9,8 @@ RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT COALESCE(
     auth.jwt() -> 'user_metadata' ->> 'school_id',
     auth.jwt() ->> 'school_id',
-    auth.jwt() -> 'app_metadata' ->> 'school_id'
+    auth.jwt() -> 'app_metadata' ->> 'school_id',
+    (SELECT school_id FROM public.report_profiles WHERE id = auth.uid() LIMIT 1)
   );
 $$;
 
@@ -18,7 +19,8 @@ RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
   SELECT COALESCE(
     auth.jwt() -> 'user_metadata' ->> 'role',
     auth.jwt() ->> 'role',
-    auth.jwt() -> 'app_metadata' ->> 'role'
+    auth.jwt() -> 'app_metadata' ->> 'role',
+    (SELECT role FROM public.report_profiles WHERE id = auth.uid() LIMIT 1)
   );
 $$;
 
