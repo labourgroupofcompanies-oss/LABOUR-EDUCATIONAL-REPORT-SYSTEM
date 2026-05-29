@@ -68,6 +68,26 @@ export const drainOutbox = async () => {
   console.log('[SyncEngine] Draining outbox...');
 
   try {
+    // Always refresh the session before processing outbox items.
+    // This ensures the JWT token contains the latest user_metadata
+    // (including school_id) so RLS policies pass correctly.
+    // Without this, stale tokens from before school_id was set will
+    // cause 401 / RLS violation errors on every insert.
+    const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
+    if (sessionError) {
+      console.warn('[SyncEngine] Session refresh failed — aborting drain:', sessionError.message);
+      _isSyncing = false;
+      return;
+    }
+    if (!sessionData?.session) {
+      console.warn('[SyncEngine] No active session — aborting drain (user not logged in).');
+      _isSyncing = false;
+      return;
+    }
+    console.log('[SyncEngine] Session refreshed. school_id in token:',
+      sessionData.session.user?.user_metadata?.school_id ?? '(not set yet)'
+    );
+
     const pending = await db.outbox
       .where('status').equals('pending')
       .toArray();
@@ -78,6 +98,7 @@ export const drainOutbox = async () => {
     }
 
     console.log(`[SyncEngine] Found ${pending.length} pending item(s)`);
+
 
     for (const item of pending) {
       // Mark as processing to prevent double-processing
