@@ -225,7 +225,14 @@ if (typeof window !== 'undefined') {
   // Listen for user sign-in events to automatically trigger outbox drain
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-      console.log(`[SyncEngine] Auth event (${event}) triggered — draining outbox...`);
+      console.log(`[SyncEngine] Auth event (${event}) triggered — resetting failed items and draining outbox...`);
+      try {
+        await db.outbox
+          .where('status').equals('failed')
+          .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+      } catch (err) {
+        console.warn('[SyncEngine] Failed to reset failed outbox items:', err);
+      }
       await drainOutbox();
     }
   });
