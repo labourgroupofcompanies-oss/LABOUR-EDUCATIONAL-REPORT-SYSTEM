@@ -79,7 +79,12 @@ export const drainOutbox = async () => {
 
     const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession();
     if (sessionError) {
-      console.warn('[SyncEngine] Session refresh failed — aborting drain:', sessionError.message);
+      const errMsg = sessionError.message || '';
+      if (errMsg.includes('session') || errMsg.includes('missing') || errMsg.includes('expired') || errMsg.includes('refresh_token_not_found')) {
+        console.log('[SyncEngine] Session expired or missing — skipping outbox drain.');
+      } else {
+        console.warn('[SyncEngine] Session refresh failed — aborting drain:', errMsg);
+      }
       _isSyncing = false;
       return;
     }
