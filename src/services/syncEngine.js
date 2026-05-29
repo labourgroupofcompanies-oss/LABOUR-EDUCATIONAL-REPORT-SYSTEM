@@ -222,6 +222,14 @@ if (typeof window !== 'undefined') {
     await drainOutbox();
   });
 
+  // Listen for user sign-in events to automatically trigger outbox drain
+  supabase.auth.onAuthStateChange(async (event, session) => {
+    if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      console.log(`[SyncEngine] Auth event (${event}) triggered — draining outbox...`);
+      await drainOutbox();
+    }
+  });
+
   // Periodically retry failed items every 2 minutes while the app is open and online
   setInterval(async () => {
     if (navigator.onLine) {
