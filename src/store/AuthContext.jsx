@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import authService from '../services/authService';
 import { supabase } from '../lib/supabase';
+import { ensureAuth } from '../lib/authUtils';
 import { db } from '../lib/db';
 
 const AuthContext = createContext();
@@ -21,14 +22,14 @@ export const AuthProvider = ({ children }) => {
           // storage was cleared), the sync engine cannot make authenticated API calls.
           // In this case we force a logout so the user can re-authenticate and get a
           // fresh Supabase JWT — without this, all syncs silently fail.
-          const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
-          if (userError || !authUser) {
-            console.warn('[AuthContext] Auth session fully expired – user must re-login to restore sync.');
-            authService.clearSession();
-            setUser(null);
-            setLoading(false);
-            return;
-          }
+            const authUser = await ensureAuth();
+            if (!authUser) {
+              console.warn('[AuthContext] Auth session fully expired – user must re-login to restore sync.');
+              authService.clearSession();
+              setUser(null);
+              setLoading(false);
+              return;
+            }
         }
 
         setUser(currentUser);

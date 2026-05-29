@@ -4,6 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
+import { enqueueSync } from '../../services/syncEngine';
 
 const ClassTeacherEntry = () => {
   const { user } = useAuth();
@@ -140,32 +141,32 @@ const ClassTeacherEntry = () => {
 
     try {
       const savedId = await db.reportSummaries.put(record);
-      if (navigator.onLine) {
-        const cloud = {
-          school_id: user.schoolId, learner_id: resolvedLearnerId,
-          class_id: Number(selectedClass), academic_year: academicYear, term: selectedTerm,
-          attendance_present: Number(form.attendancePresent) || 0,
-          attendance_total:   Number(form.attendanceTotal)   || 0,
-          conduct: form.conduct, attitude: form.attitude,
-          teacher_remark: form.teacherRemark,
-          // Keep existing headteacher/admin fields
-          headteacher_remark: activeSummary?.headteacherRemark || '',
-          promoted_to: form.promotedTo,
-          next_term_begins: activeSummary?.nextTermBegins || '',
-          fees_owed: activeSummary?.feesOwed || '',
-          next_term_bill: activeSummary?.nextTermBill || '',
-          updated_at: new Date().toISOString(),
-        };
-        let err = null;
-        if (activeSummary?.supabaseId) {
-          ({ error: err } = await supabase.from('report_summaries').update(cloud).eq('id', activeSummary.supabaseId));
-        } else {
-          const { data, error } = await supabase.from('report_summaries').insert([cloud]).select().single();
-          err = error;
-          if (data && !error) await db.reportSummaries.update(savedId, { supabaseId: data.id, synced: true });
-        }
-        if (!err) await db.reportSummaries.update(savedId, { synced: true });
-        else console.warn('Cloud sync failed:', err);
+      const cloud = {
+        school_id: user.schoolId,
+        learner_id: resolvedLearnerId,
+        class_id: Number(selectedClass),
+        academic_year: academicYear,
+        term: selectedTerm,
+        attendance_present: Number(form.attendancePresent) || 0,
+        attendance_total:   Number(form.attendanceTotal)   || 0,
+        conduct: form.conduct,
+        attitude: form.attitude,
+        teacher_remark: form.teacherRemark,
+        // Keep existing headteacher/admin fields
+        headteacher_remark: activeSummary?.headteacherRemark || '',
+        promoted_to: form.promotedTo,
+        next_term_begins: activeSummary?.nextTermBegins || '',
+        fees_owed: activeSummary?.feesOwed || '',
+        next_term_bill: activeSummary?.nextTermBill || '',
+        updated_at: new Date().toISOString(),
+      };
+
+      if (activeSummary?.supabaseId) {
+        await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
+        await db.reportSummaries.update(savedId, { synced: true });
+      } else {
+        await enqueueSync('insert', 'report_summaries', cloud);
+        await db.reportSummaries.update(savedId, { synced: true });
       }
       alert('Remarks saved successfully!');
     } catch (err) {

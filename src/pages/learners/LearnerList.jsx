@@ -402,46 +402,45 @@ const LearnerList = () => {
         const existing = await db.learners.get(editingId);
         await db.learners.update(editingId, record);
         
-        if (navigator.onLine && existing?.supabaseId) {
-          const { error } = await supabase.from('report_learners').update({ 
-            full_name: record.fullName, 
-            reg_number: record.regNumber, 
-            gender: record.gender, 
-            class_id: record.currentClassId, 
-            photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
-            guardian_name: record.guardianName,
-            guardian_relation: record.guardianRelation,
-            guardian_contact_1: record.guardianContact1,
-            guardian_contact_2: record.guardianContact2,
-            guardian_profession: record.guardianProfession,
-            guardian_location: record.guardianLocation,
-            updated_at: record.updatedAt
-          }).eq('id', existing.supabaseId);
-          if (!error) {
-            await db.learners.update(editingId, { synced: true });
-          }
+        if (existing?.supabaseId) {
+          await enqueueSync('update', 'report_learners', { 
+            filter: { id: existing.supabaseId },
+            data: {
+              full_name: record.fullName, 
+              reg_number: record.regNumber, 
+              gender: record.gender, 
+              class_id: record.currentClassId, 
+              photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
+              guardian_name: record.guardianName,
+              guardian_relation: record.guardianRelation,
+              guardian_contact_1: record.guardianContact1,
+              guardian_contact_2: record.guardianContact2,
+              guardian_profession: record.guardianProfession,
+              guardian_location: record.guardianLocation,
+              updated_at: record.updatedAt
+            }
+          });
+          await db.learners.update(editingId, { synced: true });
         }
       } else {
         record.createdAt = new Date().toISOString();
         const localId = await db.learners.add(record);
-        if (navigator.onLine) {
-          const { data, error } = await supabase.from('report_learners').insert([{ 
-            full_name: record.fullName, 
-            reg_number: record.regNumber, 
-            gender: record.gender, 
-            class_id: record.currentClassId, 
-            school_id: record.schoolId, 
-            photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null, 
-            guardian_name: record.guardianName,
-            guardian_relation: record.guardianRelation,
-            guardian_contact_1: record.guardianContact1,
-            guardian_contact_2: record.guardianContact2,
-            guardian_profession: record.guardianProfession,
-            guardian_location: record.guardianLocation,
-            created_at: record.createdAt 
-          }]).select().single();
-          if (!error && data) await db.learners.update(localId, { supabaseId: data.id, synced: true });
-        }
+        await enqueueSync('insert', 'report_learners', { 
+          full_name: record.fullName, 
+          reg_number: record.regNumber, 
+          gender: record.gender, 
+          class_id: record.currentClassId, 
+          school_id: record.schoolId, 
+          photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null, 
+          guardian_name: record.guardianName,
+          guardian_relation: record.guardianRelation,
+          guardian_contact_1: record.guardianContact1,
+          guardian_contact_2: record.guardianContact2,
+          guardian_profession: record.guardianProfession,
+          guardian_location: record.guardianLocation,
+          created_at: record.createdAt 
+        });
+        await db.learners.update(localId, { synced: true });
         // Save prefix from whatever format user typed, then advance counter
         savePrefix(String(form.regNumber));
         getNextRegNumber();
@@ -561,37 +560,29 @@ const LearnerList = () => {
       setImportData([]);
       alert(`Successfully registered ${recordsToInsert.length} learners!`);
 
-      if (navigator.onLine) {
-        (async () => {
-          try {
-            console.log(`Starting background cloud sync for ${localIds.length} imported learners...`);
-            for (const item of localIds) {
-              const { record, localId } = item;
-              const { data, error } = await supabase.from('report_learners').insert([{
-                full_name: record.fullName,
-                reg_number: record.regNumber,
-                gender: record.gender,
-                class_id: record.currentClassId,
-                school_id: record.schoolId,
-                photo_url: null,
-                guardian_name: record.guardianName,
-                guardian_relation: record.guardianRelation,
-                guardian_contact_1: record.guardianContact1,
-                guardian_contact_2: record.guardianContact2,
-                guardian_profession: record.guardianProfession,
-                guardian_location: record.guardianLocation,
-                created_at: record.createdAt
-              }]).select().single();
-              if (!error && data) {
-                await db.learners.update(localId, { supabaseId: data.id, synced: true });
-              }
-            }
-            console.log('Background cloud sync completed successfully!');
-          } catch (syncErr) {
-            console.error('Failed background sync for imported learners:', syncErr);
-          }
-        })();
-      }
+      const cloudRows = localIds.map(item => ({
+        full_name: item.record.fullName,
+        reg_number: item.record.regNumber,
+        gender: item.record.gender,
+        class_id: item.record.currentClassId,
+        school_id: item.record.schoolId,
+        photo_url: null,
+        guardian_name: item.record.guardianName,
+        guardian_relation: item.record.guardianRelation,
+        guardian_contact_1: item.record.guardianContact1,
+        guardian_contact_2: item.record.guardianContact2,
+        guardian_profession: item.record.guardianProfession,
+        guardian_location: item.record.guardianLocation,
+        created_at: item.record.createdAt
+      }));
+
+      await enqueueSync('insert', 'report_learners', cloudRows);
+
+      await db.transaction('rw', db.learners, async () => {
+        for (const item of localIds) {
+          await db.learners.update(item.localId, { synced: true });
+        }
+      });
     } catch (err) {
       console.error(err);
       alert('Import failed. Please check the Excel file and try again.');

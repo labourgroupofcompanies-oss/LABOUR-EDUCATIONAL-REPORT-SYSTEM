@@ -4,6 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { enqueueSync } from '../../services/syncEngine';
 import { compressImageToBlob } from '../../utils/imageUtils';
 
 const Settings = () => {
@@ -226,10 +227,10 @@ const Settings = () => {
     }
 
     // Sync to Cloud
-    if (navigator.onLine && user?.schoolId) {
+    if (user?.schoolId) {
       try {
         // Sync report_settings
-        const { error: settingsError } = await supabase.from('report_settings').upsert({
+        await enqueueSync('upsert', 'report_settings', {
           id: user.schoolId,
           school_id: user.schoolId,
           ca_weight: settings.caWeight,
@@ -239,38 +240,29 @@ const Settings = () => {
           ca_breakdown: settings.caBreakdown,
           grading_scale: finalScale,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
-
-        if (settingsError) throw settingsError;
+        }, user.schoolId);
 
         // Sync report_schools — use upsert so it works even if fields were null before
-        const { error: schoolError } = await supabase
-          .from('report_schools')
-          .upsert({
-            id: user.schoolId,
-            name: school.name,
-            motto: school.motto || null,
-            logo_url: school.logoUrl || null,
-            location: school.location || null,
-            district: school.district || null,
-            region: school.region || null,
-            circuit: school.circuit || null,
-            current_academic_year: school.currentAcademicYear || null,
-            current_term: school.currentTerm || null,
-            vacation_date: school.vacationDate || null,
-            next_term_begins: school.nextTermBegins || null,
-            phone: school.phone || null,
-            email: school.email || null,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'id' });
-
-        if (schoolError) throw schoolError;
+        await enqueueSync('upsert', 'report_schools', {
+          id: user.schoolId,
+          name: school.name,
+          motto: school.motto || null,
+          logo_url: school.logoUrl || null,
+          location: school.location || null,
+          district: school.district || null,
+          region: school.region || null,
+          circuit: school.circuit || null,
+          current_academic_year: school.currentAcademicYear || null,
+          current_term: school.currentTerm || null,
+          vacation_date: school.vacationDate || null,
+          next_term_begins: school.nextTermBegins || null,
+          phone: school.phone || null,
+          email: school.email || null,
+          updated_at: new Date().toISOString()
+        }, user.schoolId);
 
       } catch (err) {
         console.error('Failed to sync settings or school to cloud:', err);
-        alert('Local settings saved, but cloud sync failed: ' + err.message);
-        setIsSaving(false);
-        return;
       }
     }
 

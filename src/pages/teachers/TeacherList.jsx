@@ -237,7 +237,7 @@ const TeacherList = () => {
       // If missing, Supabase will reject the insert with a policy violation.
       if (navigator.onLine) {
         try {
-          const { data: { user: authUser } } = await supabase.auth.getUser();
+          const authUser = await ensureAuth();
           if (authUser && (!authUser.user_metadata?.school_id || authUser.user_metadata.school_id !== user.schoolId)) {
             console.log('[TeacherList] Self-healing auth metadata with school_id...');
             await supabase.auth.updateUser({ data: { school_id: user.schoolId } });

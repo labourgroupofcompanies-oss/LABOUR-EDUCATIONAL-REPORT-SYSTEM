@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import Layout from '../../components/layout/Layout';
 import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
+import { enqueueSync } from '../../services/syncEngine';
+
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { calculateCaTotal, calculateExamTotal, calculateTotal } from '../../lib/grading';
@@ -913,27 +915,32 @@ const Reports = () => {
       const savedId = await db.reportSummaries.put(record);
       if (navigator.onLine) {
         const cloud = {
-          school_id: user.schoolId, learner_id: resolvedLearnerId,
-          class_id: Number(selectedClass), academic_year: academicYear, term: selectedTerm,
+          school_id: user.schoolId,
+          learner_id: resolvedLearnerId,
+          class_id: Number(selectedClass),
+          academic_year: academicYear,
+          term: selectedTerm,
           attendance_present: Number(form.attendancePresent) || 0,
-          attendance_total:   Number(form.attendanceTotal)   || 0,
-          conduct: form.conduct, attitude: form.attitude,
-          teacher_remark: form.teacherRemark, headteacher_remark: form.headteacherRemark,
-          promoted_to: form.promotedTo, next_term_begins: form.nextTermBegins,
-          fees_owed: form.feesOwed, next_term_bill: form.nextTermBill, updated_at: new Date().toISOString(),
-          promotion_status: 'pending', // always pending when teacher edits
+          attendance_total: Number(form.attendanceTotal) || 0,
+          conduct: form.conduct,
+          attitude: form.attitude,
+          teacher_remark: form.teacherRemark,
+          headteacher_remark: form.headteacherRemark,
+          promoted_to: form.promotedTo,
+          next_term_begins: form.nextTermBegins,
+          fees_owed: form.feesOwed,
+          next_term_bill: form.nextTermBill,
+          updated_at: new Date().toISOString(),
+          promotion_status: 'pending',
           is_released: activeSummary?.isReleased || activeSummary?.is_released || false
         };
-        let err = null;
         if (activeSummary?.supabaseId) {
-          ({ error: err } = await supabase.from('report_summaries').update(cloud).eq('id', activeSummary.supabaseId));
+            await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
+            await db.reportSummaries.update(savedId, { synced: true, promotionStatus: 'pending' });
         } else {
-          const { data, error } = await supabase.from('report_summaries').insert([cloud]).select().single();
-          err = error;
-          if (data && !error) await db.reportSummaries.update(savedId, { supabaseId: data.id, synced: true, promotionStatus: 'pending' });
+            await enqueueSync('insert', 'report_summaries', cloud);
+            await db.reportSummaries.update(savedId, { synced: true, promotionStatus: 'pending' });
         }
-        if (!err) await db.reportSummaries.update(savedId, { synced: true, promotionStatus: 'pending' });
-        else console.warn('Cloud sync failed:', err);
       } else {
         await db.reportSummaries.update(savedId, { promotionStatus: 'pending' });
       }
@@ -1084,20 +1091,12 @@ const Reports = () => {
           updated_at: new Date().toISOString()
         };
 
-        let err = null;
         if (summary.supabaseId) {
-          ({ error: err } = await supabase.from('report_summaries').update(cloud).eq('id', summary.supabaseId));
-        } else {
-          const { data, error } = await supabase.from('report_summaries').insert([cloud]).select().single();
-          err = error;
-          if (data && !error) {
-            await db.reportSummaries.update(summary.id, { supabaseId: data.id, synced: true });
-          }
-        }
-        if (!err) {
+          await enqueueSync('update', 'report_summaries', { filter: { id: summary.supabaseId }, data: cloud });
           await db.reportSummaries.update(summary.id, { synced: true });
         } else {
-          throw err;
+          await enqueueSync('insert', 'report_summaries', cloud);
+          await db.reportSummaries.update(summary.id, { synced: true });
         }
       }
 

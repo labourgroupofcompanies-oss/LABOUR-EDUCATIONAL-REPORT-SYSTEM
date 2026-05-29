@@ -163,6 +163,13 @@ export const drainOutbox = async () => {
             break;
           }
 
+          case 'upsert': {
+            const rows = Array.isArray(payload) ? payload : [payload];
+            const { error } = await supabase.from(item.table).upsert(rows);
+            opError = error;
+            break;
+          }
+
           default:
             console.warn(`[SyncEngine] Unknown operation: ${item.operation}`);
             await db.outbox.delete(item.id);

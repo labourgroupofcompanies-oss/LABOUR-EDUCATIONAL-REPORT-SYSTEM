@@ -108,30 +108,24 @@ const Financials = () => {
 
         const savedId = await db.reportSummaries.put(record);
 
-        // Sync to cloud if online
-        if (navigator.onLine) {
-          // IMPORTANT: If you want to insert a NEW record that hasn't had academic data filled yet,
-          // we need to supply basic defaults to satisfy Supabase row constraints if any.
-          const cloud = {
-            school_id: user.schoolId,
-            learner_id: resolvedLearnerId,
-            class_id: Number(selectedClass),
-            academic_year: academicYear,
-            term: selectedTerm,
-            next_term_bill: data.nextTermBill,
-            fees_owed: data.feesOwed,
-            updated_at: new Date().toISOString()
-          };
+        // Sync to cloud
+        const cloud = {
+          school_id: user.schoolId,
+          learner_id: resolvedLearnerId,
+          class_id: Number(selectedClass),
+          academic_year: academicYear,
+          term: selectedTerm,
+          next_term_bill: data.nextTermBill,
+          fees_owed: data.feesOwed,
+          updated_at: new Date().toISOString()
+        };
 
-          if (summary && summary.supabaseId) {
-            const { error } = await supabase.from('report_summaries').update(cloud).eq('id', summary.supabaseId);
-            if (!error) await db.reportSummaries.update(savedId, { synced: true });
-          } else {
-            const { data: newCloudData, error } = await supabase.from('report_summaries').insert([cloud]).select().single();
-            if (!error && newCloudData) {
-              await db.reportSummaries.update(savedId, { supabaseId: newCloudData.id, synced: true });
-            }
-          }
+        if (summary && summary.supabaseId) {
+          await enqueueSync('update', 'report_summaries', { filter: { id: summary.supabaseId }, data: cloud });
+          await db.reportSummaries.update(savedId, { synced: true });
+        } else {
+          await enqueueSync('insert', 'report_summaries', cloud);
+          await db.reportSummaries.update(savedId, { synced: true });
         }
         successCount++;
       }
