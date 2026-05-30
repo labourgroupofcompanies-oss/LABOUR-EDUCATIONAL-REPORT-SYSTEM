@@ -22,6 +22,7 @@ export const AuthProvider = ({ children }) => {
           // storage was cleared), the sync engine cannot make authenticated API calls.
           // In this case we force a logout so the user can re-authenticate and get a
           // fresh Supabase JWT — without this, all syncs silently fail.
+          try {
             const authUser = await ensureAuth();
             if (!authUser) {
               console.warn('[AuthContext] Auth session fully expired – user must re-login to restore sync.');
@@ -30,6 +31,13 @@ export const AuthProvider = ({ children }) => {
               setLoading(false);
               return;
             }
+          } catch (authErr) {
+            console.warn('[AuthContext] Supabase auth session fully expired – forcing clean logout:', authErr.message);
+            authService.clearSession();
+            setUser(null);
+            setLoading(false);
+            return;
+          }
         }
 
         setUser(currentUser);
