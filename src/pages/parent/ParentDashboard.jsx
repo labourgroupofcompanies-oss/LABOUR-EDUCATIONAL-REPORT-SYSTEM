@@ -60,6 +60,50 @@ const ParentDashboard = () => {
     const cachedSiblings = JSON.parse(localStorage.getItem('labour_edu_parent_siblings') || '[]');
     if (cachedSiblings.length > 0) {
       setSiblings(cachedSiblings);
+      
+      // Auto-heal/seed the cached sibling records back into db.learners to guarantee they exist in IndexedDB
+      const seedCachedSiblings = async () => {
+        try {
+          for (const sibling of cachedSiblings) {
+            let local = await db.learners.where('supabaseId').equals(sibling.supabaseId || sibling.id).first();
+            if (!local && sibling.regNumber) {
+              local = await db.learners.where('regNumber').equals(sibling.regNumber).first();
+            }
+            
+            const entry = {
+              schoolId: sibling.schoolId || sibling.school_id,
+              regNumber: sibling.regNumber || sibling.reg_number,
+              fullName: sibling.fullName || sibling.full_name,
+              gender: sibling.gender,
+              currentClassId: sibling.currentClassId || sibling.class_id || sibling.classId,
+              photoUrl: sibling.photoUrl || sibling.photo_url,
+              guardianName: sibling.guardianName || sibling.guardian_name,
+              guardianRelation: sibling.guardianRelation || sibling.guardian_relation,
+              guardianContact1: sibling.guardianContact1 || sibling.guardian_contact_1,
+              guardianContact2: sibling.guardianContact2 || sibling.guardian_contact_2,
+              guardianProfession: sibling.guardianProfession || sibling.guardian_profession,
+              guardianLocation: sibling.guardianLocation || sibling.guardian_location,
+              synced: true,
+              supabaseId: sibling.supabaseId || sibling.id || sibling.learnerId,
+              status: sibling.status || 'Active'
+            };
+            
+            if (local) {
+              await db.learners.update(local.id, entry);
+            } else {
+              // Ensure we write with the key mapped to sibling.id if it's numeric
+              const numId = Number(sibling.id);
+              await db.learners.put({
+                ...entry,
+                id: isNaN(numId) ? undefined : numId
+              });
+            }
+          }
+        } catch (err) {
+          console.warn('[ParentDashboard] Failed to auto-heal sibling records in IndexedDB:', err);
+        }
+      };
+      seedCachedSiblings();
     } else {
       // Fallback: lookup in local db if cache is cleared
       const lookupSiblings = async () => {

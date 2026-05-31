@@ -67,12 +67,14 @@ const ParentReportView = () => {
 
       const resolvedLearnerId = learner.supabaseId || String(learner.id);
 
-      // Clean up string-only sibling keys to prevent mixed-type queries or duplicate values in Dexie .anyOf()
+      // Include both numeric and string versions of the local ID, and the Supabase UUID string to ensure proper matching
       const siblingKeys = Array.from(new Set([
         resolvedLearnerId,
-        String(learner.id),
+        learner.id, // Number type key
+        String(learner.id), // String type key
         learner.supabaseId ? String(learner.supabaseId) : null,
-        learner.learnerId ? String(learner.learnerId) : null
+        learner.learnerId ? String(learner.learnerId) : null,
+        learner.learnerId ? Number(learner.learnerId) : null
       ].filter(Boolean)));
 
       // 2. Fetch all dependencies in parallel
