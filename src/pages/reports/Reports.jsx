@@ -898,6 +898,8 @@ const Reports = () => {
     if (!activeLearnerId || !selectedClass || !academicYear || !selectedTerm) { alert('Missing required fields.'); return; }
     setIsSaving(true);
     const resolvedLearnerId = activeLearner?.supabaseId || activeLearnerId;
+    const avg = learnerAverages[activeLearnerId];
+    const rank = learnerRankings[activeLearnerId];
     const record = {
       schoolId: user.schoolId, learnerId: resolvedLearnerId,
       classId: Number(selectedClass), academicYear, term: selectedTerm,
@@ -908,6 +910,9 @@ const Reports = () => {
       promotedTo: form.promotedTo, nextTermBegins: form.nextTermBegins,
       feesOwed: form.feesOwed, nextTermBill: form.nextTermBill,
       isReleased: activeSummary?.isReleased || activeSummary?.is_released || false,
+      classAverage: (avg !== undefined && avg !== null) ? Number(avg) : null,
+      classRank: (rank !== undefined && rank !== null) ? Number(rank) : null,
+      totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0,
       synced: false,
     };
     if (activeSummary) { record.id = activeSummary.id; record.supabaseId = activeSummary.supabaseId; }
@@ -932,7 +937,10 @@ const Reports = () => {
           next_term_bill: form.nextTermBill,
           updated_at: new Date().toISOString(),
           promotion_status: 'pending',
-          is_released: activeSummary?.isReleased || activeSummary?.is_released || false
+          is_released: activeSummary?.isReleased || activeSummary?.is_released || false,
+          class_average: (avg !== undefined && avg !== null) ? Number(avg) : null,
+          class_rank: (rank !== undefined && rank !== null) ? Number(rank) : null,
+          total_graded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0
         };
         if (activeSummary?.supabaseId) {
             await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
@@ -1052,6 +1060,9 @@ const Reports = () => {
         )
         .first();
 
+      const avg = learnerAverages[activeLearnerId];
+      const rank = learnerRankings[activeLearnerId];
+
       if (!summary) {
         summary = {
           schoolId: user.schoolId,
@@ -1066,12 +1077,21 @@ const Reports = () => {
           teacherRemark: '—',
           headteacherRemark: '—',
           isReleased: releaseStatus,
+          classAverage: (avg !== undefined && avg !== null) ? Number(avg) : null,
+          classRank: (rank !== undefined && rank !== null) ? Number(rank) : null,
+          totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0,
           synced: false
         };
         const newId = await db.reportSummaries.add(summary);
         summary.id = newId;
       } else {
-        await db.reportSummaries.update(summary.id, { isReleased: releaseStatus, synced: navigator.onLine });
+        await db.reportSummaries.update(summary.id, { 
+          isReleased: releaseStatus, 
+          classAverage: (avg !== undefined && avg !== null) ? Number(avg) : (summary.classAverage || null),
+          classRank: (rank !== undefined && rank !== null) ? Number(rank) : (summary.classRank || null),
+          totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : (summary.totalGraded || 0),
+          synced: navigator.onLine 
+        });
       }
 
       if (navigator.onLine) {
@@ -1088,6 +1108,9 @@ const Reports = () => {
           teacher_remark: summary.teacherRemark || '—',
           headteacher_remark: summary.headteacherRemark || '—',
           is_released: releaseStatus,
+          class_average: (avg !== undefined && avg !== null) ? Number(avg) : (summary.classAverage || summary.class_average || null),
+          class_rank: (rank !== undefined && rank !== null) ? Number(rank) : (summary.classRank || summary.class_rank || null),
+          total_graded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : (summary.totalGraded || summary.total_graded || 0),
           updated_at: new Date().toISOString()
         };
 
@@ -1113,7 +1136,11 @@ const Reports = () => {
   // ── Render report card ─────────────────────────────────────────────────────
   const renderCard = (learner) => {
     const lId     = learner.id;
-    const summary = reportSummaries?.find(s => s.learnerId === lId && s.academicYear === academicYear && s.term === selectedTerm);
+    const summary = reportSummaries?.find(s => 
+      (s.learnerId === lId || s.learnerId === String(lId) || (learner.supabaseId && s.learnerId === learner.supabaseId)) && 
+      s.academicYear === academicYear && 
+      s.term === selectedTerm
+    );
     const isActive = lId === activeLearnerId;
     const avg     = learnerAverages[lId];
     const rank    = learnerRankings[lId];
@@ -1145,11 +1172,11 @@ const Reports = () => {
     const hRemark   = isActive ? (form.headteacherRemark || summary?.headteacherRemark || '—') : (summary?.headteacherRemark || '—');
     const attP      = isActive ? (form.attendancePresent ?? summary?.attendancePresent ?? '—') : (summary?.attendancePresent ?? '—');
     const attT      = isActive ? (form.attendanceTotal   ?? summary?.attendanceTotal   ?? '—') : (summary?.attendanceTotal   ?? '—');
-    const vDate     = form.vacationDate   || '—';
-    const nDate     = isActive ? (form.nextTermBegins || summary?.nextTermBegins || '—') : (summary?.nextTermBegins || '—');
-    const promoted  = isActive ? form.promotedTo : (summary?.promotedTo || '');
-    const fees      = isActive ? form.feesOwed   : (summary?.feesOwed   || '');
-    const bill      = isActive ? form.nextTermBill : (summary?.nextTermBill || '');
+    const vDate     = form.vacationDate   || schoolInfo?.vacationDate || '—';
+    const nDate     = (isActive ? form.nextTermBegins : null) || summary?.nextTermBegins || form.nextTermBegins || schoolInfo?.nextTermBegins || '—';
+    const promoted  = isActive ? (form.promotedTo || summary?.promotedTo || '') : (summary?.promotedTo || '');
+    const fees      = isActive ? (form.feesOwed || summary?.feesOwed || '') : (summary?.feesOwed || '');
+    const bill      = (isActive ? form.nextTermBill : null) || summary?.nextTermBill || form.nextTermBill || '';
 
     const isReleased = summary && (summary.isReleased || summary.is_released);
 
@@ -1306,7 +1333,9 @@ const Reports = () => {
           <div className="rc-sbox rc-remarks-box">
             <h4>Advisory Remarks</h4>
             <p><strong>Class Advisor:</strong> {tRemark}</p>
-            <p><strong>Headteacher:</strong> {hRemark}</p>
+            {hRemark && hRemark !== '—' && hRemark.trim() !== '' && (
+              <p><strong>Headteacher:</strong> {hRemark}</p>
+            )}
           </div>
         </div>
 

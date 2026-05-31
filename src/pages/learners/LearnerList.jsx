@@ -149,6 +149,13 @@ const LearnerList = () => {
   const [profileLearner, setProfileLearner] = useState(null);
   const [profileTab, setProfileTab] = useState('personal');
 
+  // Reassign registration numbers states
+  const [isReassignModalOpen, setIsReassignModalOpen] = useState(false);
+  const [reassignPrefix, setReassignPrefix] = useState('');
+  const [reassignStartNum, setReassignStartNum] = useState('1');
+  const [reassignStatus, setReassignStatus] = useState('');
+  const [isReassigning, setIsReassigning] = useState(false);
+
   const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
   const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
 
@@ -446,6 +453,10 @@ const LearnerList = () => {
         getNextRegNumber();
       }
       closeModal();
+      // Trigger background sync immediately if online
+      if (navigator.onLine) {
+        syncUnsyncedLearners().catch(err => console.warn('Failed to sync after register:', err));
+      }
     } catch (err) { 
       console.error(err);
       alert('Failed to save. Please try again.'); 
@@ -591,224 +602,249 @@ const LearnerList = () => {
     }
   };
 
-  useEffect(() => {
-    const reconcileClassesAndSubjects = async () => {
-      if (!navigator.onLine || !user?.schoolId) return;
-      try {
-        console.log('Reconciling classes and subjects with Supabase...');
-        
-        // 1. Sync Classes
-        const localClasses = await db.classes.where('schoolId').equals(user.schoolId).toArray();
-        const { data: remoteClasses, error: classErr } = await supabase
-          .from('report_classes')
-          .select('*')
-          .eq('school_id', user.schoolId);
+  const reconcileClassesAndSubjects = useCallback(async () => {
+    if (!navigator.onLine || !user?.schoolId) return;
+    try {
+      console.log('Reconciling classes and subjects with Supabase...');
+      
+      // 1. Sync Classes
+      const localClasses = await db.classes.where('schoolId').equals(user.schoolId).toArray();
+      const { data: remoteClasses, error: classErr } = await supabase
+        .from('report_classes')
+        .select('*')
+        .eq('school_id', user.schoolId);
 
-        if (!classErr && remoteClasses) {
-          for (const lc of localClasses) {
-            let rc = remoteClasses.find(c => c.name.toLowerCase().trim() === lc.name.toLowerCase().trim());
-            
-            if (!rc) {
-              const { data, error } = await supabase
-                .from('report_classes')
-                .insert([{ school_id: user.schoolId, name: lc.name }])
-                .select()
-                .single();
-              if (!error && data) rc = data;
-            }
-
-            if (rc && rc.id !== lc.id) {
-              const oldId = lc.id;
-              const newId = rc.id;
-              console.log(`Reconciling Class ID: ${lc.name} (Local: ${oldId} -> Supabase: ${newId})`);
-
-              // Update all local learners referencing this class
-              const relatedLearners = await db.learners.where('currentClassId').equals(oldId).toArray();
-              for (const l of relatedLearners) {
-                await db.learners.update(l.id, { currentClassId: newId, synced: false });
-              }
-
-              // Update all local scores referencing this class
-              const relatedScores = await db.scores.where('classId').equals(oldId).toArray();
-              for (const s of relatedScores) {
-                await db.scores.update(s.id, { classId: newId });
-              }
-
-              // Update all local teacher assignments referencing this class
-              const relatedAssigns = await db.teacherAssignments.where('classId').equals(oldId).toArray();
-              for (const a of relatedAssigns) {
-                await db.teacherAssignments.update(a.id, { classId: newId });
-              }
-
-              // Re-create the class record locally using the Supabase ID
-              await db.classes.delete(oldId);
-              await db.classes.put({
-                id: newId,
-                schoolId: user.schoolId,
-                name: lc.name,
-                createdAt: lc.createdAt || new Date().toISOString()
-              });
-            }
+      if (!classErr && remoteClasses) {
+        for (const lc of localClasses) {
+          let rc = remoteClasses.find(c => c.name.toLowerCase().trim() === lc.name.toLowerCase().trim());
+          
+          if (!rc) {
+            const { data, error } = await supabase
+              .from('report_classes')
+              .insert([{ school_id: user.schoolId, name: lc.name }])
+              .select()
+              .single();
+            if (!error && data) rc = data;
           }
-        }
 
-        // 2. Sync Subjects
-        const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
-        const { data: remoteSubjects, error: subErr } = await supabase
-          .from('report_subjects')
-          .select('*')
-          .eq('school_id', user.schoolId);
+          if (rc && rc.id !== lc.id) {
+            const oldId = lc.id;
+            const newId = rc.id;
+            console.log(`Reconciling Class ID: ${lc.name} (Local: ${oldId} -> Supabase: ${newId})`);
 
-        if (!subErr && remoteSubjects) {
-          for (const ls of localSubjects) {
-            let rs = remoteSubjects.find(s => s.name.toLowerCase().trim() === ls.name.toLowerCase().trim());
-            
-            if (!rs) {
-              const { data, error } = await supabase
-                .from('report_subjects')
-                .insert([{ school_id: user.schoolId, name: ls.name }])
-                .select()
-                .single();
-              if (!error && data) rs = data;
+            // Update all local learners referencing this class
+            const relatedLearners = await db.learners.where('currentClassId').equals(oldId).toArray();
+            for (const l of relatedLearners) {
+              await db.learners.update(l.id, { currentClassId: newId, synced: false });
             }
 
-            if (rs && rs.id !== ls.id) {
-              const oldId = ls.id;
-              const newId = rs.id;
-              console.log(`Reconciling Subject ID: ${ls.name} (Local: ${oldId} -> Supabase: ${newId})`);
-
-              // Update all local scores referencing this subject
-              const relatedScores = await db.scores.where('subjectId').equals(oldId).toArray();
-              for (const s of relatedScores) {
-                await db.scores.update(s.id, { subjectId: newId });
-              }
-
-              // Update all local teacher assignments referencing this subject
-              const relatedAssigns = await db.teacherAssignments.where('subjectId').equals(oldId).toArray();
-              for (const a of relatedAssigns) {
-                await db.teacherAssignments.update(a.id, { subjectId: newId });
-              }
-
-              // Re-create the subject record locally using the Supabase ID
-              await db.subjects.delete(oldId);
-              await db.subjects.put({
-                id: newId,
-                schoolId: user.schoolId,
-                name: ls.name,
-                createdAt: ls.createdAt || new Date().toISOString()
-              });
+            // Update all local scores referencing this class
+            const relatedScores = await db.scores.where('classId').equals(oldId).toArray();
+            for (const s of relatedScores) {
+              await db.scores.update(s.id, { classId: newId });
             }
-          }
-        }
-        console.log('Finished reconciling classes and subjects!');
-      } catch (err) {
-        console.error('Failed to reconcile classes and subjects:', err);
-      }
-    };
 
-    const syncDeleted = async () => {
-      if (navigator.onLine) {
-        const queue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
-        if (queue.length > 0) {
-          try {
-            const { error } = await supabase.from('report_learners').delete().in('id', queue);
-            if (!error) {
-              localStorage.removeItem('pending_deleted_learners');
-              console.log('Successfully synced offline deletions!');
-            } else {
-              console.error('Failed to sync offline deletions:', error);
+            // Update all local teacher assignments referencing this class
+            const relatedAssigns = await db.teacherAssignments.where('classId').equals(oldId).toArray();
+            for (const a of relatedAssigns) {
+              await db.teacherAssignments.update(a.id, { classId: newId });
             }
-          } catch (err) {
-            console.error('Failed to sync offline deletions:', err);
+
+            // Re-create the class record locally using the Supabase ID
+            await db.classes.delete(oldId);
+            await db.classes.put({
+              id: newId,
+              schoolId: user.schoolId,
+              name: lc.name,
+              createdAt: lc.createdAt || new Date().toISOString()
+            });
           }
         }
       }
-    };
 
-    const syncUnsyncedLearners = async () => {
-      if (navigator.onLine) {
+      // 2. Sync Subjects
+      const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
+      const { data: remoteSubjects, error: subErr } = await supabase
+        .from('report_subjects')
+        .select('*')
+        .eq('school_id', user.schoolId);
+
+      if (!subErr && remoteSubjects) {
+        for (const ls of localSubjects) {
+          let rs = remoteSubjects.find(s => s.name.toLowerCase().trim() === ls.name.toLowerCase().trim());
+          
+          if (!rs) {
+            const { data, error } = await supabase
+              .from('report_subjects')
+              .insert([{ school_id: user.schoolId, name: ls.name }])
+              .select()
+              .single();
+            if (!error && data) rs = data;
+          }
+
+          if (rs && rs.id !== ls.id) {
+            const oldId = ls.id;
+            const newId = rs.id;
+            console.log(`Reconciling Subject ID: ${ls.name} (Local: ${oldId} -> Supabase: ${newId})`);
+
+            // Update all local scores referencing this subject
+            const relatedScores = await db.scores.where('subjectId').equals(oldId).toArray();
+            for (const s of relatedScores) {
+              await db.scores.update(s.id, { subjectId: newId });
+            }
+
+            // Update all local teacher assignments referencing this subject
+            const relatedAssigns = await db.teacherAssignments.where('subjectId').equals(oldId).toArray();
+            for (const a of relatedAssigns) {
+              await db.teacherAssignments.update(a.id, { subjectId: newId });
+            }
+
+            // Re-create the subject record locally using the Supabase ID
+            await db.subjects.delete(oldId);
+            await db.subjects.put({
+              id: newId,
+              schoolId: user.schoolId,
+              name: ls.name,
+              createdAt: ls.createdAt || new Date().toISOString()
+            });
+          }
+        }
+      }
+      console.log('Finished reconciling classes and subjects!');
+    } catch (err) {
+      console.error('Failed to reconcile classes and subjects:', err);
+    }
+  }, [user]);
+
+  const syncDeleted = useCallback(async () => {
+    if (navigator.onLine) {
+      const queue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
+      if (queue.length > 0) {
         try {
-          const unsynced = await db.learners.where('schoolId').equals(user.schoolId).filter(l => !l.synced).toArray();
-          if (unsynced.length === 0) return;
-
-          console.log(`Syncing ${unsynced.length} un-synced learners to the cloud...`);
-          for (const l of unsynced) {
-            // Upload compressed local Base64 photo to Supabase storage if it exists
-            let photoUrl = l.photo;
-            if (photoUrl && photoUrl.startsWith('data:')) {
-              try {
-                const res = await fetch(photoUrl);
-                const blob = await res.blob();
-                const cleanReg = String(l.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-                const path = `learners/${l.schoolId}_${cleanReg}_${Date.now()}.jpg`;
-                const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true });
-                if (!uploadError) {
-                  const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
-                  if (data?.publicUrl) photoUrl = data.publicUrl;
-                }
-              } catch (uploadErr) {
-                console.warn('Failed to upload photo during sync:', uploadErr);
-              }
-            }
-
-            if (l.supabaseId) {
-              // Update existing online record
-              const { error } = await supabase.from('report_learners').update({
-                full_name: l.fullName,
-                reg_number: l.regNumber,
-                gender: l.gender,
-                class_id: l.currentClassId,
-                photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
-                guardian_name: l.guardianName,
-                guardian_relation: l.guardianRelation,
-                guardian_contact_1: l.guardianContact1,
-                guardian_contact_2: l.guardianContact2,
-                guardian_profession: l.guardianProfession,
-                guardian_location: l.guardianLocation,
-                updated_at: l.updatedAt || new Date().toISOString()
-              }).eq('id', l.supabaseId);
-
-              if (!error) {
-                await db.learners.update(l.id, { photo: photoUrl, synced: true });
-              }
-            } else {
-              // Insert new record online
-              const { data, error } = await supabase.from('report_learners').insert([{
-                full_name: l.fullName,
-                reg_number: l.regNumber,
-                gender: l.gender,
-                class_id: l.currentClassId,
-                school_id: l.schoolId,
-                photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
-                guardian_name: l.guardianName,
-                guardian_relation: l.guardianRelation,
-                guardian_contact_1: l.guardianContact1,
-                guardian_contact_2: l.guardianContact2,
-                guardian_profession: l.guardianProfession,
-                guardian_location: l.guardianLocation,
-                created_at: l.createdAt || new Date().toISOString()
-              }]).select().single();
-
-              if (!error && data) {
-                await db.learners.update(l.id, { supabaseId: data.id, photo: photoUrl, synced: true });
-              } else if (error) {
-                console.error('Error syncing learner insert:', error);
-              }
-            }
+          const { error } = await supabase.from('report_learners').delete().in('id', queue);
+          if (!error) {
+            localStorage.removeItem('pending_deleted_learners');
+            console.log('Successfully synced offline deletions!');
+          } else {
+            console.error('Failed to sync offline deletions:', error);
           }
-          console.log('Finished syncing un-synced learners!');
         } catch (err) {
-          console.error('Failed to sync un-synced learners:', err);
+          console.error('Failed to sync offline deletions:', err);
         }
       }
-    };
+    }
+  }, []);
 
-    const syncAll = async () => {
-      await reconcileClassesAndSubjects();
-      await syncDeleted();
-      await syncUnsyncedLearners();
-    };
+  const syncUnsyncedLearners = useCallback(async () => {
+    if (navigator.onLine && user?.schoolId) {
+      try {
+        const unsynced = await db.learners.where('schoolId').equals(user.schoolId).filter(l => !l.synced).toArray();
+        if (unsynced.length === 0) return;
 
+        console.log(`Syncing ${unsynced.length} un-synced learners to the cloud...`);
+        for (const l of unsynced) {
+          // Upload compressed local Base64 photo to Supabase storage if it exists
+          let photoUrl = l.photo;
+          if (photoUrl && photoUrl.startsWith('data:')) {
+            try {
+              const res = await fetch(photoUrl);
+              const blob = await res.blob();
+              const cleanReg = String(l.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
+              const path = `learners/${l.schoolId}_${cleanReg}_${Date.now()}.jpg`;
+              const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true });
+              if (!uploadError) {
+                const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
+                if (data?.publicUrl) photoUrl = data.publicUrl;
+              }
+            } catch (uploadErr) {
+              console.warn('Failed to upload photo during sync:', uploadErr);
+            }
+          }
+
+          let supabaseId = l.supabaseId;
+
+          if (!supabaseId) {
+            // Self-healing: Check if the learner already exists remotely by matching school_id and reg_number
+            try {
+              const { data: remoteRecord, error: checkErr } = await supabase
+                .from('report_learners')
+                .select('id')
+                .eq('school_id', l.schoolId)
+                .eq('reg_number', l.regNumber)
+                .maybeSingle();
+              
+              if (!checkErr && remoteRecord) {
+                supabaseId = remoteRecord.id;
+                // Update local record with the found supabaseId so we don't have to look it up again
+                await db.learners.update(l.id, { supabaseId });
+                console.log(`[Sync] Self-healed learner ${l.fullName}: associated with existing remote ID ${supabaseId}`);
+              }
+            } catch (checkErr) {
+              console.warn('Failed to perform self-healing check for learner:', checkErr);
+            }
+          }
+
+          if (supabaseId) {
+            // Update existing online record
+            const { error } = await supabase.from('report_learners').update({
+              full_name: l.fullName,
+              reg_number: l.regNumber,
+              gender: l.gender,
+              class_id: l.currentClassId,
+              photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
+              guardian_name: l.guardianName,
+              guardian_relation: l.guardianRelation,
+              guardian_contact_1: l.guardianContact1,
+              guardian_contact_2: l.guardianContact2,
+              guardian_profession: l.guardianProfession,
+              guardian_location: l.guardianLocation,
+              updated_at: l.updatedAt || new Date().toISOString()
+            }).eq('id', supabaseId);
+
+            if (!error) {
+              await db.learners.update(l.id, { photo: photoUrl, synced: true });
+            } else {
+              console.error('Error syncing learner update:', error);
+            }
+          } else {
+            // Insert new record online
+            const { data, error } = await supabase.from('report_learners').insert([{
+              full_name: l.fullName,
+              reg_number: l.regNumber,
+              gender: l.gender,
+              class_id: l.currentClassId,
+              school_id: l.schoolId,
+              photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
+              guardian_name: l.guardianName,
+              guardian_relation: l.guardianRelation,
+              guardian_contact_1: l.guardianContact1,
+              guardian_contact_2: l.guardianContact2,
+              guardian_profession: l.guardianProfession,
+              guardian_location: l.guardianLocation,
+              created_at: l.createdAt || new Date().toISOString()
+            }]).select().single();
+
+            if (!error && data) {
+              await db.learners.update(l.id, { supabaseId: data.id, photo: photoUrl, synced: true });
+            } else if (error) {
+              console.error('Error syncing learner insert:', error);
+            }
+          }
+        }
+        console.log('Finished syncing un-synced learners!');
+      } catch (err) {
+        console.error('Failed to sync un-synced learners:', err);
+      }
+    }
+  }, [user]);
+
+  const syncAll = useCallback(async () => {
+    await reconcileClassesAndSubjects();
+    await syncDeleted();
+    await syncUnsyncedLearners();
+  }, [reconcileClassesAndSubjects, syncDeleted, syncUnsyncedLearners]);
+
+  useEffect(() => {
     syncAll();
 
     const handleOnline = () => {
@@ -818,7 +854,111 @@ const LearnerList = () => {
     return () => {
       window.removeEventListener('online', handleOnline);
     };
-  }, [user]);
+  }, [user, syncAll]);
+
+  const openReassignModal = () => {
+    setReassignPrefix(getPrefix());
+    setReassignStartNum('1');
+    setReassignStatus('');
+    setIsReassigning(false);
+    setIsReassignModalOpen(true);
+  };
+
+  const handleReassignRegNumbers = async (e) => {
+    e.preventDefault();
+    if (!navigator.onLine) {
+      alert('An active internet connection is required to reassign registration numbers to avoid unique key conflicts on the cloud.');
+      return;
+    }
+
+    if (!filtered || filtered.length === 0) {
+      alert('No learners displayed to reassign.');
+      return;
+    }
+
+    const startNum = parseInt(reassignStartNum, 10);
+    if (isNaN(startNum) || startNum < 1) {
+      alert('Please enter a valid starting number (minimum 1).');
+      return;
+    }
+
+    const prefix = reassignPrefix.trim().toUpperCase();
+    if (!prefix) {
+      alert('Please enter a valid registration prefix.');
+      return;
+    }
+
+    const confirmMsg = `Are you sure you want to sequentially reassign registration numbers to all ${filtered.length} currently displayed learners in their alphabetical name order?\n\nThis will modify records locally and immediately sync updates to the cloud.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsReassigning(true);
+    setReassignStatus('Step 1 of 3: Releasing current registration numbers in local database...');
+
+    try {
+      const timestamp = Date.now();
+      const listToReassign = [...filtered];
+
+      // Pass 1: Make them unique with temporary suffix locally so Supabase doesn't conflict
+      for (let i = 0; i < listToReassign.length; i++) {
+        const learner = listToReassign[i];
+        const tempReg = `${learner.regNumber}_TEMP_${timestamp}_${i}`;
+        
+        await db.learners.update(learner.id, {
+          regNumber: tempReg,
+          synced: false
+        });
+      }
+
+      setReassignStatus('Step 2 of 3: Syncing temporary releases to the cloud...');
+      if (navigator.onLine) {
+        await syncUnsyncedLearners();
+      }
+
+      setReassignStatus('Step 3 of 3: Assigning new sequential registration numbers alphabetically...');
+      for (let i = 0; i < listToReassign.length; i++) {
+        const learner = listToReassign[i];
+        const nextNum = startNum + i;
+        const padNum = String(nextNum).padStart(4, '0');
+        const finalReg = `${prefix}-${padNum}`;
+
+        await db.learners.update(learner.id, {
+          regNumber: finalReg,
+          synced: false,
+          updatedAt: new Date().toISOString()
+        });
+
+        // If the learner has a supabaseId, queue standard updates to ensure outbox consistency
+        if (learner.supabaseId) {
+          await enqueueSync('update', 'report_learners', {
+            filter: { id: learner.supabaseId },
+            data: {
+              reg_number: finalReg,
+              updated_at: new Date().toISOString()
+            }
+          }, user.schoolId);
+        }
+      }
+
+      setReassignStatus('Finalizing: Syncing new alphabetical registration numbers to cloud...');
+      
+      const maxAssignedNum = startNum + listToReassign.length - 1;
+      localStorage.setItem(REG_KEY, String(maxAssignedNum));
+      localStorage.setItem(PREFIX_KEY, prefix);
+
+      if (navigator.onLine) {
+        await syncUnsyncedLearners();
+      }
+
+      alert(`Successfully reassigned registration numbers to ${listToReassign.length} learners!`);
+      setIsReassignModalOpen(false);
+    } catch (err) {
+      console.error('Error during registration number reassignment:', err);
+      alert('An error occurred during reassignment: ' + err.message);
+    } finally {
+      setIsReassigning(false);
+      setReassignStatus('');
+    }
+  };
 
   const handleDeleteLearner = async (l) => {
     if (!await window.confirm(`Are you sure you want to delete ${l.fullName}? This action cannot be undone.`)) return;
@@ -1033,6 +1173,29 @@ const LearnerList = () => {
             style={{ display: 'none' }} 
             onChange={handleExcelImport} 
           />
+
+          <button 
+            type="button" 
+            className="btn" 
+            onClick={openReassignModal} 
+            style={{ 
+              borderRadius: 12, 
+              padding: '0 1.25rem', 
+              height: 44, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '.5rem', 
+              fontWeight: 700, 
+              background: '#3b82f6',
+              color: '#fff',
+              border: 'none',
+              boxShadow: '0 4px 12px rgba(59,130,246,.15)', 
+              whiteSpace: 'nowrap',
+              cursor: 'pointer'
+            }}
+          >
+            <i className="fas fa-sort-numeric-down"></i><span>Reassign Numbers</span>
+          </button>
 
           <button className="btn btn-accent" onClick={openModal} style={{ borderRadius: 12, padding: '0 1.25rem', height: 44, display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, boxShadow: '0 4px 12px rgba(13,148,136,.2)', whiteSpace: 'nowrap' }}>
             <i className="fas fa-user-plus"></i><span>Register Learner</span>
@@ -1800,6 +1963,96 @@ const LearnerList = () => {
                 {isSaving ? 'Registering...' : `Confirm Import (${importData.length})`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reassign Registration Numbers Modal ──────────────────────── */}
+      {isReassignModalOpen && (
+        <div className="reg-modal-backdrop" onClick={e => e.target === e.currentTarget && !isReassigning && setIsReassignModalOpen(false)}>
+          <div className="reg-modal" style={{ maxWidth: '440px' }}>
+            {/* Header */}
+            <div className="reg-modal-header" style={{ borderBottom: '1px solid #f1f5f9', paddingBottom: '1.25rem' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: 'rgba(59,130,246,.1)', borderRadius: 10, marginRight: 10 }}>
+                    <i className="fas fa-sort-numeric-down" style={{ color: '#3b82f6', fontSize: '.9rem' }}></i>
+                  </span>
+                  Reassign Reg Numbers
+                </h2>
+                <p style={{ margin: '4px 0 0 46px', fontSize: '.8rem', color: '#94a3b8' }}>
+                  Reassign sequentially based on alphabetical name order.
+                </p>
+              </div>
+              <button onClick={() => !isReassigning && setIsReassignModalOpen(false)} style={{ background: '#f1f5f9', border: 'none', width: 34, height: 34, borderRadius: '50%', cursor: 'pointer', fontSize: '1rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }} disabled={isReassigning}>
+                <i className="fas fa-times"></i>
+              </button>
+            </div>
+
+            {/* Form Body */}
+            <form onSubmit={handleReassignRegNumbers} style={{ padding: '1.5rem' }}>
+              {reassignStatus ? (
+                <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', minHeight: '120px' }}>
+                  <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.8rem', color: '#3b82f6' }}></i>
+                  <div style={{ fontSize: '.85rem', color: '#475569', fontWeight: 600, textAlign: 'center' }}>{reassignStatus}</div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                  <div style={{ fontSize: '.85rem', color: '#475569', background: 'rgba(59,130,246,0.06)', padding: '.75rem 1rem', borderRadius: 10, border: '1px solid rgba(59,130,246,0.15)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                    <i className="fas fa-info-circle" style={{ color: '#3b82f6', marginTop: '2px' }}></i>
+                    <span>
+                      This will sequentially reassign new numbers to the <strong>{filtered?.length ?? 0}</strong> currently displayed learners in their sorted alphabetical name order.
+                    </span>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="field-label">Registration Prefix</label>
+                    <input 
+                      type="text" 
+                      className="field-input" 
+                      placeholder="e.g. STUD, GES, BKS"
+                      value={reassignPrefix}
+                      onChange={e => setReassignPrefix(e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase())}
+                      required
+                      maxLength={12}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="field-label">Starting Sequential Number</label>
+                    <input 
+                      type="number" 
+                      className="field-input" 
+                      placeholder="e.g. 1"
+                      value={reassignStartNum}
+                      onChange={e => setReassignStartNum(e.target.value.replace(/[^0-9]/g, ''))}
+                      required
+                      min="1"
+                    />
+                  </div>
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: '.75rem', marginTop: '1rem', borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
+                    <button 
+                      type="button" 
+                      className="reg-btn-ghost" 
+                      onClick={() => setIsReassignModalOpen(false)} 
+                      style={{ flex: 1, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      type="submit" 
+                      className="reg-btn-primary" 
+                      style={{ flex: 1, height: 44, background: 'linear-gradient(135deg,#3b82f6,#2563eb)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                    >
+                      <i className="fas fa-check"></i>
+                      <span>Apply & Sync</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </form>
           </div>
         </div>
       )}

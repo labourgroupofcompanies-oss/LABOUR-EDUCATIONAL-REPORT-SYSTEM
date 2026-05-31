@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import Layout from '../../components/layout/Layout';
 import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
@@ -319,20 +319,151 @@ const ScoreEntry = () => {
           .filter(s => s.subjectId === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
           .toArray();
         
+        // Fetch all learners for this class to resolve local ID mappings to supabaseId (UUID)
+        const localLearners = await db.learners.where('currentClassId').equals(Number(selectedClass)).toArray();
+        
         const scoreMap = {};
-        existing.forEach(s => {
-          scoreMap[s.learnerId] = { 
+        for (const s of existing) {
+          let resolvedLearnerId = s.learnerId;
+          
+          // Self-healing: if s.learnerId is not a UUID, check if that student now has a supabaseId
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
+          if (!isUuid) {
+            const matchedLearner = localLearners.find(l => String(l.id) === String(s.learnerId));
+            if (matchedLearner && matchedLearner.supabaseId) {
+              resolvedLearnerId = matchedLearner.supabaseId;
+              
+              // Automatically migrate local score to the correct UUID mapping in Dexie
+              try {
+                await db.scores.update(s.id, { learnerId: resolvedLearnerId });
+                console.log(`[Score Sync] Self-healed score for learner ${matchedLearner.fullName}: migrated ID from ${s.learnerId} to ${resolvedLearnerId}`);
+              } catch (updErr) {
+                console.warn('Failed to update local score learnerId:', updErr);
+              }
+            }
+          }
+          
+          scoreMap[resolvedLearnerId] = { 
             caScores: s.caScores || [], 
             examScore: s.examScore || '' 
           };
-        });
+        }
         setScores(scoreMap);
       }
     };
     loadScores();
   }, [selectedClass, selectedSubject, selectedAcademicYear, selectedTerm, user]);
 
-  const handleCaChange = (learnerId, index, value) => {
+  const syncUnsyncedScores = useCallback(async () => {
+    if (!navigator.onLine || !user?.schoolId) return;
+    try {
+      // Fetch all unsynced scores locally
+      const unsynced = await db.scores.filter(s => !s.synced).toArray();
+      if (unsynced.length === 0) return;
+
+      console.log(`[Score Sync] Found ${unsynced.length} unsynced score(s). Resolving mappings...`);
+      
+      // Group scores by class, subject, term, academic year to perform efficient batch deletes & inserts
+      const groups = {};
+      
+      for (const s of unsynced) {
+        // Resolve student UUID if it was stored as local ID
+        let resolvedLearnerId = s.learnerId;
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
+        
+        if (!isUuid) {
+          const matchedLearner = await db.learners.get(Number(s.learnerId));
+          if (matchedLearner && matchedLearner.supabaseId) {
+            resolvedLearnerId = matchedLearner.supabaseId;
+            // Update local score record with the UUID
+            await db.scores.update(s.id, { learnerId: resolvedLearnerId });
+          } else {
+            // Cannot sync score yet if the learner has no UUID (not synced yet)
+            console.log(`[Score Sync] Learner ${s.learnerId} not synced yet. Skipping score sync for now.`);
+            continue;
+          }
+        }
+
+        const groupKey = `${s.classId}_${s.subjectId}_${s.term}_${s.academicYear}`;
+        if (!groups[groupKey]) {
+          groups[groupKey] = {
+            classId: s.classId,
+            subjectId: s.subjectId,
+            term: s.term,
+            academicYear: s.academicYear,
+            scores: []
+          };
+        }
+        
+        groups[groupKey].scores.push({
+          id: s.id, // local Dexie ID to mark as synced later
+          payload: {
+            school_id: user.schoolId,
+            learner_id: resolvedLearnerId,
+            class_id: s.classId,
+            subject_id: s.subjectId,
+            ca_scores: s.caScores || [],
+            exam_score: s.examScore !== '' && s.examScore !== undefined && s.examScore !== null ? Number(s.examScore) : null,
+            class_score: Number(s.classScore) || 0,
+            total_score: Number(s.totalScore) || null,
+            grade: s.grade || null,
+            remark: s.remark || null,
+            is_submitted: s.isSubmitted || false,
+            academic_year: s.academicYear,
+            term: s.term,
+            updated_at: s.updatedAt || new Date().toISOString()
+          }
+        });
+      }
+
+      for (const group of Object.values(groups)) {
+        if (group.scores.length === 0) continue;
+
+        console.log(`[Score Sync] Enqueuing ${group.scores.length} scores for Class ${group.classId}, Subject ${group.subjectId}...`);
+        
+        const cloudRows = group.scores.map(item => item.payload);
+        
+        await enqueueSync(
+          'delete_insert',
+          'report_scores',
+          {
+            deleteFilter: {
+              school_id: user.schoolId,
+              class_id: Number(group.classId),
+              subject_id: Number(group.subjectId),
+              term: group.term,
+              academic_year: group.academicYear
+            },
+            insertData: cloudRows
+          },
+          user.schoolId
+        );
+
+        // Mark all these scores as synced locally
+        await db.transaction('rw', db.scores, async () => {
+          for (const item of group.scores) {
+            await db.scores.update(item.id, { synced: true, lastSyncedAt: new Date().toISOString() });
+          }
+        });
+      }
+      console.log('[Score Sync] Finished enqueuing unsynced scores!');
+    } catch (err) {
+      console.error('[Score Sync] Error during score sync:', err);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    syncUnsyncedScores();
+    const handleOnline = () => {
+      syncUnsyncedScores();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, [user, syncUnsyncedScores]);
+
+  const handleCaChange = (supabaseId, localId, index, value) => {
     if (value !== '') {
       const numVal = Number(value);
       const maxAllowed = caCols[index]?.maxScore || 100;
@@ -344,19 +475,21 @@ const ScoreEntry = () => {
     }
 
     setScores(prev => {
-      const currentCa = prev[learnerId]?.caScores ? [...prev[learnerId].caScores] : [];
+      const existing = (supabaseId && prev[supabaseId]) || (localId && prev[localId]) || {};
+      const currentCa = existing.caScores ? [...existing.caScores] : [];
       currentCa[index] = value;
+      const key = supabaseId || localId;
       return {
         ...prev,
-        [learnerId]: {
-          ...prev[learnerId],
+        [key]: {
+          ...existing,
           caScores: currentCa
         }
       };
     });
   };
 
-  const handleExamChange = (learnerId, value) => {
+  const handleExamChange = (supabaseId, localId, value) => {
     if (value !== '') {
       const numVal = Number(value);
       if (numVal > 100) {
@@ -366,13 +499,17 @@ const ScoreEntry = () => {
       }
     }
 
-    setScores(prev => ({
-      ...prev,
-      [learnerId]: {
-        ...prev[learnerId],
-        examScore: value
-      }
-    }));
+    setScores(prev => {
+      const existing = (supabaseId && prev[supabaseId]) || (localId && prev[localId]) || {};
+      const key = supabaseId || localId;
+      return {
+        ...prev,
+        [key]: {
+          ...existing,
+          examScore: value
+        }
+      };
+    });
   };
 
   const [isSaving, setIsSaving] = useState(false);
@@ -385,11 +522,10 @@ const ScoreEntry = () => {
     setIsSaving(true);
 
     const scoreEntries = [];
-    const cloudEntries = [];
 
     // Map object to entries
     for (const [learnerIdStr, data] of Object.entries(scores)) {
-      const learnerId = learnerIdStr; // It's a UUID string! Wait, Dexie might have it as string.
+      const learnerId = learnerIdStr;
       const caScoresArray = data.caScores || [];
       const examRaw = data.examScore || 0;
       
@@ -413,30 +549,9 @@ const ScoreEntry = () => {
         termId: null,
         term: selectedTerm,
         academicYear: selectedAcademicYear,
-        updatedAt: now
+        updatedAt: now,
+        synced: false
       });
-
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(learnerId);
-      if (isUuid) {
-        cloudEntries.push({
-          school_id: user.schoolId,
-          learner_id: learnerId,
-          class_id: Number(selectedClass),
-          subject_id: Number(selectedSubject),
-          ca_scores: caScoresArray,
-          exam_score: examRaw ? Number(examRaw) : null,
-          class_score: Number(caTotal) || 0,
-          total_score: Number(total) || null,
-          grade: grade || null,
-          remark: remark || null,
-          is_submitted: false,
-          academic_year: selectedAcademicYear,
-          term: selectedTerm,
-          updated_at: now
-        });
-      } else {
-        console.warn(`Skipping cloud score sync for unsynced learner: ${learnerId}`);
-      }
     }
 
     // Bulk put into Dexie
@@ -453,35 +568,11 @@ const ScoreEntry = () => {
       }
     }
 
-    // — Sync to Cloud via Outbox (works online AND offline) —
-    if (cloudEntries.length > 0) {
-      try {
-        // Enqueue a delete_insert operation: clears stale scores then re-inserts fresh batch.
-        // If offline, the outbox will drain automatically when connectivity returns.
-        await enqueueSync(
-          'delete_insert',
-          'report_scores',
-          {
-            deleteFilter: {
-              school_id: user.schoolId,
-              class_id: Number(selectedClass),
-              subject_id: Number(selectedSubject),
-              term: selectedTerm,
-              academic_year: selectedAcademicYear
-            },
-            insertData: cloudEntries
-          },
-          user.schoolId
-        );
-        alert(navigator.onLine
-          ? 'Scores saved & synced to cloud successfully!'
-          : 'Scores saved offline! They will sync automatically when you reconnect.');
-      } catch (err) {
-        console.error('Failed to enqueue score sync:', err);
-        alert('Scores saved locally. Background sync will push them to the cloud.');
-      }
-    } else {
-      alert('Scores saved successfully!');
+    alert('Scores saved offline in local database successfully!');
+
+    // Trigger background sync immediately if online
+    if (navigator.onLine) {
+      syncUnsyncedScores().catch(err => console.warn('Failed to sync after save:', err));
     }
 
     setIsSaving(false);
@@ -642,7 +733,7 @@ const ScoreEntry = () => {
             {/* Students Card Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(245px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
               {learners?.map((learner) => {
-                const current = scores[learner.supabaseId || learner.id] || {};
+                const current = (learner.supabaseId && scores[learner.supabaseId]) || (learner.id && scores[learner.id]) || {};
                 const caScoresArr = current.caScores || [];
                 const examRaw = current.examScore || '';
                 
@@ -733,7 +824,7 @@ const ScoreEntry = () => {
                             }}
                             max={col.maxScore}
                             value={caScoresArr[i] || ''}
-                            onChange={(e) => handleCaChange(learner.supabaseId || learner.id, i, e.target.value)}
+                            onChange={(e) => handleCaChange(learner.supabaseId, learner.id, i, e.target.value)}
                             placeholder="-"
                           />
                         </div>
@@ -761,7 +852,7 @@ const ScoreEntry = () => {
                           }}
                           max="100"
                           value={examRaw}
-                          onChange={(e) => handleExamChange(learner.supabaseId || learner.id, e.target.value)}
+                          onChange={(e) => handleExamChange(learner.supabaseId, learner.id, e.target.value)}
                           placeholder="-"
                         />
                       </div>
@@ -821,6 +912,37 @@ const ScoreEntry = () => {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Bottom Save Action Bar */}
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              marginTop: '2rem', 
+              paddingTop: '2rem', 
+              borderTop: '1px solid #e2e8f0' 
+            }}>
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSave} 
+                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving}
+                style={{ 
+                  padding: '0.8rem 2.5rem', 
+                  fontSize: '1rem', 
+                  borderRadius: '12px', 
+                  boxShadow: '0 10px 15px -3px rgba(59, 130, 246, 0.3), 0 4px 6px -4px rgba(59, 130, 246, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}
+              >
+                {isSaving ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : (
+                  <i className="fas fa-save"></i>
+                )}
+                <span>{isSaving ? 'Saving Scores...' : 'Save Draft & Sync'}</span>
+              </button>
             </div>
           </div>
         ) : (

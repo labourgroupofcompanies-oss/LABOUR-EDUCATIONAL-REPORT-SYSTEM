@@ -176,6 +176,84 @@ export const drainOutbox = async () => {
             continue;
         }
 
+        if (opError && (opError.code === '23505' || String(opError.message).toLowerCase().includes('unique constraint') || String(opError.message).toLowerCase().includes('duplicate key'))) {
+          console.log(`[SyncEngine] 🔄 Unique key conflict (23505) detected on ${item.table} for insert operation. Attempting automatic self-healing reconciliation...`);
+          
+          try {
+            if (item.table === 'report_summaries') {
+              const { data: existingSummary } = await supabase
+                .from('report_summaries')
+                .select('id')
+                .eq('school_id', payload.school_id)
+                .eq('learner_id', payload.learner_id)
+                .eq('academic_year', payload.academic_year)
+                .eq('term', payload.term)
+                .maybeSingle();
+
+              if (existingSummary?.id) {
+                console.log(`[SyncEngine] 🔄 Found existing remote summary ID ${existingSummary.id}. Upgrading insert to update.`);
+                
+                // Update remote row with current payload
+                const { error: updErr } = await supabase
+                  .from('report_summaries')
+                  .update(payload)
+                  .eq('id', existingSummary.id);
+                  
+                if (!updErr) {
+                  opError = null; // Mark operation as successful!
+                  
+                  // Update local Dexie record to bind supabaseId & synced = true
+                  const local = await db.reportSummaries
+                    .where('schoolId').equals(payload.school_id)
+                    .filter(s => s.learnerId === payload.learner_id && s.academicYear === payload.academic_year && s.term === payload.term)
+                    .first();
+                    
+                  if (local) {
+                    await db.reportSummaries.update(local.id, { supabaseId: existingSummary.id, synced: true });
+                    console.log(`[SyncEngine] ✅ Successfully self-healed local summary ID ${local.id} with supabaseId ${existingSummary.id}`);
+                  }
+                } else {
+                  opError = updErr;
+                }
+              }
+            } else if (item.table === 'report_learners') {
+              const { data: existingLearner } = await supabase
+                .from('report_learners')
+                .select('id')
+                .eq('school_id', payload.school_id)
+                .eq('reg_number', payload.reg_number)
+                .maybeSingle();
+
+              if (existingLearner?.id) {
+                console.log(`[SyncEngine] 🔄 Found existing remote learner ID ${existingLearner.id}. Upgrading insert to update.`);
+                
+                const { error: updErr } = await supabase
+                  .from('report_learners')
+                  .update(payload)
+                  .eq('id', existingLearner.id);
+                  
+                if (!updErr) {
+                  opError = null; // Mark operation as successful!
+                  
+                  const local = await db.learners
+                    .where('schoolId').equals(payload.school_id)
+                    .filter(l => l.regNumber === payload.reg_number)
+                    .first();
+                    
+                  if (local) {
+                    await db.learners.update(local.id, { supabaseId: existingLearner.id, synced: true });
+                    console.log(`[SyncEngine] ✅ Successfully self-healed local learner ID ${local.id} with supabaseId ${existingLearner.id}`);
+                  }
+                } else {
+                  opError = updErr;
+                }
+              }
+            }
+          } catch (reconcileErr) {
+            console.error('[SyncEngine] Reconcile error:', reconcileErr);
+          }
+        }
+
         if (opError) {
           throw new Error(opError.message || 'Supabase operation failed');
         }
@@ -238,7 +316,7 @@ if (typeof window !== 'undefined') {
     await db.outbox
       .where('status').equals('failed')
       .modify({ status: 'pending', retryCount: 0, errorMessage: null });
-    await drainOutbox();
+    drainOutbox();
   });
 
   // Listen for ALL relevant auth events to automatically trigger outbox drain.
@@ -259,7 +337,7 @@ if (typeof window !== 'undefined') {
       } catch (err) {
         console.warn('[SyncEngine] Failed to reset outbox items:', err);
       }
-      await drainOutbox();
+      drainOutbox();
     }
   });
 
@@ -273,7 +351,7 @@ if (typeof window !== 'undefined') {
         await db.outbox
           .where('status').equals('failed')
           .modify({ status: 'pending', retryCount: 0, errorMessage: null });
-        await drainOutbox();
+        drainOutbox();
       }
     }
   }, 2 * 60 * 1000); // every 2 minutes

@@ -16,40 +16,40 @@ export const AuthProvider = ({ children }) => {
       try {
         const currentUser = await authService.getCurrentUser();
 
-        if (currentUser && navigator.onLine) {
-          // Verify the Supabase session is still alive when online.
-          // If it is missing (e.g. user logged in while offline, token expired, or
-          // storage was cleared), the sync engine cannot make authenticated API calls.
-          // In this case we force a logout so the user can re-authenticate and get a
-          // fresh Supabase JWT — without this, all syncs silently fail.
-          try {
-            const authUser = await ensureAuth();
-            if (!authUser) {
-              console.warn('[AuthContext] Auth session fully expired – user must re-login to restore sync.');
-              authService.clearSession();
-              setUser(null);
-              setLoading(false);
-              return;
-            }
-          } catch (authErr) {
-            console.warn('[AuthContext] Supabase auth session fully expired – forcing clean logout:', authErr.message);
-            authService.clearSession();
-            setUser(null);
-            setLoading(false);
-            return;
+        if (currentUser) {
+          // Instantly authorize using local cache for zero-latency loading
+          setUser(currentUser);
+          setLoading(false);
+
+          // Verify Supabase session asynchronously in the background (non-blocking)
+          if (navigator.onLine) {
+            (async () => {
+              try {
+                const authUser = await ensureAuth();
+                if (!authUser) {
+                  console.warn('[AuthContext] Async session check failed – logging out.');
+                  authService.clearSession();
+                  setUser(null);
+                } else if (!currentUser.schoolId) {
+                  healProfileFromSupabase(currentUser, setUser);
+                }
+              } catch (authErr) {
+                console.warn('[AuthContext] Supabase auth check failed in background:', authErr.message);
+                // Force logout ONLY if the token is explicitly invalid or expired
+                const errMsg = authErr.message?.toLowerCase() || '';
+                if (errMsg.includes('expired') || errMsg.includes('invalid') || errMsg.includes('jwt')) {
+                  authService.clearSession();
+                  setUser(null);
+                }
+              }
+            })();
           }
-        }
-
-        setUser(currentUser);
-
-        // If the user is logged in but has no schoolId (e.g. after cleared storage
-        // where we fell back to auth metadata), try to heal the profile from Supabase.
-        if (currentUser && !currentUser.schoolId && navigator.onLine) {
-          healProfileFromSupabase(currentUser, setUser);
+        } else {
+          // No active local session - proceed to login instantly
+          setLoading(false);
         }
       } catch (error) {
         console.error('Auth initialization error:', error);
-      } finally {
         setLoading(false);
       }
     };
@@ -120,7 +120,21 @@ export const ProtectedRoute = ({ children, role }) => {
 
   if (loading) return <div>Loading...</div>; // Could be a splash screen
 
-  if (!user) return <Navigate to="/login" />;
+  if (!user) {
+    // Bypass redirecting to login if we are processing a Supabase recovery or oauth hash callback
+    const hash = window.location.hash || '';
+    if (hash.includes('access_token=') || hash.includes('error_description=') || hash.includes('type=recovery')) {
+      return (
+        <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: 'white', fontFamily: 'sans-serif' }}>
+          <div style={{ textAlign: 'center' }}>
+            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#0d9488' }}></i>
+            <div style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Processing secure link...</div>
+          </div>
+        </div>
+      );
+    }
+    return <Navigate to="/login" />;
+  }
 
   if (role && user.role !== role) return <Navigate to="/" />;
 

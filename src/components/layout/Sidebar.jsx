@@ -10,13 +10,7 @@ const Sidebar = ({ isOpen, onClose }) => {
   const navigate = useNavigate();
   const isAdmin = user?.role === 'super_admin';
 
-  // Listen for a custom event that indicates the auth session is completely expired.
-  const [authExpired, setAuthExpired] = useState(false);
-  useEffect(() => {
-    const handler = () => setAuthExpired(true);
-    window.addEventListener('sync-auth-expired', handler);
-    return () => window.removeEventListener('sync-auth-expired', handler);
-  }, []);
+
 
   const handleLogout = async () => {
     await logout();
@@ -72,27 +66,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         </button>
       </div>
 
-      {/* Session Expired Warning — shown when Supabase JWT cannot be refreshed */}
-      // Session Expired Toast – stays until user clicks Log Out
-{authExpired && (
-  <div className="auth-toast" style={{
-    margin: '0.75rem 1rem 0',
-    padding: '0.7rem 0.75rem',
-    borderRadius: '10px',
-    background: 'rgba(239, 68, 68, 0.15)',
-    border: '1px solid rgba(239,68,68,0.35)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  }}>
-    <span style={{ color: '#fca5a5', fontWeight: 600 }}>Session expired – click to log out and re‑login.</span>
-    <button onClick={handleLogout}
-      style={{ background: 'rgba(239,68,68,0.25)', border: '1px solid rgba(239,68,68,0.4)', borderRadius: '6px', color: '#fca5a5', cursor: 'pointer', fontSize: '0.63rem', fontWeight: 700, padding: '0.25rem 0.6rem', fontFamily: 'inherit' }}
-    >
-      Log Out &amp; Re‑Login
-    </button>
-  </div>
-)}
+
 
       {/* Sync Status Bar */}
       {(hasPending || hasFailed || isSyncing) && (

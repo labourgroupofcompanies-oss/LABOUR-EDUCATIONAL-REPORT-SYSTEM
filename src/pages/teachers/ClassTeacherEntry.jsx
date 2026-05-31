@@ -131,6 +131,9 @@ const ClassTeacherEntry = () => {
       attitude: form.attitude,
       teacherRemark: form.teacherRemark,
       promotedTo: form.promotedTo,
+      classAverage: activeSummary?.classAverage || activeSummary?.class_average || null,
+      classRank: activeSummary?.classRank || activeSummary?.class_rank || null,
+      totalGraded: activeSummary?.totalGraded || activeSummary?.total_graded || null,
       synced: false,
     };
     
@@ -158,6 +161,9 @@ const ClassTeacherEntry = () => {
         next_term_begins: activeSummary?.nextTermBegins || '',
         fees_owed: activeSummary?.feesOwed || '',
         next_term_bill: activeSummary?.nextTermBill || '',
+        class_average: activeSummary?.classAverage || activeSummary?.class_average || null,
+        class_rank: activeSummary?.classRank || activeSummary?.class_rank || null,
+        total_graded: activeSummary?.totalGraded || activeSummary?.total_graded || null,
         updated_at: new Date().toISOString(),
       };
 

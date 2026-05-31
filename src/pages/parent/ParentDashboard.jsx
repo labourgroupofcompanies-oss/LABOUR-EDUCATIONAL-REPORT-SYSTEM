@@ -285,6 +285,10 @@ const ParentDashboard = () => {
         const { data: remoteSummaries, error: summaryErr } = await supabase
           .rpc('get_summaries_by_guardian_contact', { p_contact: parent.phone_number });
 
+        if (summaryErr) {
+          console.error('[ParentDashboard] Failed to sync remote summaries via RPC:', summaryErr);
+        }
+
         if (remoteSummaries && !summaryErr) {
           for (const rs of remoteSummaries) {
             const existing = await db.reportSummaries
@@ -309,6 +313,9 @@ const ParentDashboard = () => {
               feesOwed: rs.fees_owed,
               nextTermBill: rs.next_term_bill,
               isReleased: rs.is_released || false,
+              classAverage: rs.class_average !== undefined ? rs.class_average : null,
+              classRank: rs.class_rank !== undefined ? rs.class_rank : null,
+              totalGraded: rs.total_graded !== undefined ? rs.total_graded : 0,
               synced: true,
               supabaseId: rs.id
             };
@@ -324,6 +331,10 @@ const ParentDashboard = () => {
         // 7. Sync report_scores via secure RPC
         const { data: remoteScores, error: scoresErr } = await supabase
           .rpc('get_scores_by_guardian_contact', { p_contact: parent.phone_number });
+
+        if (scoresErr) {
+          console.error('[ParentDashboard] Failed to sync remote scores via RPC:', scoresErr);
+        }
 
         if (remoteScores && !scoresErr) {
           for (const cs of remoteScores) {

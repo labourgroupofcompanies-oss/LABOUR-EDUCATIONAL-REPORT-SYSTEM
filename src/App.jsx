@@ -1,7 +1,9 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, ProtectedRoute } from './store/AuthContext';
 import Login from './pages/auth/Login';
 import Onboarding from './pages/auth/Onboarding';
+import { supabase } from './lib/supabase';
 import ResetPassword from './pages/auth/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import LearnerList from './pages/learners/LearnerList';
@@ -33,12 +35,34 @@ const ParentProtectedRoute = ({ children }) => {
 };
 
 
+const AuthListener = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`[AuthListener] Event received: ${event}`);
+      if (event === 'PASSWORD_RECOVERY') {
+        console.log('[AuthListener] PASSWORD_RECOVERY event received, navigating to /reset-password');
+        navigate('/reset-password');
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [navigate]);
+
+  return null;
+};
+
+
 function App() {
   return (
     <AuthProvider>
       <SyncEngineProvider>
         <ReloadPrompt />
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <AuthListener />
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/reset-password" element={<ResetPassword />} />

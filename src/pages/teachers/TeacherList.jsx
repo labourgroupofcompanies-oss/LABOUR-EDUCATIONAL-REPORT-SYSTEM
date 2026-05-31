@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
 import { enqueueSync } from '../../services/syncEngine';
+import { ensureAuth } from '../../lib/authUtils';
 
 const getNextStaffId = (teachersList) => {
   if (!teachersList || teachersList.length === 0) return 'TCH-001';

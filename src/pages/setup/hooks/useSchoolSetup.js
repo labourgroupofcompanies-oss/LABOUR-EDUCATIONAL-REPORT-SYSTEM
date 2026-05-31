@@ -3,6 +3,7 @@ import { db } from '../../../lib/db';
 import { supabase } from '../../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../../store/AuthContext';
+import { enqueueSync } from '../../../services/syncEngine';
 
 export const useSchoolSetup = () => {
   const [className, setClassName] = useState('');
@@ -276,33 +277,21 @@ export const useSchoolSetup = () => {
     e.preventDefault();
     if (!className || !user?.schoolId) return;
     
-    let cloudId = null;
-    if (navigator.onLine) {
-      try {
-        const { data, error } = await supabase
-          .from('report_classes')
-          .insert([{ school_id: user.schoolId, name: className, teaching_mode: teachingMode }])
-          .select()
-          .single();
-        if (!error && data) {
-          cloudId = data.id;
-        }
-      } catch (err) {
-        console.warn('Failed to save class to Supabase:', err);
-      }
-    }
-    
-    const record = { 
+    // Add locally to Dexie (for instant UI feedback offline/online)
+    await db.classes.add({ 
       schoolId: user.schoolId, 
       name: className, 
       teachingMode: teachingMode,
       createdAt: new Date().toISOString() 
-    };
-    if (cloudId) {
-      record.id = cloudId;
-    }
-    
-    await db.classes.add(record);
+    });
+
+    // Enqueue mutation to outbox for cloud sync
+    await enqueueSync('insert', 'report_classes', {
+      school_id: user.schoolId,
+      name: className,
+      teaching_mode: teachingMode
+    }, user.schoolId);
+
     setClassName('');
     setTeachingMode('class_teacher');
   };
@@ -360,32 +349,19 @@ export const useSchoolSetup = () => {
     e.preventDefault();
     if (!subjectName || !user?.schoolId) return;
 
-    let cloudId = null;
-    if (navigator.onLine) {
-      try {
-        const { data, error } = await supabase
-          .from('report_subjects')
-          .insert([{ school_id: user.schoolId, name: subjectName }])
-          .select()
-          .single();
-        if (!error && data) {
-          cloudId = data.id;
-        }
-      } catch (err) {
-        console.warn('Failed to save subject to Supabase:', err);
-      }
-    }
-
-    const record = { 
+    // Add locally to Dexie (for instant UI feedback offline/online)
+    await db.subjects.add({ 
       schoolId: user.schoolId,
       name: subjectName, 
       createdAt: new Date().toISOString() 
-    };
-    if (cloudId) {
-      record.id = cloudId;
-    }
+    });
 
-    await db.subjects.add(record);
+    // Enqueue mutation to outbox for cloud sync
+    await enqueueSync('insert', 'report_subjects', {
+      school_id: user.schoolId,
+      name: subjectName
+    }, user.schoolId);
+
     setSubjectName('');
   };
 

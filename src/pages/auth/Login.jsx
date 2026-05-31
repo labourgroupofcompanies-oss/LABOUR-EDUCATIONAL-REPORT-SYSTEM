@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
 import { db } from '../../lib/db';
@@ -11,7 +11,14 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (user) {
+      navigate('/');
+    }
+  }, [user, navigate]);
 
   // Portal Activation States
   const [showActivation, setShowActivation] = useState(false);
@@ -71,6 +78,7 @@ const Login = () => {
       // Ensure email is trimmed and lower‑cased for Supabase
       const cleanedEmail = email.trim().toLowerCase();
       await login(cleanedEmail, password);
+      navigate('/');
     } catch (err) {
       setError(err.message || 'Login failed. Please check your credentials and try again.');
     } finally {

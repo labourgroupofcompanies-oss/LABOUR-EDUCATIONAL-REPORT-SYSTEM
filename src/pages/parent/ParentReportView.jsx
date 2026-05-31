@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
-import { calculateCaTotal, calculateExamTotal, calculateTotal } from '../../lib/grading';
+import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade } from '../../lib/grading';
 import authService from '../../services/authService';
 
 const DEFAULT_GRADING_SCALE = [
@@ -19,8 +19,7 @@ const DEFAULT_GRADING_SCALE = [
 
 function getGrade(total, scale) {
   if (total === null || total === undefined || isNaN(total)) return { grade: '—', remark: '—' };
-  const n = Number(total);
-  return scale.find(g => n >= g.min && n <= g.max) || { grade: 'F9', remark: 'Fail' };
+  return calculateGrade(Number(total), scale);
 }
 
 function gradeColor(grade) {
@@ -48,55 +47,70 @@ const ParentReportView = () => {
   const viewData = useLiveQuery(async () => {
     if (!learnerId) return null;
     
-    // 1. Resolve active learner robustly
-    let learner = null;
-    const numId = Number(learnerId);
-    if (!isNaN(numId)) {
-      learner = await db.learners.get(numId);
-    }
-    if (!learner) {
-      learner = await db.learners.where('supabaseId').equals(learnerId).first();
-    }
-    if (!learner) {
-      learner = await db.learners.where('learnerId').equals(learnerId).first();
-    }
-    if (!learner) return { notFound: true };
+    try {
+      // 1. Resolve active learner robustly
+      let learner = null;
+      const numId = Number(learnerId);
+      if (!isNaN(numId)) {
+        learner = await db.learners.get(numId);
+      }
+      if (!learner) {
+        learner = await db.learners.where('supabaseId').equals(learnerId).first();
+      }
+      if (!learner) {
+        learner = await db.learners.where('learnerId').equals(learnerId).first();
+      }
+      if (!learner) return { notFound: true };
 
-    const schoolId = learner.schoolId;
-    const currentClassId = learner.currentClassId;
+      const schoolId = learner.schoolId;
+      const currentClassId = learner.currentClassId;
 
-    // 2. Fetch all dependencies in parallel
-    const [
-      school,
-      settings,
-      allClasses,
-      allClassSubjects,
-      allSubjs,
-      scoresList,
-      summariesList,
-      learnersInClass
-    ] = await Promise.all([
-      schoolId ? db.schools.get(schoolId) : null,
-      schoolId ? db.settings.get(schoolId) : db.settings.get('global'),
-      schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
-      schoolId ? db.classSubjects.where('schoolId').equals(schoolId).toArray() : [],
-      schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [],
-      schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : [],
-      schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : [],
-      currentClassId ? db.learners.where('currentClassId').equals(currentClassId).toArray() : []
-    ]);
+      const resolvedLearnerId = learner.supabaseId || String(learner.id);
 
-    return {
-      activeLearner: learner,
-      schoolInfo: school,
-      schoolSettings: settings || { gradingScale: [] },
-      classes: allClasses,
-      classSubjects: allClassSubjects,
-      subjects: allSubjs,
-      allScores: scoresList,
-      reportSummaries: summariesList,
-      classLearners: learnersInClass
-    };
+      // Clean up string-only sibling keys to prevent mixed-type queries or duplicate values in Dexie .anyOf()
+      const siblingKeys = Array.from(new Set([
+        resolvedLearnerId,
+        String(learner.id),
+        learner.supabaseId ? String(learner.supabaseId) : null,
+        learner.learnerId ? String(learner.learnerId) : null
+      ].filter(Boolean)));
+
+      // 2. Fetch all dependencies in parallel
+      const [
+        school,
+        settings,
+        allClasses,
+        allClassSubjects,
+        allSubjs,
+        scoresList,
+        summariesList,
+        learnersInClass
+      ] = await Promise.all([
+        schoolId ? db.schools.get(schoolId) : null,
+        schoolId ? db.settings.get(schoolId) : db.settings.get('global'),
+        schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
+        schoolId ? db.classSubjects.where('schoolId').equals(schoolId).toArray() : [],
+        schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [],
+        db.scores.where('learnerId').anyOf(siblingKeys).toArray(),
+        db.reportSummaries.where('learnerId').anyOf(siblingKeys).toArray(),
+        currentClassId ? db.learners.where('currentClassId').equals(currentClassId).toArray() : []
+      ]);
+
+      return {
+        activeLearner: learner,
+        schoolInfo: school,
+        schoolSettings: settings || { gradingScale: [] },
+        classes: allClasses,
+        classSubjects: allClassSubjects,
+        subjects: allSubjs,
+        allScores: scoresList,
+        reportSummaries: summariesList,
+        classLearners: learnersInClass
+      };
+    } catch (err) {
+      console.error('[ParentReportView useLiveQuery Error]', err);
+      return { error: true, message: err.message || String(err) };
+    }
   }, [learnerId]);
 
   const activeLearner = viewData?.activeLearner;
@@ -112,61 +126,45 @@ const ParentReportView = () => {
   const [selectedTerm, setSelectedTerm] = useState('');
   const [selectedYear, setSelectedYear] = useState('');
 
-  // Auto-init select criteria based on current school term
+  const learnerSummaries = useMemo(() => {
+    if (!activeLearner || !reportSummaries) return [];
+    return reportSummaries.filter(s =>
+      (s.learnerId === activeLearner.id || s.learnerId === String(activeLearner.id) || (activeLearner.supabaseId && s.learnerId === activeLearner.supabaseId))
+    );
+  }, [activeLearner, reportSummaries]);
+
+  const availableYears = useMemo(() => {
+    const years = new Set();
+    if (schoolInfo?.currentAcademicYear) {
+      years.add(schoolInfo.currentAcademicYear);
+    }
+    learnerSummaries.forEach(s => {
+      if (s.academicYear) years.add(s.academicYear);
+    });
+    return Array.from(years).sort().reverse();
+  }, [learnerSummaries, schoolInfo]);
+
+  // Auto-init select criteria based on school term / available years
   React.useEffect(() => {
     if (schoolInfo) {
       if (!selectedTerm) setSelectedTerm(schoolInfo.currentTerm || 'Term 1');
-      if (!selectedYear) setSelectedYear(schoolInfo.currentAcademicYear || '');
+    } else {
+      if (!selectedTerm) setSelectedTerm('Term 1');
     }
-  }, [schoolInfo, selectedTerm, selectedYear]);
+  }, [schoolInfo, selectedTerm]);
+
+  React.useEffect(() => {
+    if (availableYears.length > 0 && !selectedYear) {
+      setSelectedYear(availableYears[0]);
+    } else if (schoolInfo && !selectedYear) {
+      setSelectedYear(schoolInfo.currentAcademicYear || '');
+    }
+  }, [availableYears, schoolInfo, selectedYear]);
 
   const gradingScale = useMemo(() => {
     if (schoolSettings?.gradingScale?.length > 0) return schoolSettings.gradingScale;
     return DEFAULT_GRADING_SCALE;
   }, [schoolSettings]);
-
-  const currentClass = useMemo(() => {
-    if (!activeLearner || !classes) return null;
-    return classes.find(c => c.id === activeLearner.currentClassId);
-  }, [activeLearner, classes]);
-
-  const classSubjectList = useMemo(() => {
-    if (!activeLearner || !classSubjects || !subjects) return [];
-    const classId = activeLearner.currentClassId;
-    const ids = new Set(classSubjects.filter(cs => cs.classId === classId).map(cs => cs.subjectId));
-    return subjects.filter(s => ids.has(s.id));
-  }, [activeLearner, classSubjects, subjects]);
-
-  // Filter learner scores for term/year
-  const learnerGrades = useMemo(() => {
-    if (!activeLearner || !classSubjectList.length || !allScores || !selectedTerm || !selectedYear) return [];
-    
-    const termScores = allScores.filter(s => 
-      (s.learnerId === activeLearner.id || s.learnerId === String(activeLearner.id) || (activeLearner.supabaseId && s.learnerId === activeLearner.supabaseId)) && 
-      s.classId === activeLearner.currentClassId && 
-      s.term === selectedTerm && 
-      s.academicYear === selectedYear
-    );
-
-    return classSubjectList.map(subj => {
-      const rec = termScores.find(s => s.subjectId === subj.id);
-      const hasCa = rec?.caScores && Array.isArray(rec.caScores) && rec.caScores.some(score => score !== undefined && score !== null && score !== '');
-      const hasExam = rec?.examScore !== undefined && rec.examScore !== null && rec.examScore !== '';
-      const ca = hasCa ? calculateCaTotal(rec.caScores, schoolSettings) : null;
-      const exam = hasExam ? calculateExamTotal(rec.examScore, schoolSettings) : null;
-      const total = (hasCa || hasExam) ? calculateTotal(ca || 0, exam || 0) : null;
-      const { grade, remark } = getGrade(total, gradingScale);
-      
-      return {
-        subjectName: subj.name,
-        ca,
-        exam,
-        total,
-        grade,
-        remark
-      };
-    });
-  }, [activeLearner, classSubjectList, allScores, selectedTerm, selectedYear, gradingScale, schoolSettings]);
 
   const activeSummary = useMemo(() => {
     if (!activeLearner || !reportSummaries || !selectedYear || !selectedTerm) return null;
@@ -177,17 +175,96 @@ const ParentReportView = () => {
     );
   }, [activeLearner, reportSummaries, selectedYear, selectedTerm]);
 
+  const currentClass = useMemo(() => {
+    if (!activeLearner || !classes) return null;
+    const classId = activeSummary ? Number(activeSummary.classId) : activeLearner.currentClassId;
+    return classes.find(c => c.id === classId);
+  }, [activeLearner, classes, activeSummary]);
+
+  const classSubjectList = useMemo(() => {
+    if (!activeLearner || !classSubjects || !subjects) return [];
+    const classId = activeSummary ? Number(activeSummary.classId) : activeLearner.currentClassId;
+    const ids = new Set(classSubjects.filter(cs => cs.classId === classId).map(cs => cs.subjectId));
+    return subjects.filter(s => ids.has(s.id));
+  }, [activeLearner, classSubjects, subjects, activeSummary]);
+
+  // Filter learner scores for term/year
+  const learnerGrades = useMemo(() => {
+    if (!activeLearner || !classSubjectList.length || !allScores || !selectedTerm || !selectedYear) return [];
+    
+    const targetClassId = activeSummary ? Number(activeSummary.classId) : activeLearner.currentClassId;
+    const termScores = allScores.filter(s => {
+      const isStudent = s.learnerId === activeLearner.id || 
+                        String(s.learnerId) === String(activeLearner.id) || 
+                        (activeLearner.supabaseId && String(s.learnerId) === String(activeLearner.supabaseId));
+      const isClass = String(s.classId) === String(targetClassId);
+      const isTerm = String(s.term).trim().toLowerCase() === String(selectedTerm).trim().toLowerCase();
+      const isYear = String(s.academicYear).trim().toLowerCase() === String(selectedYear).trim().toLowerCase();
+      return isStudent && isClass && isTerm && isYear;
+    });
+
+    return classSubjectList.map(subj => {
+      const rec = termScores.find(s => String(s.subjectId) === String(subj.id));
+      const hasCa = rec?.caScores && Array.isArray(rec.caScores) && rec.caScores.some(score => score !== undefined && score !== null && score !== '');
+      const hasExam = rec?.examScore !== undefined && rec.examScore !== null && rec.examScore !== '';
+      
+      // Use precalculated/compiled scores from database record when available to ensure 100% exact match
+      const ca = (rec?.classScore !== undefined && rec?.classScore !== null && rec?.classScore !== '')
+        ? Number(rec.classScore)
+        : (hasCa ? calculateCaTotal(rec.caScores, schoolSettings) : null);
+        
+      const exam = hasExam ? calculateExamTotal(rec.examScore, schoolSettings) : null;
+      
+      const total = (rec?.totalScore !== undefined && rec?.totalScore !== null && rec?.totalScore !== '')
+        ? Number(rec.totalScore)
+        : ((hasCa || hasExam) ? calculateTotal(ca || 0, exam || 0) : null);
+        
+      let grade = '—';
+      let remark = '—';
+      
+      if (rec?.grade && rec.grade !== '—' && rec.grade !== '-' && rec.grade.trim() !== '') {
+        grade = rec.grade;
+        remark = rec.remark || '';
+      } else if (total !== null) {
+        const computed = getGrade(total, gradingScale);
+        grade = computed.grade;
+        remark = computed.remark;
+      }
+      
+      return {
+        subjectName: subj.name,
+        ca,
+        exam,
+        total,
+        grade,
+        remark
+      };
+    });
+  }, [activeLearner, classSubjectList, allScores, selectedTerm, selectedYear, gradingScale, schoolSettings, activeSummary]);
+
   const stats = useMemo(() => {
+    // If we have precomputed statistics saved, use them directly (ensure exact match and no leaks)
+    if (activeSummary && 
+        (activeSummary.classAverage !== undefined && activeSummary.classAverage !== null) && 
+        (activeSummary.classRank !== undefined && activeSummary.classRank !== null)) {
+      return {
+        avg: activeSummary.classAverage,
+        rank: activeSummary.classRank,
+        totalGraded: activeSummary.totalGraded || 0
+      };
+    }
+
     if (!classLearners || !classLearners.length || !allScores || !selectedTerm || !selectedYear || !activeLearner) {
       return { avg: null, rank: null, totalGraded: 0 };
     }
 
-    // Calculate average for all students in this class
+    // Dynamic fallback for older unsynced records
+    const targetClassId = activeSummary ? Number(activeSummary.classId) : activeLearner.currentClassId;
     const averagesMap = {};
     classLearners.forEach(l => {
       const ls = allScores.filter(s => 
         (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) && 
-        s.classId === activeLearner.currentClassId && 
+        s.classId === targetClassId && 
         s.term === selectedTerm && 
         s.academicYear === selectedYear
       );
@@ -200,7 +277,6 @@ const ParentReportView = () => {
 
     const activeAvg = averagesMap[activeLearner.id];
     
-    // Compute positions
     const validScores = Object.entries(averagesMap)
       .filter(([, val]) => val !== null)
       .sort(([, a], [, b]) => b - a);
@@ -215,7 +291,7 @@ const ParentReportView = () => {
       rank: rankings[activeLearner.id] || null,
       totalGraded: validScores.length
     };
-  }, [classLearners, allScores, selectedTerm, selectedYear, activeLearner]);
+  }, [classLearners, allScores, selectedTerm, selectedYear, activeLearner, activeSummary]);
 
   // Attendance rate math
   const attendancePercent = useMemo(() => {
@@ -234,6 +310,28 @@ const ParentReportView = () => {
     return classes?.find(c => c.id === classId || String(c.id) === String(classId))?.name || 'Grade';
   };
 
+  // Diagnostics to assist in browser debugging (F12)
+  React.useEffect(() => {
+    if (activeLearner) {
+      console.log('[ParentReportView Diagnostic]', {
+        activeLearner: {
+          id: activeLearner.id,
+          supabaseId: activeLearner.supabaseId,
+          fullName: activeLearner.fullName,
+          currentClassId: activeLearner.currentClassId
+        },
+        schoolInfo,
+        selectedTerm,
+        selectedYear,
+        activeSummary,
+        allScoresCount: allScores?.length,
+        allScores: allScores,
+        classSubjectList: classSubjectList,
+        learnerGrades: learnerGrades
+      });
+    }
+  }, [activeLearner, schoolInfo, selectedTerm, selectedYear, activeSummary, allScores, classSubjectList, learnerGrades]);
+
   if (!viewData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
@@ -241,6 +339,35 @@ const ParentReportView = () => {
           <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#0d9488' }}></i>
           <p>Loading report card details...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (viewData?.error) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+        <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', color: '#ef4444' }}></i>
+        <h2 style={{ color: '#0f172a' }}>Database Query Error</h2>
+        <p>An unexpected error occurred while loading this sibling's academic records.</p>
+        <code style={{ background: '#f1f5f9', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', color: '#ef4444' }}>
+          {viewData.message}
+        </code>
+        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#0d9488', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '1rem' }}>
+          Return to Sibling Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  if (viewData.notFound || !activeLearner) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+        <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', color: '#f59e0b' }}></i>
+        <h2 style={{ color: '#0f172a' }}>Student Not Found</h2>
+        <p>We could not locate this sibling's profile record in your local database.</p>
+        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#0d9488', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+          Return to Dashboard
+        </button>
       </div>
     );
   }
@@ -639,8 +766,22 @@ const ParentReportView = () => {
 
         /* ── Flawless A4 Print Stylesheet ── */
         @media print {
-          body {
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
             background: white !important;
+          }
+          body * {
+            visibility: hidden !important;
+          }
+          .report-page-wrap, .report-page-wrap * {
+            visibility: visible !important;
+          }
+          .report-page-wrap {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
           }
@@ -651,18 +792,61 @@ const ParentReportView = () => {
             padding: 0 !important;
             background: white !important;
           }
-          .report-page-wrap {
-            max-width: 100% !important;
-          }
           .rc-canvas {
             border: 2px double #0d9488 !important;
             border-radius: 0 !important;
             box-shadow: none !important;
-            padding: 8mm !important;
             width: 210mm !important;
-            height: 297mm !important;
+            height: 296mm !important;
+            padding: 10mm !important;
             box-sizing: border-box !important;
+            background: white !important;
             page-break-inside: avoid !important;
+            position: relative !important;
+            margin: 0 auto !important;
+            overflow: hidden !important;
+            display: flex !important;
+            flex-direction: column !important;
+          }
+          
+          /* Compact layouts to guarantee everything fits on one sheet */
+          .rc-canvas-header {
+            padding-bottom: 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+          }
+          .rc-title-row {
+            margin-bottom: 0.5rem !important;
+          }
+          .rc-bio-grid {
+            padding: 0.4rem 0.5rem !important;
+            margin-bottom: 0.5rem !important;
+            gap: 4px !important;
+            font-size: 0.7rem !important;
+          }
+          .rc-table th, .rc-table td {
+            padding: 0.25rem 0.4rem !important;
+            font-size: 0.7rem !important;
+          }
+          .rc-table-wrap {
+            margin-bottom: 0.5rem !important;
+          }
+          .rc-bottom-grid {
+            margin-bottom: 0.5rem !important;
+            gap: 0.5rem !important;
+          }
+          .rc-sbox {
+            padding: 0.4rem 0.5rem !important;
+            font-size: 0.7rem !important;
+          }
+          .rc-legend-content {
+            font-size: 0.6rem !important;
+          }
+          .rc-sig-strip {
+            padding-top: 0.5rem !important;
+            margin-top: auto !important;
+          }
+          .rc-sig-line {
+            margin-top: 15px !important;
           }
           @page {
             size: A4 portrait;
@@ -715,9 +899,9 @@ const ParentReportView = () => {
                   value={selectedYear}
                   onChange={(e) => setSelectedYear(e.target.value)}
                 >
-                  <option value={schoolInfo.currentAcademicYear}>{schoolInfo.currentAcademicYear}</option>
-                  <option value="2025/2026">2025/2026</option>
-                  <option value="2024/2025">2024/2025</option>
+                  {availableYears.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
                 </select>
               </>
             )}

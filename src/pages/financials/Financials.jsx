@@ -4,6 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { enqueueSync } from '../../services/syncEngine';
 
 const Financials = () => {
   const { user } = useAuth();
