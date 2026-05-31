@@ -538,6 +538,332 @@ const STYLES = `
     .rc-bio-grid { grid-template-columns: 1fr; }
     .rc-page-title { font-size: 1.15rem; }
   }
+
+  /* ── Parents Distribution Portal styles ── */
+  .rc-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1.5px solid var(--border);
+    padding-bottom: 0px;
+  }
+  .rc-tab-btn {
+    background: none;
+    border: none;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.88rem;
+    font-weight: 700;
+    cursor: pointer;
+    color: var(--text-muted);
+    border-bottom: 3px solid transparent;
+    transition: all 0.2s;
+    font-family: 'Outfit', sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .rc-tab-btn:hover {
+    color: var(--primary);
+  }
+  .rc-tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .rc-dist-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+  .rc-dist-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: var(--shadow-sm);
+  }
+  .rc-dist-card-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+  }
+  .rc-dist-card-details h4 {
+    margin: 0 0 2px;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+  }
+  .rc-dist-card-details p {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 900;
+    color: var(--primary);
+    font-family: 'Outfit', sans-serif;
+  }
+
+  .rc-dist-actions-panel {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    border-radius: 18px;
+    padding: 1.5rem;
+    color: white;
+    margin-bottom: 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  }
+  .rc-dist-actions-info h3 {
+    margin: 0 0 4px;
+    font-size: 1.1rem;
+    font-weight: 800;
+    font-family: 'Outfit', sans-serif;
+    color: #fff;
+  }
+  .rc-dist-actions-info p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #94a3b8;
+  }
+  .rc-dist-btns {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .btn-dispatch {
+    background: #0d9488;
+    color: white !important;
+    border: none;
+    border-radius: 12px;
+    padding: 0.75rem 1.5rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
+    transition: all 0.2s;
+  }
+  .btn-dispatch:hover {
+    background: #0f766e;
+    transform: translateY(-1px);
+    opacity: 0.95;
+  }
+  .btn-revoke-dispatch {
+    background: #dc2626;
+    color: white !important;
+    border: none;
+    border-radius: 12px;
+    padding: 0.75rem 1.5rem;
+    font-weight: 700;
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: 0 4px 14px rgba(220, 38, 38, 0.2);
+    transition: all 0.2s;
+  }
+  .btn-revoke-dispatch:hover {
+    background: #b91c1c;
+    transform: translateY(-1px);
+    opacity: 0.95;
+  }
+
+  .rc-quality-checklist {
+    background: #fffbeb;
+    border: 1px solid #fef3c7;
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.5rem;
+    color: #b45309;
+    font-size: 0.8rem;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .rc-quality-checklist i {
+    font-size: 1.2rem;
+    color: #d97706;
+    margin-top: 2px;
+  }
+  .rc-quality-checklist h4 {
+    margin: 0 0 4px;
+    font-weight: 800;
+    font-size: 0.85rem;
+  }
+  .rc-quality-checklist p {
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .rc-dist-table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .rc-dist-table-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .rc-dist-table-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 800;
+    color: var(--primary);
+    font-family: 'Outfit', sans-serif;
+  }
+  .rc-dist-table-wrap {
+    overflow-x: auto;
+  }
+  .rc-dist-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    text-align: left;
+  }
+  .rc-dist-table th {
+    background: var(--background);
+    padding: 0.85rem 1.25rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    border-bottom: 1.5px solid var(--border);
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+  }
+  .rc-dist-table td {
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .rc-dist-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .rc-dist-table tbody tr:hover {
+    background: rgba(0,0,0,0.01);
+  }
+  .rc-student-cell {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .rc-student-cell-photo {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1.5px solid var(--border);
+    background: var(--background);
+  }
+  .rc-student-cell-photo-ph {
+    width: 38px; height: 38px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--background);
+    color: var(--text-muted);
+    font-size: 0.95rem;
+    border: 1.5px dashed var(--border);
+  }
+  .rc-student-name {
+    font-weight: 700;
+    color: var(--primary);
+    font-size: 0.85rem;
+  }
+  .rc-student-reg {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .rc-badge-draft {
+    background: rgba(245, 158, 11, 0.08);
+    color: #b45309;
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .rc-badge-published {
+    background: rgba(13, 148, 136, 0.08);
+    color: #0d9488;
+    border: 1px solid rgba(13, 148, 136, 0.2);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .rc-viewed-badge {
+    background: rgba(16, 185, 129, 0.08);
+    color: #047857;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 0.7rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .rc-unread-badge {
+    background: rgba(100, 116, 139, 0.06);
+    color: #64748b;
+    border: 1px solid rgba(100, 116, 139, 0.15);
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.7rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .btn-save-remark-inline {
+    background: var(--accent);
+    color: white !important;
+    border: none;
+    border-radius: 8px;
+    width: 28px; height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.75rem;
+    box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+    transition: all 0.2s;
+  }
+  .btn-save-remark-inline:hover {
+    opacity: 0.9;
+    transform: scale(1.05);
+  }
 `;
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -628,6 +954,11 @@ const Reports = () => {
 
   // ── View state: 'config' | 'preview' ─────────────────────────────────────
   const [view, setView] = useState('config');
+  const [activeTab, setActiveTab] = useState('compiler'); // 'compiler' | 'distribution'
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [editingRemarkId, setEditingRemarkId] = useState(null);
+  const [inlineHeadteacherRemark, setInlineHeadteacherRemark] = useState('');
+  const [isSavingRemark, setIsSavingRemark] = useState(false);
 
   // ── Preview state ─────────────────────────────────────────────────────────
   const [activeLearnerId, setActiveLearnerId] = useState(null);
@@ -1204,6 +1535,164 @@ const Reports = () => {
     }
   };
 
+  const handleBulkDispatch = async (releaseStatus) => {
+    if (!isAdmin) return alert('Only headteachers can dispatch report cards.');
+    if (!selectedClass || !academicYear || !selectedTerm) {
+      alert('Please select a Class, Term, and Academic Year first.');
+      return;
+    }
+
+    const verb = releaseStatus ? 'dispatch' : 'revoke dispatch of';
+    if (!await window.confirm(`Are you sure you want to ${verb} report cards for all students in this class?`)) return;
+
+    setIsDispatching(true);
+    try {
+      let dispatchedCount = 0;
+      let notificationCount = 0;
+
+      for (const l of classLearners) {
+        const resolvedLearnerId = l.supabaseId || l.id;
+        const avg = learnerAverages[l.id];
+        const rank = learnerRankings[l.id];
+
+        // Find existing summary
+        let summary = await db.reportSummaries
+          .filter(s =>
+            (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) &&
+            s.academicYear === academicYear &&
+            s.term === selectedTerm
+          )
+          .first();
+
+        const record = {
+          schoolId: user.schoolId,
+          learnerId: resolvedLearnerId,
+          classId: Number(selectedClass),
+          academicYear,
+          term: selectedTerm,
+          isReleased: releaseStatus,
+          classAverage: (avg !== undefined && avg !== null) ? Number(avg) : null,
+          classRank: (rank !== undefined && rank !== null) ? Number(rank) : null,
+          totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0,
+          synced: false
+        };
+
+        if (!summary) {
+          // Create new base summary record
+          record.attendancePresent = 0;
+          record.attendanceTotal = 0;
+          record.conduct = '—';
+          record.attitude = '—';
+          record.teacherRemark = '—';
+          record.headteacherRemark = '—';
+          await db.reportSummaries.add(record);
+        } else {
+          // Update existing summary
+          await db.reportSummaries.update(summary.id, {
+            isReleased: releaseStatus,
+            classAverage: (avg !== undefined && avg !== null) ? Number(avg) : (summary.classAverage || null),
+            classRank: (rank !== undefined && rank !== null) ? Number(rank) : (summary.classRank || null),
+            totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : (summary.totalGraded || 0),
+            synced: false
+          });
+        }
+        dispatchedCount++;
+
+        // Send parent notification only if dispatching (releaseStatus = true)
+        if (releaseStatus) {
+          const parentPhone = l.guardianContact1 || l.guardianContact2;
+          if (parentPhone) {
+            const cleanPhoneVal = parentPhone.replace(/[\s\-\+\(\)]/g, '');
+            const now = new Date().toISOString();
+            
+            // Add notification locally
+            await db.notifications.add({
+              schoolId: user.schoolId,
+              parentPhone: cleanPhoneVal,
+              title: "Academic Report Dispatched",
+              content: `The terminal report card for ${l.fullName} for ${selectedTerm} (${academicYear}) has been dispatched and is now available in your portal.`,
+              created_at: now,
+              isRead: false
+            });
+
+            // Sync notification to Supabase if online
+            if (navigator.onLine) {
+              try {
+                await supabase.from('report_notifications').insert({
+                  school_id: user.schoolId,
+                  parent_phone: cleanPhoneVal,
+                  title: "Academic Report Dispatched",
+                  content: `The terminal report card for ${l.fullName} for ${selectedTerm} (${academicYear}) has been dispatched and is now available in your portal.`,
+                  created_at: now,
+                  is_read: false
+                });
+              } catch (err) {
+                console.warn('Failed to sync direct notification to Supabase:', err);
+              }
+            }
+            notificationCount++;
+          }
+        }
+      }
+
+      // Proactively trigger a sync run
+      syncUnsyncedReportSummaries().catch(err => console.warn('Failed to run summary sync after bulk dispatch:', err));
+
+      alert(`Successfully ${releaseStatus ? 'dispatched' : 'revoked'} ${dispatchedCount} report cards! ${releaseStatus ? `Sent ${notificationCount} parent alerts.` : ''}`);
+    } catch (err) {
+      console.error(err);
+      alert('Error updating report cards distribution: ' + err.message);
+    } finally {
+      setIsDispatching(false);
+    }
+  };
+
+  const handleSaveInlineHeadteacherRemark = async (learnerId, summary) => {
+    setIsSavingRemark(true);
+    try {
+      const resolvedLearnerId = classLearners.find(l => l.id === learnerId)?.supabaseId || learnerId;
+      const avg = learnerAverages[learnerId];
+      const rank = learnerRankings[learnerId];
+
+      const record = {
+        schoolId: user.schoolId,
+        learnerId: resolvedLearnerId,
+        classId: Number(selectedClass),
+        academicYear,
+        term: selectedTerm,
+        headteacherRemark: inlineHeadteacherRemark,
+        synced: false
+      };
+
+      if (!summary) {
+        record.attendancePresent = 0;
+        record.attendanceTotal = 0;
+        record.conduct = '—';
+        record.attitude = '—';
+        record.teacherRemark = '—';
+        record.isReleased = false;
+        record.classAverage = (avg !== undefined && avg !== null) ? Number(avg) : null;
+        record.classRank = (rank !== undefined && rank !== null) ? Number(rank) : null;
+        record.totalGraded = (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0;
+        await db.reportSummaries.add(record);
+      } else {
+        await db.reportSummaries.update(summary.id, {
+          headteacherRemark: inlineHeadteacherRemark,
+          synced: false
+        });
+      }
+
+      syncUnsyncedReportSummaries().catch(err => console.warn('Sync warning:', err));
+      setEditingRemarkId(null);
+      alert('Headteacher remark updated successfully!');
+    } catch (err) {
+      console.error(err);
+      alert('Failed to update remark: ' + err.message);
+    } finally {
+      setIsSavingRemark(false);
+    }
+  };
+
 
   // ── Render report card ─────────────────────────────────────────────────────
   const renderCard = (learner) => {
@@ -1484,95 +1973,539 @@ const Reports = () => {
         {/* ══════════════════════════════════════════════ */}
         {view === 'config' && (
           <div>
-            <div className="rc-config-card no-print">
-
-              {/* Filter row */}
-              <div className="rc-filter-row">
-                {/* CLASS */}
-                <div className="rc-filter-field">
-                  <span className="rc-filter-label">Class</span>
-                  <select
-                    className="form-input"
-                    value={selectedClass}
-                    onChange={e => { setSelectedClass(e.target.value); setSelectedIndividualId(''); }}
-                  >
-                    <option value="">Select Class</option>
-                    {advisedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
-
-                {/* TERM */}
-                <div className="rc-filter-field">
-                  <span className="rc-filter-label">Term</span>
-                  <select className="form-input" value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)}>
-                    <option value="Term 1">Term 1</option>
-                    <option value="Term 2">Term 2</option>
-                    <option value="Term 3">Term 3</option>
-                  </select>
-                </div>
-
-                {/* YEAR */}
-                <div className="rc-filter-field">
-                  <span className="rc-filter-label">Year</span>
-                  <input
-                    type="text"
-                    className="form-input"
-                    placeholder="e.g. 2025/2026"
-                    value={academicYear}
-                    onChange={e => setAcademicYear(e.target.value)}
-                  />
-                </div>
+            {/* Tabs Selector for Admins */}
+            {isAdmin && (
+              <div className="rc-tabs no-print">
+                <button
+                  type="button"
+                  className={`rc-tab-btn ${activeTab === 'compiler' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('compiler')}
+                >
+                  <i className="fas fa-edit" /> Report Compiler & Preview
+                </button>
+                <button
+                  type="button"
+                  className={`rc-tab-btn ${activeTab === 'distribution' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('distribution')}
+                >
+                  <i className="fas fa-paper-plane" /> Parents Distribution Center
+                </button>
               </div>
+            )}
 
-              {/* Generate For */}
-              <div className="rc-gen-section">
-                <div className="rc-gen-label">Generate For</div>
-                <div className="rc-gen-row">
-                  <button
-                    type="button"
-                    className={`rc-gen-btn ${generateMode === 'all' ? 'active' : ''}`}
-                    onClick={() => { setGenerateMode('all'); setSelectedIndividualId(''); }}
-                  >
-                    <i className="fas fa-users" /> All Learners
-                  </button>
-                  <button
-                    type="button"
-                    className={`rc-gen-btn ${generateMode === 'individual' ? 'active' : ''}`}
-                    onClick={() => setGenerateMode('individual')}
-                  >
-                    <i className="fas fa-user" /> Individual
-                  </button>
-                </div>
-
-                {/* Individual picker */}
-                {generateMode === 'individual' && (
-                  <div className="rc-individual-row">
-                    <span className="rc-filter-label">Select Student</span>
+            {(!isAdmin || activeTab === 'compiler') ? (
+              <div className="rc-config-card no-print">
+                {/* Filter row */}
+                <div className="rc-filter-row">
+                  {/* CLASS */}
+                  <div className="rc-filter-field">
+                    <span className="rc-filter-label">Class</span>
                     <select
                       className="form-input"
-                      value={selectedIndividualId}
-                      onChange={e => setSelectedIndividualId(e.target.value)}
+                      value={selectedClass}
+                      onChange={e => { setSelectedClass(e.target.value); setSelectedIndividualId(''); }}
                     >
-                      <option value="">— Choose Student —</option>
-                      {classLearners.map(l => <option key={l.id} value={l.id}>{l.fullName}</option>)}
+                      <option value="">Select Class</option>
+                      {advisedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
-                )}
-              </div>
+
+                  {/* TERM */}
+                  <div className="rc-filter-field">
+                    <span className="rc-filter-label">Term</span>
+                    <select className="form-input" value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)}>
+                      <option value="Term 1">Term 1</option>
+                      <option value="Term 2">Term 2</option>
+                      <option value="Term 3">Term 3</option>
+                    </select>
+                  </div>
+
+                  {/* YEAR */}
+                  <div className="rc-filter-field">
+                    <span className="rc-filter-label">Year</span>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g. 2025/2026"
+                      value={academicYear}
+                      onChange={e => setAcademicYear(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {/* Generate For */}
+                <div className="rc-gen-section">
+                  <div className="rc-gen-label">Generate For</div>
+                  <div className="rc-gen-row">
+                    <button
+                      type="button"
+                      className={`rc-gen-btn ${generateMode === 'all' ? 'active' : ''}`}
+                      onClick={() => { setGenerateMode('all'); setSelectedIndividualId(''); }}
+                    >
+                      <i className="fas fa-users" /> All Learners
+                    </button>
+                    <button
+                      type="button"
+                      className={`rc-gen-btn ${generateMode === 'individual' ? 'active' : ''}`}
+                      onClick={() => setGenerateMode('individual')}
+                    >
+                      <i className="fas fa-user" /> Individual
+                    </button>
+                  </div>
+
+                  {/* Individual picker */}
+                  {generateMode === 'individual' && (
+                    <div className="rc-individual-row">
+                      <span className="rc-filter-label">Select Student</span>
+                      <select
+                        className="form-input"
+                        value={selectedIndividualId}
+                        onChange={e => setSelectedIndividualId(e.target.value)}
+                      >
+                        <option value="">— Choose Student —</option>
+                        {classLearners.map(l => <option key={l.id} value={l.id}>{l.fullName}</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
 
                 {/* Preview button */}
-              <button
-                type="button"
-                className="rc-preview-btn"
-                onClick={handlePreview}
-                disabled={!canPreview}
-              >
-                <i className="fas fa-eye" />
-                Preview Report Cards
-              </button>
+                <button
+                  type="button"
+                  className="rc-preview-btn"
+                  onClick={handlePreview}
+                  disabled={!canPreview}
+                >
+                  <i className="fas fa-eye" />
+                  Preview Report Cards
+                </button>
 
-              {/* Promotions logic moved to Promotions page */}
-            </div>
+                {/* Promotions logic moved to Promotions page */}
+              </div>
+            ) : (
+              <div className="no-print">
+                {/* Filter row inside Distribution Card */}
+                <div className="rc-config-card" style={{ marginBottom: '1.5rem', padding: '1.25rem' }}>
+                  <div className="rc-filter-row" style={{ marginBottom: 0 }}>
+                    {/* CLASS */}
+                    <div className="rc-filter-field">
+                      <span className="rc-filter-label">Select Class to Distribute</span>
+                      <select
+                        className="form-input"
+                        value={selectedClass}
+                        onChange={e => { setSelectedClass(e.target.value); setSelectedIndividualId(''); }}
+                      >
+                        <option value="">Select Class</option>
+                        {advisedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+
+                    {/* TERM */}
+                    <div className="rc-filter-field">
+                      <span className="rc-filter-label">Term</span>
+                      <select className="form-input" value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)}>
+                        <option value="Term 1">Term 1</option>
+                        <option value="Term 2">Term 2</option>
+                        <option value="Term 3">Term 3</option>
+                      </select>
+                    </div>
+
+                    {/* YEAR */}
+                    <div className="rc-filter-field">
+                      <span className="rc-filter-label">Year</span>
+                      <input
+                        type="text"
+                        className="form-input"
+                        placeholder="e.g. 2025/2026"
+                        value={academicYear}
+                        onChange={e => setAcademicYear(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {(!selectedClass || !academicYear || !selectedTerm) ? (
+                  <div style={{ textAlign: 'center', padding: '3rem 2rem', background: 'var(--surface)', borderRadius: '16px', border: '1px solid var(--border)' }}>
+                    <i className="fas fa-paper-plane" style={{ fontSize: '2.5rem', color: 'var(--text-muted)', marginBottom: '1rem' }} />
+                    <h3 style={{ color: 'var(--primary)', margin: '0 0 0.5rem' }}>Select Class Parameters</h3>
+                    <p style={{ color: 'var(--text-muted)', fontSize: '0.83rem', margin: 0 }}>
+                      Please select a Class, Term, and Academic Year above to access the distribution logs and tools.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Metrics Grid */}
+                    {(() => {
+                      const summariesInClass = reportSummaries?.filter(s =>
+                        Number(s.classId) === Number(selectedClass) &&
+                        s.academicYear === academicYear &&
+                        s.term === selectedTerm
+                      ) || [];
+                      const releasedCount = summariesInClass.filter(s => s.isReleased || s.is_released).length;
+                      const draftCount = classLearners.length - releasedCount;
+                      const parentViewedCount = summariesInClass.filter(s => (s.isReleased || s.is_released) && s.parentViewedAt).length;
+                      const parentReadRate = releasedCount > 0 ? Math.round((parentViewedCount / releasedCount) * 100) : 0;
+
+                      // Quality audit counts
+                      let missingScoresCount = 0;
+                      let missingTeacherRemarksCount = 0;
+                      let missingHeadteacherRemarksCount = 0;
+
+                      classLearners.forEach(l => {
+                        const hasScore = learnerAverages[l.id] !== null && learnerAverages[l.id] !== undefined;
+                        if (!hasScore) missingScoresCount++;
+
+                        const summary = summariesInClass.find(s =>
+                          (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId))
+                        );
+                        if (!summary || !summary.teacherRemark || summary.teacherRemark === '—' || summary.teacherRemark.trim() === '') {
+                          missingTeacherRemarksCount++;
+                        }
+                        if (!summary || !summary.headteacherRemark || summary.headteacherRemark === '—' || summary.headteacherRemark.trim() === '') {
+                          missingHeadteacherRemarksCount++;
+                        }
+                      });
+
+                      const hasQualityWarning = missingScoresCount > 0 || missingTeacherRemarksCount > 0 || missingHeadteacherRemarksCount > 0;
+
+                      return (
+                        <>
+                          <div className="rc-dist-metrics">
+                            <div className="rc-dist-card">
+                              <div className="rc-dist-card-icon" style={{ background: 'rgba(59, 130, 246, 0.08)', color: '#3b82f6' }}>
+                                <i className="fas fa-users" />
+                              </div>
+                              <div className="rc-dist-card-details">
+                                <h4>Class Enrollment</h4>
+                                <p>{classLearners.length} Students</p>
+                              </div>
+                            </div>
+                            <div className="rc-dist-card">
+                              <div className="rc-dist-card-icon" style={{ background: 'rgba(13, 148, 136, 0.08)', color: '#0d9488' }}>
+                                <i className="fas fa-check-circle" />
+                              </div>
+                              <div className="rc-dist-card-details">
+                                <h4>Dispatched Portals</h4>
+                                <p>{releasedCount} Dispatched</p>
+                              </div>
+                            </div>
+                            <div className="rc-dist-card">
+                              <div className="rc-dist-card-icon" style={{ background: 'rgba(245, 158, 11, 0.08)', color: '#f59e0b' }}>
+                                <i className="fas fa-file-signature" />
+                              </div>
+                              <div className="rc-dist-card-details">
+                                <h4>Drafts Remaining</h4>
+                                <p>{draftCount} Pending</p>
+                              </div>
+                            </div>
+                            <div className="rc-dist-card">
+                              <div className="rc-dist-card-icon" style={{ background: 'rgba(139, 92, 246, 0.08)', color: '#8b5cf6' }}>
+                                <i className="fas fa-eye" />
+                              </div>
+                              <div className="rc-dist-card-details">
+                                <h4>Parent Open Rate</h4>
+                                <p>{parentReadRate}% Opened</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Quality audit warning banner */}
+                          {hasQualityWarning && (
+                            <div className="rc-quality-checklist">
+                              <i className="fas fa-exclamation-triangle" />
+                              <div>
+                                <h4>Pre-dispatch Quality Audit Warning</h4>
+                                <p>
+                                  We detected some incomplete records:
+                                  {missingScoresCount > 0 && <span> • <strong>{missingScoresCount} students</strong> have no scores recorded yet.</span>}
+                                  {missingTeacherRemarksCount > 0 && <span> • <strong>{missingTeacherRemarksCount} reports</strong> have missing class advisor remarks.</span>}
+                                  {missingHeadteacherRemarksCount > 0 && <span> • <strong>{missingHeadteacherRemarksCount} reports</strong> are missing headteacher endorsements.</span>}
+                                </p>
+                                <p style={{ marginTop: '4px', fontSize: '0.75rem', opacity: 0.9 }}>
+                                  Review these records below or compile them in the Report Compiler tab before dispatching to parents portal.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Bulk Actions Panel */}
+                          <div className="rc-dist-actions-panel">
+                            <div className="rc-dist-actions-info">
+                              <h3>Dispatch Control Panel</h3>
+                              <p>Publish report cards for the entire class to parents portals instantly.</p>
+                            </div>
+                            <div className="rc-dist-btns">
+                              <button
+                                type="button"
+                                className="btn-dispatch"
+                                onClick={() => handleBulkDispatch(true)}
+                                disabled={isDispatching}
+                              >
+                                {isDispatching ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-share-square" />}
+                                Dispatch All to Parent Portals
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-revoke-dispatch"
+                                onClick={() => handleBulkDispatch(false)}
+                                disabled={isDispatching}
+                              >
+                                {isDispatching ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-undo-alt" />}
+                                Revoke Class Dispatch
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Student Audit List Table */}
+                          <div className="rc-dist-table-card">
+                            <div className="rc-dist-table-header">
+                              <h3>Class Portal Audit Logs</h3>
+                              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                                Academic Year: {academicYear} &bull; {selectedTerm}
+                              </span>
+                            </div>
+                            <div className="rc-dist-table-wrap">
+                              <table className="rc-dist-table">
+                                <thead>
+                                  <tr>
+                                    <th>Student</th>
+                                    <th>Grading Status</th>
+                                    <th>Remarks Audit</th>
+                                    <th>Headteacher Remark (Inline Edit)</th>
+                                    <th>Portal Status</th>
+                                    <th>Parent Activity</th>
+                                    <th style={{ textAlign: 'right' }}>Actions</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {classLearners.map(l => {
+                                    const summary = summariesInClass.find(s =>
+                                      (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId))
+                                    );
+                                    const isReleased = summary && (summary.isReleased || summary.is_released);
+
+                                    // Grading progress
+                                    const studentScores = scores.filter(s =>
+                                      (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) &&
+                                      s.classId === Number(selectedClass) &&
+                                      s.term === selectedTerm &&
+                                      s.academicYear === academicYear
+                                    );
+                                    const subjectsGraded = studentScores.length;
+                                    const totalClassSubjects = classSubjectList.length;
+                                    const isFullyGraded = totalClassSubjects > 0 && subjectsGraded === totalClassSubjects;
+
+                                    // Remarks status
+                                    const hasTeacherRemark = summary && summary.teacherRemark && summary.teacherRemark !== '—' && summary.teacherRemark.trim() !== '';
+                                    const hasHeadteacherRemark = summary && summary.headteacherRemark && summary.headteacherRemark !== '—' && summary.headteacherRemark.trim() !== '';
+
+                                    return (
+                                      <tr key={l.id}>
+                                        <td>
+                                          <div className="rc-student-cell">
+                                            {l.photoUrl || l.photo ? (
+                                              <img src={l.photoUrl || l.photo} alt={l.fullName} className="rc-student-cell-photo" />
+                                            ) : (
+                                              <div className="rc-student-cell-photo-ph"><i className="fas fa-user" /></div>
+                                            )}
+                                            <div>
+                                              <div className="rc-student-name">{l.fullName}</div>
+                                              <div className="rc-student-reg">{l.regNumber || 'No Reg No'}</div>
+                                            </div>
+                                          </div>
+                                        </td>
+                                        <td>
+                                          <span style={{
+                                            fontWeight: 700,
+                                            color: isFullyGraded ? '#0d9488' : '#e11d48'
+                                          }}>
+                                            {subjectsGraded}/{totalClassSubjects} Graded
+                                          </span>
+                                        </td>
+                                        <td>
+                                          <div style={{ display: 'flex', gap: '8px', fontSize: '0.85rem' }}>
+                                            <span title="Advisor Remark" style={{ color: hasTeacherRemark ? '#0d9488' : '#94a3b8' }}>
+                                              <i className={`fas ${hasTeacherRemark ? 'fa-user-tie' : 'fa-user-tie'}`} /> {hasTeacherRemark ? '✓' : '✗'}
+                                            </span>
+                                            <span title="Headteacher Remark" style={{ color: hasHeadteacherRemark ? '#8b5cf6' : '#94a3b8' }}>
+                                              <i className={`fas ${hasHeadteacherRemark ? 'fa-user-graduate' : 'fa-user-graduate'}`} /> {hasHeadteacherRemark ? '✓' : '✗'}
+                                            </span>
+                                          </div>
+                                        </td>
+                                        <td>
+                                          {editingRemarkId === l.id ? (
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                              <textarea
+                                                className="form-input"
+                                                rows={1}
+                                                style={{ fontSize: '0.78rem', padding: '4px 8px', resize: 'none', flex: 1, minWidth: '180px' }}
+                                                value={inlineHeadteacherRemark}
+                                                onChange={e => setInlineHeadteacherRemark(e.target.value)}
+                                              />
+                                              <button
+                                                type="button"
+                                                className="btn-save-remark-inline"
+                                                onClick={() => handleSaveInlineHeadteacherRemark(l.id, summary)}
+                                                disabled={isSavingRemark}
+                                                title="Save Remark"
+                                              >
+                                                {isSavingRemark ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                className="btn-save-remark-inline"
+                                                style={{ background: '#64748b' }}
+                                                onClick={() => setEditingRemarkId(null)}
+                                                title="Cancel"
+                                              >
+                                                <i className="fas fa-times" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <div
+                                              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: hasHeadteacherRemark ? 'var(--text)' : 'var(--text-muted)' }}
+                                              onClick={() => {
+                                                setEditingRemarkId(l.id);
+                                                setInlineHeadteacherRemark(summary?.headteacherRemark || '');
+                                              }}
+                                              title="Click to Edit Inline"
+                                            >
+                                              <span style={{ fontSize: '0.78rem', maxWidth: '240px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'inline-block' }}>
+                                                {summary?.headteacherRemark || 'No Headteacher Remark. Click to add.'}
+                                              </span>
+                                              <i className="fas fa-pen" style={{ fontSize: '0.65rem', color: 'var(--accent)' }} />
+                                            </div>
+                                          )}
+                                        </td>
+                                        <td>
+                                          <span className={isReleased ? 'rc-badge-published' : 'rc-badge-draft'}>
+                                            <i className={`fas ${isReleased ? 'fa-paper-plane' : 'fa-file'}`} />
+                                            {isReleased ? 'Published' : 'Draft'}
+                                          </span>
+                                        </td>
+                                        <td>
+                                          {summary && summary.parentViewedAt ? (
+                                            <span className="rc-viewed-badge" title={`Opened at ${new Date(summary.parentViewedAt).toLocaleString()}`}>
+                                              <i className="fas fa-eye" />
+                                              Viewed
+                                            </span>
+                                          ) : (
+                                            <span className="rc-unread-badge">
+                                              <i className="fas fa-eye-slash" />
+                                              Unopened
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td style={{ textAlign: 'right' }}>
+                                          <div style={{ display: 'inline-flex', gap: '8px' }}>
+                                            <button
+                                              type="button"
+                                              className="btn"
+                                              style={{
+                                                padding: '4px 8px', fontSize: '0.72rem', background: isReleased ? '#dc2626' : '#0d9488', color: 'white', fontWeight: 'bold'
+                                              }}
+                                              onClick={async () => {
+                                                setIsReleasing(true);
+                                                try {
+                                                  const resolvedLearnerId = l.supabaseId || l.id;
+                                                  const isRel = !isReleased;
+
+                                                  if (!summary) {
+                                                    await db.reportSummaries.add({
+                                                      schoolId: user.schoolId,
+                                                      learnerId: resolvedLearnerId,
+                                                      classId: Number(selectedClass),
+                                                      academicYear,
+                                                      term: selectedTerm,
+                                                      attendancePresent: 0,
+                                                      attendanceTotal: 0,
+                                                      conduct: '—',
+                                                      attitude: '—',
+                                                      teacherRemark: '—',
+                                                      headteacherRemark: '—',
+                                                      isReleased: isRel,
+                                                      classAverage: (learnerAverages[l.id] !== undefined && learnerAverages[l.id] !== null) ? Number(learnerAverages[l.id]) : null,
+                                                      classRank: (learnerRankings[l.id] !== undefined && learnerRankings[l.id] !== null) ? Number(learnerRankings[l.id]) : null,
+                                                      totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0,
+                                                      synced: false
+                                                    });
+                                                  } else {
+                                                    await db.reportSummaries.update(summary.id, {
+                                                      isReleased: isRel,
+                                                      synced: false
+                                                    });
+                                                  }
+
+                                                  // Send direct parent notification if publishing
+                                                  if (isRel) {
+                                                    const parentPhone = l.guardianContact1 || l.guardianContact2;
+                                                    if (parentPhone) {
+                                                      const cleanPhoneVal = parentPhone.replace(/[\s\-\+\(\)]/g, '');
+                                                      const now = new Date().toISOString();
+                                                      await db.notifications.add({
+                                                        schoolId: user.schoolId,
+                                                        parentPhone: cleanPhoneVal,
+                                                        title: "Academic Report Dispatched",
+                                                        content: `The terminal report card for ${l.fullName} for ${selectedTerm} (${academicYear}) has been dispatched and is now available in your portal.`,
+                                                        created_at: now,
+                                                        isRead: false
+                                                      });
+
+                                                      if (navigator.onLine) {
+                                                        try {
+                                                          await supabase.from('report_notifications').insert({
+                                                            school_id: user.schoolId,
+                                                            parent_phone: cleanPhoneVal,
+                                                            title: "Academic Report Dispatched",
+                                                            content: `The terminal report card for ${l.fullName} for ${selectedTerm} (${academicYear}) has been dispatched and is now available in your portal.`,
+                                                            created_at: now,
+                                                            is_read: false
+                                                          });
+                                                        } catch (e) {
+                                                          console.warn(e);
+                                                        }
+                                                      }
+                                                    }
+                                                  }
+
+                                                  syncUnsyncedReportSummaries().catch(err => console.warn(err));
+                                                  alert(`Report card successfully ${isRel ? 'dispatched' : 'revoked'}!`);
+                                                } catch (err) {
+                                                  alert(err.message);
+                                                } finally {
+                                                  setIsReleasing(false);
+                                                }
+                                              }}
+                                            >
+                                              {isReleased ? 'Revoke' : 'Dispatch'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="btn"
+                                              style={{ padding: '4px 8px', fontSize: '0.72rem', background: 'var(--accent)', color: 'white' }}
+                                              onClick={() => {
+                                                setActiveLearnerId(l.id);
+                                                setView('preview');
+                                              }}
+                                            >
+                                              Preview
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 

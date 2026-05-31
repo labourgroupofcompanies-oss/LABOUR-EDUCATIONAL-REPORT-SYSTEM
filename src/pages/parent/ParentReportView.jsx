@@ -353,6 +353,16 @@ const ParentReportView = () => {
     }
   }, [activeLearner, schoolInfo, selectedTerm, selectedYear, activeSummary, allScores, classSubjectList, learnerGrades]);
 
+  // Track and log when parent views the report card
+  React.useEffect(() => {
+    if (activeSummary && isReportReleased && !activeSummary.parentViewedAt) {
+      db.reportSummaries.update(activeSummary.id, {
+        parentViewedAt: new Date().toISOString(),
+        synced: false
+      }).catch(err => console.warn('Failed to log parent view status:', err));
+    }
+  }, [activeSummary, isReportReleased]);
+
   if (!viewData) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
