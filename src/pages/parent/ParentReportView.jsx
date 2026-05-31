@@ -177,6 +177,8 @@ const ParentReportView = () => {
     );
   }, [activeLearner, reportSummaries, selectedYear, selectedTerm]);
 
+  const isReportReleased = activeSummary && (activeSummary.isReleased || activeSummary.is_released);
+
   const currentClass = useMemo(() => {
     if (!activeLearner || !classes) return null;
     const classId = activeSummary ? Number(activeSummary.classId) : activeLearner.currentClassId;
@@ -402,8 +404,6 @@ const ParentReportView = () => {
       </div>
     );
   }
-
-  const isReportReleased = activeSummary && (activeSummary.isReleased || activeSummary.is_released);
 
   if (activeSummary && !isReportReleased) {
     return (
