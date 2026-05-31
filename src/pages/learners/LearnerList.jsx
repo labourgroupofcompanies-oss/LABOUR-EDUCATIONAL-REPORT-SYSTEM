@@ -1024,22 +1024,31 @@ const LearnerList = () => {
   };
 
   const handleDeleteLearner = async (l) => {
-    if (!await window.confirm(`Are you sure you want to delete ${l.fullName}? This action cannot be undone.`)) return;
+    const warningMessage = `⚠️ WARNING: PERMANENT ACADEMIC ERASURE!\n\n` +
+      `You are about to absolutely delete ${l.fullName} from the system. This is a complete database purge and CANNOT be undone.\n\n` +
+      `This will permanently erase:\n` +
+      `1. The student's official registry profile.\n` +
+      `2. ALL academic scores and grade entries across ALL classes, subjects, and terms.\n` +
+      `3. ALL compiled terminal report cards, advisory remarks, and financial records.\n\n` +
+      `Both the local browser cache and cloud server databases will be permanently cleared.\n\n` +
+      `Are you ABSOLUTELY sure you want to proceed?`;
+
+    if (!await window.confirm(warningMessage)) return;
     
     try {
       // 1. Clean up any pending outbox mutations for this learner to avoid ghost insertions
       const pendingItems = await db.outbox.toArray();
       for (const item of pendingItems) {
-        if (item.table === 'report_learners') {
+        if (item.table === 'report_learners' || item.table === 'report_scores' || item.table === 'report_summaries') {
           try {
             const payload = JSON.parse(item.payload);
             const pData = payload.data || payload;
-            const matchesId = String(pData.id) === String(l.id) || String(pData.id) === String(l.supabaseId);
-            const matchesReg = l.regNumber && String(pData.reg_number || pData.regNumber) === String(l.regNumber);
+            const matchesId = String(pData.learnerId || pData.learner_id || pData.id) === String(l.id) || 
+                              String(pData.learnerId || pData.learner_id || pData.id) === String(l.supabaseId);
             
-            if (matchesId || matchesReg) {
+            if (matchesId) {
               await db.outbox.delete(item.id);
-              console.log(`[Learner Delete] Cancelled pending outbox operation "${item.operation}" for learner ${l.fullName}`);
+              console.log(`[Absolute Delete] Cancelled pending outbox operation "${item.operation}" for learner ${l.fullName}`);
             }
           } catch (e) {
             console.warn('Failed to inspect/delete outbox item:', e);
@@ -1049,6 +1058,15 @@ const LearnerList = () => {
 
       // 2. Enqueue the deletion in both sync systems for robust success (online & offline)
       if (l.supabaseId) {
+        // Enqueue cascade deletes on cloud just in case foreign keys cascade isn't fully active
+        await enqueueSync('delete', 'report_scores', {
+          filter: { learner_id: l.supabaseId, school_id: user.schoolId }
+        }, user.schoolId);
+
+        await enqueueSync('delete', 'report_summaries', {
+          filter: { learner_id: l.supabaseId, school_id: user.schoolId }
+        }, user.schoolId);
+
         await enqueueSync('delete', 'report_learners', {
           filter: { id: l.supabaseId, school_id: user.schoolId }
         }, user.schoolId);
@@ -1066,15 +1084,30 @@ const LearnerList = () => {
         }, user.schoolId);
       }
       
-      // 3. Delete locally in Dexie
-      await db.learners.delete(l.id);
+      // 3. Absolute delete locally in Dexie (scores, summaries, and profile) in a transaction
+      await db.transaction('rw', [db.learners, db.scores, db.reportSummaries], async () => {
+        // Purge local scores
+        await db.scores
+          .filter(s => String(s.learnerId) === String(l.id) || (l.supabaseId && String(s.learnerId) === String(l.supabaseId)))
+          .delete();
+
+        // Purge local summaries
+        await db.reportSummaries
+          .filter(s => String(s.learnerId) === String(l.id) || (l.supabaseId && String(s.learnerId) === String(l.supabaseId)))
+          .delete();
+
+        // Purge local learner profile
+        await db.learners.delete(l.id);
+      });
+
+      console.log(`[Absolute Delete] Successfully completed database purge locally and enqueued cloud deletes for ${l.fullName}`);
       
       if (profileLearner && profileLearner.id === l.id) {
         setProfileLearner(null);
       }
     } catch (err) {
-      console.error('Error deleting learner:', err);
-      alert('Failed to delete learner: ' + err.message);
+      console.error('Error executing absolute delete:', err);
+      alert('Failed to execute absolute delete: ' + err.message);
     }
   };
 
