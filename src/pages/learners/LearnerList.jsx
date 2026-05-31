@@ -1024,14 +1024,17 @@ const LearnerList = () => {
   };
 
   const handleDeleteLearner = async (l) => {
-    const warningMessage = `⚠️ WARNING: PERMANENT ACADEMIC ERASURE!\n\n` +
-      `You are about to absolutely delete ${l.fullName} from the system. This is a complete database purge and CANNOT be undone.\n\n` +
-      `This will permanently erase:\n` +
-      `1. The student's official registry profile.\n` +
-      `2. ALL academic scores and grade entries across ALL classes, subjects, and terms.\n` +
-      `3. ALL compiled terminal report cards, advisory remarks, and financial records.\n\n` +
-      `Both the local browser cache and cloud server databases will be permanently cleared.\n\n` +
-      `Are you ABSOLUTELY sure you want to proceed?`;
+    const warningMessage = 
+      `🚨 PERMANENT ACADEMIC ERASURE!\n\n` +
+      `Are you sure you want to absolutely delete ${l.fullName}?\n` +
+      `This is a complete database purge and CANNOT be undone.\n\n` +
+      `🔴 THIS WILL PERMANENTLY ERASE:\n` +
+      `   • Official Student Profile & Registry\n` +
+      `   • All Academic Scores & Grades across all terms/years\n` +
+      `   • All Terminal Report Cards & Advisory Remarks\n` +
+      `   • All School Fees & Financial Billings\n\n` +
+      `Both the local computer cache and cloud server will be wiped forever.\n\n` +
+      `Are you absolutely sure you want to proceed?`;
 
     if (!await window.confirm(warningMessage)) return;
     
