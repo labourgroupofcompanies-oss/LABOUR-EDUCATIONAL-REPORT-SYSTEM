@@ -732,6 +732,85 @@ const Reports = () => {
     })();
   }, [user, selectedClass, academicYear, selectedTerm]);
 
+  // Background unsynced report summaries synchronizer & self-healing mapping
+  const syncUnsyncedReportSummaries = React.useCallback(async () => {
+    if (!navigator.onLine || !user?.schoolId) return;
+    try {
+      const unsynced = await db.reportSummaries.filter(s => !s.synced).toArray();
+      if (unsynced.length === 0) return;
+
+      console.log(`[Summary Sync] Found ${unsynced.length} unsynced report summaries. Syncing...`);
+
+      for (const s of unsynced) {
+        // Resolve student UUID if it was stored as local ID
+        let resolvedLearnerId = s.learnerId;
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
+        
+        if (!isUuid) {
+          const matchedLearner = await db.learners.get(Number(s.learnerId));
+          if (matchedLearner && matchedLearner.supabaseId) {
+            resolvedLearnerId = matchedLearner.supabaseId;
+            // Update local summary record with the UUID
+            await db.reportSummaries.update(s.id, { learnerId: resolvedLearnerId });
+          } else {
+            console.log(`[Summary Sync] Learner ${s.learnerId} not synced yet. Skipping summary sync.`);
+            continue;
+          }
+        }
+
+        const cloud = {
+          school_id: user.schoolId,
+          learner_id: resolvedLearnerId,
+          class_id: Number(s.classId),
+          academic_year: s.academicYear,
+          term: s.term,
+          attendance_present: Number(s.attendancePresent) || 0,
+          attendance_total: Number(s.attendanceTotal) || 0,
+          conduct: s.conduct || '—',
+          attitude: s.attitude || '—',
+          teacher_remark: s.teacherRemark || '—',
+          headteacher_remark: s.headteacherRemark || '—',
+          promoted_to: s.promotedTo || '—',
+          next_term_begins: s.nextTermBegins || '',
+          fees_owed: s.feesOwed || '',
+          next_term_bill: s.nextTermBill || '',
+          is_released: s.isReleased || s.is_released || false,
+          class_average: s.classAverage !== undefined ? s.classAverage : null,
+          class_rank: s.classRank !== undefined ? s.classRank : null,
+          total_graded: s.totalGraded !== undefined ? s.totalGraded : 0,
+          updated_at: new Date().toISOString(),
+          promotion_status: s.promotionStatus || 'pending'
+        };
+
+        if (s.supabaseId) {
+          await enqueueSync('update', 'report_summaries', { filter: { id: s.supabaseId }, data: cloud }, user.schoolId);
+        } else {
+          await enqueueSync('insert', 'report_summaries', cloud, user.schoolId);
+        }
+
+        await db.reportSummaries.update(s.id, { synced: true });
+      }
+    } catch (err) {
+      console.warn('Failed to sync unsynced summaries:', err);
+    }
+  }, [user]);
+
+  // Run on mount, user online, or background intervals
+  useEffect(() => {
+    if (user?.schoolId) {
+      syncUnsyncedReportSummaries();
+      
+      const handleOnline = () => {
+        syncUnsyncedReportSummaries();
+      };
+      
+      window.addEventListener('online', handleOnline);
+      return () => {
+        window.removeEventListener('online', handleOnline);
+      };
+    }
+  }, [user, syncUnsyncedReportSummaries]);
+
   // Grading scale
   const gradingScale = useMemo(() => {
     if (globalSettings?.gradingScale?.length > 0) return globalSettings.gradingScale;
@@ -958,40 +1037,13 @@ const Reports = () => {
     if (activeSummary) { record.id = activeSummary.id; record.supabaseId = activeSummary.supabaseId; }
     try {
       const savedId = await db.reportSummaries.put(record);
-      if (navigator.onLine) {
-        const cloud = {
-          school_id: user.schoolId,
-          learner_id: resolvedLearnerId,
-          class_id: Number(selectedClass),
-          academic_year: academicYear,
-          term: selectedTerm,
-          attendance_present: Number(form.attendancePresent) || 0,
-          attendance_total: Number(form.attendanceTotal) || 0,
-          conduct: form.conduct,
-          attitude: form.attitude,
-          teacher_remark: form.teacherRemark,
-          headteacher_remark: form.headteacherRemark,
-          promoted_to: form.promotedTo,
-          next_term_begins: form.nextTermBegins,
-          fees_owed: form.feesOwed,
-          next_term_bill: form.nextTermBill,
-          updated_at: new Date().toISOString(),
-          promotion_status: 'pending',
-          is_released: activeSummary?.isReleased || activeSummary?.is_released || false,
-          class_average: (avg !== undefined && avg !== null) ? Number(avg) : null,
-          class_rank: (rank !== undefined && rank !== null) ? Number(rank) : null,
-          total_graded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0
-        };
-        if (activeSummary?.supabaseId) {
-            await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
-            await db.reportSummaries.update(savedId, { synced: true, promotionStatus: 'pending' });
-        } else {
-            await enqueueSync('insert', 'report_summaries', cloud);
-            await db.reportSummaries.update(savedId, { synced: true, promotionStatus: 'pending' });
-        }
-      } else {
-        await db.reportSummaries.update(savedId, { promotionStatus: 'pending' });
-      }
+      
+      // Mark as pending promotion locally
+      await db.reportSummaries.update(savedId, { promotionStatus: 'pending' });
+
+      // Run background sync loop which will automatically resolve UUIDs and enqueue the sync
+      syncUnsyncedReportSummaries().catch(err => console.warn('Failed to sync after save:', err));
+
       alert('Report card saved successfully!');
     } catch (err) {
       console.error(err);
@@ -1059,21 +1111,27 @@ const Reports = () => {
         .filter(s => s.classId === Number(selectedClass) && s.academicYear === academicYear && s.term === selectedTerm)
         .toArray();
 
-      if (navigator.onLine) {
-        const { error } = await supabase
-          .from('report_summaries')
-          .update({ is_released: releaseStatus, updated_at: new Date().toISOString() })
-          .eq('school_id', user.schoolId)
-          .eq('class_id', Number(selectedClass))
-          .eq('academic_year', academicYear)
-          .eq('term', selectedTerm);
+      // Enqueue the bulk update in the sync engine outbox (resilient for online & offline)
+      await enqueueSync('update', 'report_summaries', {
+        filter: {
+          school_id: user.schoolId,
+          class_id: Number(selectedClass),
+          academic_year: academicYear,
+          term: selectedTerm
+        },
+        data: {
+          is_released: releaseStatus,
+          updated_at: new Date().toISOString()
+        }
+      }, user.schoolId);
 
-        if (error) throw error;
-      }
-
+      // Proactively update local db records to match
       for (const s of localSummaries) {
-        await db.reportSummaries.update(s.id, { isReleased: releaseStatus, synced: navigator.onLine });
+        await db.reportSummaries.update(s.id, { isReleased: releaseStatus, synced: false });
       }
+
+      // Also trigger a background sync run to ensure any previously unsynced local summaries are created
+      syncUnsyncedReportSummaries().catch(err => console.warn('Failed to run summary sync:', err));
 
       alert(`Report cards successfully ${releaseStatus ? 'released' : 'revoked'} for all students in this class!`);
     } catch (err) {
@@ -1130,38 +1188,12 @@ const Reports = () => {
           classAverage: (avg !== undefined && avg !== null) ? Number(avg) : (summary.classAverage || null),
           classRank: (rank !== undefined && rank !== null) ? Number(rank) : (summary.classRank || null),
           totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : (summary.totalGraded || 0),
-          synced: navigator.onLine 
+          synced: false 
         });
       }
 
-      if (navigator.onLine) {
-        const cloud = {
-          school_id: user.schoolId,
-          learner_id: resolvedLearnerId,
-          class_id: Number(selectedClass),
-          academic_year: academicYear,
-          term: selectedTerm,
-          attendance_present: summary.attendancePresent || 0,
-          attendance_total: summary.attendanceTotal || 0,
-          conduct: summary.conduct || '—',
-          attitude: summary.attitude || '—',
-          teacher_remark: summary.teacherRemark || '—',
-          headteacher_remark: summary.headteacherRemark || '—',
-          is_released: releaseStatus,
-          class_average: (avg !== undefined && avg !== null) ? Number(avg) : (summary.classAverage || summary.class_average || null),
-          class_rank: (rank !== undefined && rank !== null) ? Number(rank) : (summary.classRank || summary.class_rank || null),
-          total_graded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : (summary.totalGraded || summary.total_graded || 0),
-          updated_at: new Date().toISOString()
-        };
-
-        if (summary.supabaseId) {
-          await enqueueSync('update', 'report_summaries', { filter: { id: summary.supabaseId }, data: cloud });
-          await db.reportSummaries.update(summary.id, { synced: true });
-        } else {
-          await enqueueSync('insert', 'report_summaries', cloud);
-          await db.reportSummaries.update(summary.id, { synced: true });
-        }
-      }
+      // Run background sync loop which will automatically resolve UUIDs and enqueue the sync
+      syncUnsyncedReportSummaries().catch(err => console.warn('Failed to sync after release:', err));
 
       alert(`Report card successfully ${releaseStatus ? 'released' : 'revoked'} for ${activeLearner.fullName}!`);
     } catch (err) {
