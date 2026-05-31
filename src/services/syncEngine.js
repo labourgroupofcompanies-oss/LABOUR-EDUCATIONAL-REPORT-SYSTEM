@@ -217,35 +217,85 @@ export const drainOutbox = async () => {
                 }
               }
             } else if (item.table === 'report_learners') {
-              const { data: existingLearner } = await supabase
-                .from('report_learners')
-                .select('id')
-                .eq('school_id', payload.school_id)
-                .eq('reg_number', payload.reg_number)
-                .maybeSingle();
+              const targetSchoolId = payload.school_id || (payload.data && payload.data.school_id);
+              const targetRegNumber = payload.reg_number || (payload.data && payload.data.reg_number);
+              const targetId = payload.id || (payload.filter && payload.filter.id);
 
-              if (existingLearner?.id) {
-                console.log(`[SyncEngine] 🔄 Found existing remote learner ID ${existingLearner.id}. Upgrading insert to update.`);
-                
-                const { error: updErr } = await supabase
+              if (targetSchoolId && targetRegNumber) {
+                // 1. Query Supabase for the learner currently holding this registration number
+                const { data: duplicateLearner } = await supabase
                   .from('report_learners')
-                  .update(payload)
-                  .eq('id', existingLearner.id);
-                  
-                if (!updErr) {
-                  opError = null; // Mark operation as successful!
-                  
-                  const local = await db.learners
-                    .where('schoolId').equals(payload.school_id)
-                    .filter(l => l.regNumber === payload.reg_number)
-                    .first();
+                  .select('id, full_name')
+                  .eq('school_id', targetSchoolId)
+                  .eq('reg_number', targetRegNumber)
+                  .maybeSingle();
+
+                if (duplicateLearner) {
+                  if (duplicateLearner.id === targetId || item.operation === 'insert') {
+                    // Match: Re-save of same student (ID matches or inserting duplicate). Upgrade insert to update.
+                    console.log(`[SyncEngine] 🔄 Found existing remote learner ID ${duplicateLearner.id}. Upgrading insert to update.`);
                     
-                  if (local) {
-                    await db.learners.update(local.id, { supabaseId: existingLearner.id, synced: true });
-                    console.log(`[SyncEngine] ✅ Successfully self-healed local learner ID ${local.id} with supabaseId ${existingLearner.id}`);
+                    const { error: updErr } = await supabase
+                      .from('report_learners')
+                      .update(item.operation === 'insert' ? payload : payload.data)
+                      .eq('id', duplicateLearner.id);
+                      
+                    if (!updErr) {
+                      opError = null; // Mark operation as successful!
+                      
+                      const local = await db.learners
+                        .where('schoolId').equals(targetSchoolId)
+                        .filter(l => l.regNumber === targetRegNumber)
+                        .first();
+                        
+                      if (local) {
+                        await db.learners.update(local.id, { supabaseId: duplicateLearner.id, synced: true });
+                        console.log(`[SyncEngine] ✅ Successfully self-healed local learner ID ${local.id} with supabaseId ${duplicateLearner.id}`);
+                      }
+                    } else {
+                      opError = updErr;
+                    }
+                  } else {
+                    // Conflict: Different student has this registration number. Check if they are a ghost student!
+                    console.log(`[SyncEngine] 🔄 Conflicting remote learner "${duplicateLearner.full_name}" (ID: ${duplicateLearner.id}) holding registration number "${targetRegNumber}". Checking local status...`);
+                    
+                    const existsLocally = await db.learners.where('supabaseId').equals(duplicateLearner.id).first();
+                    
+                    if (!existsLocally) {
+                      // Conflicting student does NOT exist locally in Dexie (Ghost Student). Automatically purge!
+                      console.log(`[SyncEngine] 🧹 Conflicting student is not found locally. Automatically purging ghost student from Supabase...`);
+                      
+                      const { error: purgeErr } = await supabase
+                        .from('report_learners')
+                        .delete()
+                        .eq('id', duplicateLearner.id);
+                        
+                      if (!purgeErr) {
+                        console.log(`[SyncEngine] ✅ Purged ghost student from Supabase. Retrying original update...`);
+                        
+                        // Retry the original operation
+                        if (item.operation === 'insert') {
+                          const rows = Array.isArray(payload) ? payload : [payload];
+                          const { error: retryErr } = await supabase.from(item.table).insert(rows);
+                          opError = retryErr;
+                        } else if (item.operation === 'update') {
+                          let q = supabase.from(item.table).update(payload.data);
+                          if (payload.filter) {
+                            Object.entries(payload.filter).forEach(([k, v]) => {
+                              q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
+                            });
+                          }
+                          const { error: retryErr } = await q;
+                          opError = retryErr;
+                        }
+                      } else {
+                        console.warn(`[SyncEngine] Failed to purge conflicting ghost student:`, purgeErr.message);
+                        opError = purgeErr;
+                      }
+                    } else {
+                      console.log(`[SyncEngine] Conflicting student exists locally. This is a legitimate duplicate registration conflict — user must resolve.`);
+                    }
                   }
-                } else {
-                  opError = updErr;
                 }
               }
             }
