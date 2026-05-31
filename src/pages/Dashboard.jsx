@@ -505,6 +505,19 @@ const Dashboard = () => {
           }
 
           for (const rl of remoteLearners) {
+            // Resurrection prevention: if there is a pending delete in the outbox or local storage for this learner, skip recreating them!
+            const isPendingDelete = await db.outbox
+              .filter(o => o.table === 'report_learners' && o.operation === 'delete' && (o.payload.includes(rl.id) || (rl.reg_number && o.payload.includes(rl.reg_number))))
+              .first();
+            
+            const inlineDeletedQueue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
+            const isInlineDeleted = inlineDeletedQueue.includes(rl.id);
+
+            if (isPendingDelete || isInlineDeleted) {
+              console.log(`[Dashboard Sync] Skipping resurrection of deleted learner: ${rl.full_name}`);
+              continue;
+            }
+
             // 1. Check if the learner exists by Supabase ID
             let local = await db.learners.where('supabaseId').equals(rl.id).first();
             

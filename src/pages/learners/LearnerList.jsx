@@ -964,12 +964,46 @@ const LearnerList = () => {
     if (!await window.confirm(`Are you sure you want to delete ${l.fullName}? This action cannot be undone.`)) return;
     
     try {
+      // 1. Clean up any pending outbox mutations for this learner to avoid ghost insertions
+      const pendingItems = await db.outbox.toArray();
+      for (const item of pendingItems) {
+        if (item.table === 'report_learners') {
+          try {
+            const payload = JSON.parse(item.payload);
+            const pData = payload.data || payload;
+            const matchesId = String(pData.id) === String(l.id) || String(pData.id) === String(l.supabaseId);
+            const matchesReg = l.regNumber && String(pData.reg_number || pData.regNumber) === String(l.regNumber);
+            
+            if (matchesId || matchesReg) {
+              await db.outbox.delete(item.id);
+              console.log(`[Learner Delete] Cancelled pending outbox operation "${item.operation}" for learner ${l.fullName}`);
+            }
+          } catch (e) {
+            console.warn('Failed to inspect/delete outbox item:', e);
+          }
+        }
+      }
+
+      // 2. Enqueue the deletion in both sync systems for robust success (online & offline)
       if (l.supabaseId) {
         await enqueueSync('delete', 'report_learners', {
-          filter: { id: l.supabaseId }
+          filter: { id: l.supabaseId, school_id: user.schoolId }
+        }, user.schoolId);
+        
+        // Also queue in the inline custom deletion array as backup
+        const deletedQueue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
+        if (!deletedQueue.includes(l.supabaseId)) {
+          deletedQueue.push(l.supabaseId);
+          localStorage.setItem('pending_deleted_learners', JSON.stringify(deletedQueue));
+        }
+      } else if (l.regNumber) {
+        // Safe-heal fallback: delete by registration number if supabaseId is missing locally
+        await enqueueSync('delete', 'report_learners', {
+          filter: { reg_number: l.regNumber, school_id: user.schoolId }
         }, user.schoolId);
       }
       
+      // 3. Delete locally in Dexie
       await db.learners.delete(l.id);
       
       if (profileLearner && profileLearner.id === l.id) {
