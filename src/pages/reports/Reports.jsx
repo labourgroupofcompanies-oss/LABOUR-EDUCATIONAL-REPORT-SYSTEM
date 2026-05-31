@@ -755,9 +755,49 @@ const Reports = () => {
   // Learners in class
   const classLearners = useMemo(() => {
     if (!selectedClass || !learners) return [];
-    return learners.filter(l => l.currentClassId === Number(selectedClass))
-      .sort((a, b) => a.fullName.localeCompare(b.fullName));
-  }, [learners, selectedClass]);
+    
+    const targetClassId = Number(selectedClass);
+    
+    // Create a Set of learner IDs who have historical summaries or scores in this class/term/year
+    const historicalLearnerIds = new Set();
+    
+    if (reportSummaries && academicYear && selectedTerm) {
+      reportSummaries.forEach(s => {
+        if (Number(s.classId) === targetClassId && 
+            s.academicYear === academicYear && 
+            s.term === selectedTerm) {
+          historicalLearnerIds.add(String(s.learnerId));
+        }
+      });
+    }
+    
+    if (scores && academicYear && selectedTerm) {
+      scores.forEach(s => {
+        const sClassId = s.classId || s.class_id;
+        const sLearnerId = s.learnerId || s.learner_id;
+        const sYear = s.academicYear || s.academic_year;
+        const sTerm = s.term;
+        
+        if (Number(sClassId) === targetClassId && 
+            sYear === academicYear && 
+            sTerm === selectedTerm) {
+          historicalLearnerIds.add(String(sLearnerId));
+        }
+      });
+    }
+
+    return learners.filter(l => {
+      // Condition 1: Currently active in this class
+      if (l.currentClassId === targetClassId && l.status !== 'Alumni' && l.status !== 'Graduated') {
+        return true;
+      }
+      // Condition 2: Has historical records for this class/term/year
+      const lId = String(l.id);
+      const lSupId = l.supabaseId ? String(l.supabaseId) : null;
+      return historicalLearnerIds.has(lId) || (lSupId && historicalLearnerIds.has(lSupId));
+    })
+    .sort((a, b) => a.fullName.localeCompare(b.fullName));
+  }, [learners, selectedClass, reportSummaries, scores, academicYear, selectedTerm]);
 
   // Subjects for class
   const classSubjectList = useMemo(() => {
@@ -1178,6 +1218,13 @@ const Reports = () => {
     const fees      = isActive ? (form.feesOwed || summary?.feesOwed || '') : (summary?.feesOwed || '');
     const bill      = (isActive ? form.nextTermBill : null) || summary?.nextTermBill || form.nextTermBill || '';
 
+    const getPromotedClassName = (promVal) => {
+      if (!promVal) return '';
+      if (promVal === 'Alumni') return 'Alumni (Graduated)';
+      const cls = classes?.find(c => c.id === Number(promVal));
+      return cls ? cls.name : `Class ${promVal}`;
+    };
+
     const isReleased = summary && (summary.isReleased || summary.is_released);
 
     return (
@@ -1321,6 +1368,12 @@ const Reports = () => {
             <h4>Next Term &amp; Financials</h4>
             <p><strong>Vacation Date:</strong> {vDate}</p>
             <p><strong>Resumes:</strong> {nDate}</p>
+            {promoted && (
+              <p style={{ color: '#0d9488', fontWeight: 'bold', marginTop: '4px' }}>
+                <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
+                Decision: Promoted to {getPromotedClassName(promoted)}
+              </p>
+            )}
             {(fees || bill) && (
               <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0' }}>
                 {bill && <p><strong>Next Term Bill:</strong> {bill}</p>}

@@ -253,10 +253,73 @@ const ScoreEntry = () => {
     return classOfferedSubjects.filter(s => allowedSubjectIds.has(Number(s.id)));
   }, [allSubjects, selectedClass, allClasses, assignments, user, classSubjects]);
 
-  // Get learners for the selected class
+  // Get learners for the selected class (including historical ones for past terms/years)
   const learners = useLiveQuery(
-    () => selectedClass ? db.learners.where('currentClassId').equals(Number(selectedClass)).toArray() : [],
-    [selectedClass]
+    async () => {
+      if (!selectedClass) return [];
+      const targetClassId = Number(selectedClass);
+      
+      // 1. Fetch currently active learners in this class (excluding alumni/graduated)
+      const activeLearners = await db.learners
+        .where('currentClassId').equals(targetClassId)
+        .toArray();
+      
+      // 2. Fetch report summaries to identify historical students
+      let historicalLearnerIds = new Set();
+      if (selectedAcademicYear && selectedTerm) {
+        const summaries = await db.reportSummaries
+          .where('classId').equals(targetClassId)
+          .filter(s => s.academicYear === selectedAcademicYear && s.term === selectedTerm)
+          .toArray();
+        summaries.forEach(s => historicalLearnerIds.add(String(s.learnerId)));
+      }
+      
+      // 3. Fetch scores to identify historical students
+      if (selectedAcademicYear && selectedTerm) {
+        const classScores = await db.scores
+          .where('classId').equals(targetClassId)
+          .filter(s => s.academicYear === selectedAcademicYear && s.term === selectedTerm)
+          .toArray();
+        classScores.forEach(s => historicalLearnerIds.add(String(s.learnerId)));
+      }
+      
+      // If there are no historical records yet, return active students
+      if (historicalLearnerIds.size === 0) {
+        return activeLearners.filter(l => l.status !== 'Alumni' && l.status !== 'Graduated');
+      }
+      
+      // 4. Fetch all learners to resolve historical learner records
+      const allLearners = await db.learners.toArray();
+      
+      // Combine active and historical students, avoiding duplicates
+      const seen = new Set();
+      const combined = [];
+      
+      // First, include active ones
+      activeLearners.forEach(l => {
+        if (l.status !== 'Alumni' && l.status !== 'Graduated') {
+          seen.add(String(l.id));
+          if (l.supabaseId) seen.add(String(l.supabaseId));
+          combined.push(l);
+        }
+      });
+      
+      // Next, include historical ones who are not already added
+      allLearners.forEach(l => {
+        const lId = String(l.id);
+        const lSupId = l.supabaseId ? String(l.supabaseId) : null;
+        if (!seen.has(lId) && (!lSupId || !seen.has(lSupId))) {
+          if (historicalLearnerIds.has(lId) || (lSupId && historicalLearnerIds.has(lSupId))) {
+            seen.add(lId);
+            if (lSupId) seen.add(lSupId);
+            combined.push(l);
+          }
+        }
+      });
+      
+      return combined.sort((a, b) => a.fullName.localeCompare(b.fullName));
+    },
+    [selectedClass, selectedAcademicYear, selectedTerm]
   );
 
   // Load existing scores if any
@@ -319,8 +382,8 @@ const ScoreEntry = () => {
           .filter(s => s.subjectId === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
           .toArray();
         
-        // Fetch all learners for this class to resolve local ID mappings to supabaseId (UUID)
-        const localLearners = await db.learners.where('currentClassId').equals(Number(selectedClass)).toArray();
+        // Fetch all learners to resolve local ID mappings to supabaseId (UUID) (including promoted/graduated ones)
+        const localLearners = await db.learners.toArray();
         
         const scoreMap = {};
         for (const s of existing) {
