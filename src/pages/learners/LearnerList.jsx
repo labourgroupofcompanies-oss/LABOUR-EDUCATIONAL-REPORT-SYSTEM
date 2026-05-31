@@ -1045,13 +1045,38 @@ const LearnerList = () => {
         if (item.table === 'report_learners' || item.table === 'report_scores' || item.table === 'report_summaries') {
           try {
             const payload = JSON.parse(item.payload);
-            const pData = payload.data || payload;
-            const matchesId = String(pData.learnerId || pData.learner_id || pData.id) === String(l.id) || 
-                              String(pData.learnerId || pData.learner_id || pData.id) === String(l.supabaseId);
             
-            if (matchesId) {
-              await db.outbox.delete(item.id);
-              console.log(`[Absolute Delete] Cancelled pending outbox operation "${item.operation}" for learner ${l.fullName}`);
+            if (item.table === 'report_scores' && item.operation === 'delete_insert') {
+              // Handle array-based score insertions (delete_insert)
+              if (Array.isArray(payload.insertData)) {
+                const initialLength = payload.insertData.length;
+                
+                // Filter out the deleted student's scores
+                payload.insertData = payload.insertData.filter(row => {
+                  const sLearnerId = String(row.learner_id || row.learnerId || '');
+                  return sLearnerId !== String(l.id) && (!l.supabaseId || sLearnerId !== String(l.supabaseId));
+                });
+                
+                if (payload.insertData.length === 0) {
+                  // If no scores left for other students, delete the entire outbox item
+                  await db.outbox.delete(item.id);
+                  console.log(`[Absolute Delete] Purged empty outbox scores item ${item.id} for ${l.fullName}`);
+                } else if (payload.insertData.length < initialLength) {
+                  // If some scores were removed, update the outbox item with the filtered array
+                  await db.outbox.update(item.id, { payload: JSON.stringify(payload) });
+                  console.log(`[Absolute Delete] Filtered out deleted student's scores from outbox item ${item.id} for ${l.fullName}`);
+                }
+              }
+            } else {
+              // Handle standard object-based payloads
+              const pData = payload.data || payload;
+              const matchesId = String(pData.learnerId || pData.learner_id || pData.id) === String(l.id) || 
+                                String(pData.learnerId || pData.learner_id || pData.id) === String(l.supabaseId);
+              
+              if (matchesId) {
+                await db.outbox.delete(item.id);
+                console.log(`[Absolute Delete] Cancelled pending outbox operation "${item.operation}" for learner ${l.fullName}`);
+              }
             }
           } catch (e) {
             console.warn('Failed to inspect/delete outbox item:', e);

@@ -304,6 +304,71 @@ export const drainOutbox = async () => {
           }
         }
 
+        if (opError && (opError.code === '23503' || String(opError.message || opError).toLowerCase().includes('foreign key constraint') || String(opError.message || opError).toLowerCase().includes('23503'))) {
+          console.log(`[SyncEngine] ⚠️ Foreign key constraint violation (23503) detected on ${item.table}. Attempting automated self-healing...`);
+          
+          try {
+            if (item.table === 'report_scores' && item.operation === 'delete_insert') {
+              // For bulk score saves, filter out any rows that violate the learner foreign key
+              if (Array.isArray(payload.insertData)) {
+                console.log('[SyncEngine] Filtering out score rows referencing non-existent learners...');
+                const validRows = [];
+                for (const row of payload.insertData) {
+                  const lId = row.learner_id;
+                  if (lId) {
+                    // Check if this student exists on Supabase report_learners
+                    const { data } = await supabase
+                      .from('report_learners')
+                      .select('id')
+                      .eq('id', lId)
+                      .maybeSingle();
+                      
+                    if (data?.id) {
+                      validRows.push(row);
+                    } else {
+                      console.log(`[SyncEngine] Dropped score row for deleted/non-existent learner: ${lId}`);
+                    }
+                  }
+                }
+                
+                if (validRows.length === 0) {
+                  // If all rows are invalid, mark the operation as successful (since all reference deleted students)
+                  console.log('[SyncEngine] All score rows are invalid. Skipping this outbox item.');
+                  opError = null;
+                } else {
+                  // Re-run the delete_insert with only the valid score rows
+                  console.log(`[SyncEngine] Retrying scores sync with ${validRows.length} valid rows...`);
+                  let delQ = supabase.from(item.table).delete();
+                  Object.entries(payload.deleteFilter).forEach(([k, v]) => {
+                    delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
+                  });
+                  await delQ;
+                  
+                  const { error: retryErr } = await supabase.from(item.table).insert(validRows);
+                  opError = retryErr;
+                }
+              }
+            } else if (item.table === 'report_scores' || item.table === 'report_summaries') {
+              // For individual scores or summaries, check if the learner exists
+              const lId = payload.learner_id || (payload.data && payload.data.learner_id);
+              if (lId) {
+                const { data } = await supabase
+                  .from('report_learners')
+                  .select('id')
+                  .eq('id', lId)
+                  .maybeSingle();
+                  
+                if (!data?.id) {
+                  console.log(`[SyncEngine] Purging outbox item for deleted/non-existent learner: ${lId}`);
+                  opError = null; // Mark as successful to discard it from outbox
+                }
+              }
+            }
+          } catch (reconcileErr) {
+            console.error('[SyncEngine] FK Reconcile error:', reconcileErr);
+          }
+        }
+
         if (opError) {
           throw new Error(opError.message || 'Supabase operation failed');
         }
