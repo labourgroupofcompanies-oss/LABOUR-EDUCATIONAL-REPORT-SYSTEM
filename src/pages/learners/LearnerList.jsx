@@ -805,6 +805,69 @@ const LearnerList = () => {
               await db.learners.update(l.id, { photo: photoUrl, synced: true });
             } else {
               console.error('Error syncing learner update:', error);
+              
+              // Self-healing: if update fails due to a unique key conflict (ghost student)
+              if (error.code === '23505' || String(error.message).toLowerCase().includes('unique constraint') || String(error.message).toLowerCase().includes('duplicate key')) {
+                console.log(`[Inline Sync] 🔄 Unique key conflict (23505) detected on update for learner ${l.fullName} with reg_number ${l.regNumber}. Attempting self-healing...`);
+                
+                try {
+                  // 1. Query Supabase to find the duplicate student holding this registration number
+                  const { data: duplicateLearner } = await supabase
+                    .from('report_learners')
+                    .select('id, full_name')
+                    .eq('school_id', l.schoolId)
+                    .eq('reg_number', l.regNumber)
+                    .maybeSingle();
+                    
+                  if (duplicateLearner && duplicateLearner.id !== supabaseId) {
+                    console.log(`[Inline Sync] Conflicting student found on Supabase: "${duplicateLearner.full_name}" (ID: ${duplicateLearner.id}). Checking if deleted locally...`);
+                    
+                    const existsLocally = await db.learners.where('supabaseId').equals(duplicateLearner.id).first();
+                    
+                    if (!existsLocally) {
+                      // Conflicting student does NOT exist locally in Dexie (Ghost Student). Automatically purge!
+                      console.log(`[Inline Sync] 🧹 Purging ghost student "${duplicateLearner.full_name}" from Supabase...`);
+                      const { error: purgeErr } = await supabase
+                        .from('report_learners')
+                        .delete()
+                        .eq('id', duplicateLearner.id);
+                        
+                      if (!purgeErr) {
+                        console.log(`[Inline Sync] ✅ Purged ghost student. Retrying update...`);
+                        
+                        // Retry the update
+                        const { error: retryErr } = await supabase.from('report_learners').update({
+                          full_name: l.fullName,
+                          reg_number: l.regNumber,
+                          gender: l.gender,
+                          class_id: l.currentClassId,
+                          photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
+                          guardian_name: l.guardianName,
+                          guardian_relation: l.guardianRelation,
+                          guardian_contact_1: l.guardianContact1,
+                          guardian_contact_2: l.guardianContact2,
+                          guardian_profession: l.guardianProfession,
+                          guardian_location: l.guardianLocation,
+                          updated_at: l.updatedAt || new Date().toISOString()
+                        }).eq('id', supabaseId);
+                        
+                        if (!retryErr) {
+                          await db.learners.update(l.id, { photo: photoUrl, synced: true });
+                          console.log(`[Inline Sync] ✅ Successfully self-healed and synced learner ${l.fullName}`);
+                        } else {
+                          console.error('[Inline Sync] Retry update failed:', retryErr);
+                        }
+                      } else {
+                        console.error('[Inline Sync] Failed to purge ghost student:', purgeErr);
+                      }
+                    } else {
+                      console.log(`[Inline Sync] Conflicting student exists locally. Legitimate duplicate.`);
+                    }
+                  }
+                } catch (reconcileErr) {
+                  console.error('[Inline Sync] Self-healing failed:', reconcileErr);
+                }
+              }
             }
           } else {
             // Insert new record online
