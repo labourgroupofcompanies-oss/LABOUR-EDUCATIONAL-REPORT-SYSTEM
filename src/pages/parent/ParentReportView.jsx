@@ -310,6 +310,25 @@ const ParentReportView = () => {
     return classes?.find(c => c.id === classId || String(c.id) === String(classId))?.name || 'Grade';
   };
 
+  const conduct   = activeSummary?.conduct           || '—';
+  const attitude  = activeSummary?.attitude          || '—';
+  const tRemark   = activeSummary?.teacherRemark     || '—';
+  const hRemark   = activeSummary?.headteacherRemark || '—';
+  const attP      = activeSummary?.attendancePresent ?? '—';
+  const attT      = activeSummary?.attendanceTotal   ?? '—';
+  const vDate     = schoolInfo?.vacationDate || '—';
+  const nDate     = activeSummary?.nextTermBegins || schoolInfo?.nextTermBegins || '—';
+  const promoted  = activeSummary?.promotedTo || '';
+  const fees      = activeSummary?.feesOwed || '';
+  const bill      = activeSummary?.nextTermBill || '';
+
+  const getPromotedClassName = (promVal) => {
+    if (!promVal) return '';
+    if (promVal === 'Alumni') return 'Alumni (Graduated)';
+    const cls = classes?.find(c => c.id === Number(promVal));
+    return cls ? cls.name : `Class ${promVal}`;
+  };
+
   // Diagnostics to assist in browser debugging (F12)
   React.useEffect(() => {
     if (activeLearner) {
@@ -497,272 +516,168 @@ const ParentReportView = () => {
 
         /* ── Report Card Canvas Layout ── */
         .rc-canvas {
-          background: #fff;
-          border-radius: 24px;
-          padding: 2.5rem;
-          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
-          border: 1px solid #e2e8f0;
+          background: white;
+          border: 3px double #b45309;
+          border-radius: 18px;
+          padding: 2rem;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+          font-family: 'Outfit', 'Inter', sans-serif;
+          color: #0f172a;
+          position: relative;
           display: flex;
           flex-direction: column;
-          position: relative;
         }
 
         .rc-canvas-header {
           display: flex;
           align-items: center;
-          gap: 1.5rem;
-          border-bottom: 2.5px double #e2e8f0;
-          padding-bottom: 1.25rem;
+          gap: 1rem;
+          border-bottom: 2px double #b45309;
+          padding-bottom: 1rem;
           margin-bottom: 1.5rem;
+          flex-wrap: wrap;
         }
 
+        .rc-school-logo {
+          width: 68px; height: 68px;
+          border-radius: 50%;
+          border: 2px solid #b45309;
+          object-fit: cover;
+          flex-shrink: 0;
+        }
         .rc-school-logo-ph {
-          width: 60px;
-          height: 60px;
-          background: rgba(13, 148, 136, 0.1);
-          color: #0d9488;
-          border-radius: 12px;
+          width: 68px; height: 68px;
+          border-radius: 50%;
+          border: 2px solid #b45309;
+          background: #f8fafc;
           display: flex;
           align-items: center;
           justify-content: center;
+          color: #b45309;
           font-size: 1.75rem;
+          flex-shrink: 0;
         }
-
+        .rc-student-photo {
+          width: 72px; height: 84px;
+          border-radius: 8px;
+          border: 2px solid #e2e8f0;
+          object-fit: cover;
+          flex-shrink: 0;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
         .rc-student-photo-ph {
-          width: 72px;
-          height: 72px;
-          border-radius: 14px;
-          border: 1px solid #cbd5e1;
+          width: 72px; height: 84px;
+          border-radius: 8px;
+          border: 2px dashed #e2e8f0;
+          background: #f8fafc;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          font-size: 0.6rem;
-          background: #f8fafc;
           color: #94a3b8;
+          font-size: 0.5rem;
           font-weight: 700;
-        }
-
-        .rc-student-photo {
-          width: 72px;
-          height: 72px;
-          border-radius: 14px;
-          object-fit: cover;
-          border: 1px solid #cbd5e1;
+          text-transform: uppercase;
+          gap: 4px;
+          flex-shrink: 0;
         }
 
         .rc-title-row {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 1.25rem;
+          margin-bottom: 1.5rem;
+          gap: 1rem;
+          flex-wrap: wrap;
         }
-
         .rc-doc-badge {
-          background: rgba(13, 148, 136, 0.1);
-          color: #0d9488;
+          font-size: 0.78rem;
           font-weight: 800;
-          font-size: 0.85rem;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
-          padding: 0.35rem 0.85rem;
-          border-radius: 8px;
+          background: #f8fafc;
+          padding: 0.4rem 1.1rem;
+          border-radius: 20px;
+          border: 1px solid #e2e8f0;
+          color: #0f172a;
         }
-
-        .rc-kpis {
-          display: flex;
-          gap: 8px;
-        }
-
+        .rc-kpis { display: flex; gap: 0.6rem; }
         .rc-kpi {
+          width: 58px; height: 58px;
+          border-radius: 50%;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          width: 54px;
-          height: 54px;
-          border-radius: 12px;
+          gap: 1px;
         }
-
-        .rc-kpi-lbl {
-          font-size: 0.58rem;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.02em;
-          margin-bottom: 1px;
-        }
-
-        .rc-kpi-val {
-          font-size: 0.85rem;
-          font-weight: 800;
-        }
+        .rc-kpi-lbl { font-size: 0.44rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; }
+        .rc-kpi-val { font-size: 0.88rem; font-weight: 900; line-height: 1; color: #0f172a; }
 
         .rc-bio-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 0.75rem 1.25rem;
+          grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+          gap: 8px;
           background: #f8fafc;
+          padding: 0.85rem 1rem;
+          border-radius: 10px;
           border: 1px solid #e2e8f0;
-          border-radius: 16px;
-          padding: 1rem 1.25rem;
           margin-bottom: 1.5rem;
-          font-size: 0.85rem;
+          font-size: 0.78rem;
         }
-
         .rc-bio-item {
-          color: #475569;
-          font-weight: 600;
-        }
-
-        .rc-bio-item strong {
           color: #0f172a;
-          margin-right: 6px;
           font-weight: 700;
         }
+        .rc-bio-item strong { color: #64748b; font-weight: 600; margin-right: 4px; }
 
-        .rc-table-wrap {
-          border: 1px solid #cbd5e1;
-          border-radius: 14px;
-          overflow: hidden;
-          margin-bottom: 1.5rem;
-        }
+        /* Grades table */
+        .rc-table-wrap { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; margin-bottom: 1.25rem; }
+        .rc-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+        .rc-table thead tr { background: #0f172a; color: white; }
+        .rc-table th { padding: 0.6rem 0.8rem; font-weight: 700; text-align: left; }
+        .rc-table th.c, .rc-table td.c { text-align: center; }
+        .rc-table tbody tr { border-bottom: 1px solid #e2e8f0; }
+        .rc-table tbody tr:last-child { border-bottom: none; }
+        .rc-table tbody tr:nth-child(even) { background: #f8fafc; }
+        .rc-table td { padding: 0.55rem 0.8rem; }
+        .rc-gbadge { display: inline-block; padding: 2px 10px; border-radius: 6px; font-weight: 800; font-size: 0.72rem; }
 
-        .rc-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.85rem;
-          text-align: left;
-        }
-
-        .rc-table th {
-          background: #f8fafc;
-          color: #475569;
-          font-weight: 800;
-          padding: 0.75rem 1rem;
-          border-bottom: 1px solid #cbd5e1;
-        }
-
-        .rc-table td {
-          padding: 0.7rem 1rem;
-          border-bottom: 1px solid #f1f5f9;
-          color: #334155;
-        }
-
-        .rc-table tr:last-child td {
-          border-bottom: none;
-        }
-
-        .rc-table th.c, .rc-table td.c {
-          text-align: center;
-        }
-
-        .rc-gbadge {
-          display: inline-block;
-          font-weight: 800;
-          font-size: 0.75rem;
-          padding: 0.15rem 0.5rem;
-          border-radius: 6px;
-        }
-
-        /* Bottom Section Grid */
+        /* ── Bottom Grid for Grading, Conduct, Next Term, Remarks ── */
         .rc-bottom-grid {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 1.25rem;
-          margin-bottom: 2rem;
+          grid-template-columns: 1fr 1fr;
+          gap: 1rem;
+          margin-bottom: 1.25rem;
         }
-
         .rc-sbox {
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 16px;
-          padding: 1.1rem;
-          font-size: 0.82rem;
+          background: #f8fafc; border: 1px solid #e2e8f0;
+          border-radius: 10px; padding: 0.85rem 1rem; font-size: 0.78rem;
         }
-
         .rc-sbox h4 {
-          font-size: 0.75rem;
-          font-weight: 800;
-          color: #0d9488;
-          text-transform: uppercase;
-          margin: 0 0 0.6rem;
-          letter-spacing: 0.05em;
+          margin: 0 0 6px; font-size: 0.8rem; font-weight: 800;
+          color: #0f172a; border-bottom: 1px dashed #e2e8f0; padding-bottom: 4px;
         }
-
-        .rc-sbox p {
-          margin: 0 0 0.4rem;
-          color: #475569;
-        }
-
-        .rc-sbox p strong {
-          color: #0f172a;
-          margin-right: 6px;
-        }
-
+        .rc-sbox p { margin: 3px 0; line-height: 1.45; }
+        .rc-sbox p strong { color: #64748b; font-weight: 600; margin-right: 4px; }
+        
         .rc-remarks-box {
-          grid-column: span 3;
+          grid-column: span 2;
         }
-
         .rc-legend-sbox {
           grid-column: span 1;
         }
-
         .rc-legend-content {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 4px;
-          font-size: 0.68rem;
+          display: flex; gap: 5px; flex-wrap: wrap;
+          font-size: 0.67rem; color: #64748b; align-items: center;
         }
-
         .rc-legend-item {
           color: #64748b;
         }
 
-        /* Circle Attendance Indicator */
-        .att-indicator {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          margin-top: 6px;
-        }
-
-        .att-circle {
-          width: 38px;
-          height: 38px;
-          border-radius: 50%;
-          background: #e2e8f0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 0.65rem;
-          font-weight: 800;
-          color: #0d9488;
-          border: 2px solid #0d9488;
-        }
-
-        /* Signature block */
-        .rc-sig-strip {
-          display: flex;
-          justify-content: space-between;
-          margin-top: auto;
-          padding-top: 1.5rem;
-          border-top: 1px dashed #cbd5e1;
-        }
-
-        .rc-sig-block {
-          text-align: center;
-          font-size: 0.72rem;
-          font-weight: 700;
-          color: #64748b;
-          width: 200px;
-        }
-
-        .rc-sig-line {
-          height: 1px;
-          background: #cbd5e1;
-          margin-bottom: 6px;
-          width: 100%;
-        }
+        .rc-sig-strip { display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 1rem; gap: 1rem; margin-top: auto; }
+        .rc-sig-block { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 120px; font-size: 0.7rem; font-weight: 700; text-align: center; color: #0f172a; }
+        .rc-sig-line { width: 100%; height: 1px; background: #cbd5e1; margin-bottom: 5px; margin-top: 28px; }
 
         /* ── Flawless A4 Print Stylesheet ── */
         @media print {
@@ -793,7 +708,7 @@ const ParentReportView = () => {
             background: white !important;
           }
           .rc-canvas {
-            border: 2px double #0d9488 !important;
+            border: 3px double #b45309 !important;
             border-radius: 0 !important;
             box-shadow: none !important;
             width: 210mm !important;
@@ -916,71 +831,54 @@ const ParentReportView = () => {
         <div className="rc-canvas">
           {/* Header */}
           <div className="rc-canvas-header">
-            {schoolInfo?.logoUrl ? (
-              <img src={schoolInfo.logoUrl} alt="logo" style={{ width: '60px', height: '60px', borderRadius: '12px', objectFit: 'cover' }} />
-            ) : (
-              <div className="rc-school-logo-ph">
-                <i className="fas fa-school"></i>
-              </div>
-            )}
-            
+            {schoolInfo?.logoUrl
+              ? <img src={schoolInfo.logoUrl} alt="logo" className="rc-school-logo" />
+              : <div className="rc-school-logo-ph"><i className="fas fa-school" /></div>}
             <div style={{ flex: 1 }}>
-              <h1 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, textTransform: 'uppercase', color: '#0f172a', letterSpacing: '0.4px' }}>
-                {schoolInfo?.name || 'Labour Basic School'}
+              <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, textTransform: 'uppercase', color: '#0f172a', letterSpacing: '0.4px' }}>
+                {schoolInfo?.name || 'Labour Edu Academy'}
               </h1>
               {schoolInfo?.motto && (
-                <p style={{ margin: '2px 0 0', fontStyle: 'italic', fontSize: '0.75rem', color: '#b45309', fontWeight: 600 }}>
+                <p style={{ margin: '2px 0 0', fontStyle: 'italic', fontSize: '0.7rem', color: '#b45309', fontWeight: 600 }}>
                   &ldquo;{schoolInfo.motto}&rdquo;
                 </p>
               )}
-              <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: '#64748b' }}>
-                {[schoolInfo?.location || 'Accra, Ghana', schoolInfo?.district, schoolInfo?.region].filter(Boolean).join(' • ')}
+              <p style={{ margin: '3px 0 0', fontSize: '0.68rem', color: '#64748b' }}>
+                {[schoolInfo?.location, schoolInfo?.district, schoolInfo?.region].filter(Boolean).join(' • ')}
               </p>
             </div>
-
-            {activeLearner.photoUrl || activeLearner.photo ? (
-              <img src={activeLearner.photoUrl || activeLearner.photo} alt={activeLearner.fullName} className="rc-student-photo" />
-            ) : (
-              <div className="rc-student-photo-ph">
-                <i className="fas fa-user-graduate" style={{ fontSize: '1.5rem', opacity: 0.35, marginBottom: '2px' }}></i>
-                <span>Student</span>
-              </div>
-            )}
+            {activeLearner.photoUrl || activeLearner.photo
+              ? <img src={activeLearner.photoUrl || activeLearner.photo} alt={activeLearner.fullName} className="rc-student-photo" />
+              : <div className="rc-student-photo-ph"><i className="fas fa-user" style={{ fontSize: '1.5rem', opacity: 0.35 }} /><span>No Photo</span></div>}
           </div>
 
-          {/* KPI and Badges */}
+          {/* Title row + KPIs */}
           <div className="rc-title-row">
             <span className="rc-doc-badge">Terminal Report Card</span>
             <div className="rc-kpis">
               <div className="rc-kpi" style={{ background: '#f0fdfa', border: '2px solid #0d9488' }}>
                 <span className="rc-kpi-lbl" style={{ color: '#0d9488' }}>Avg</span>
-                <span className="rc-kpi-val" style={{ color: '#0f766e' }}>
-                  {stats.avg !== null && stats.avg !== undefined ? `${stats.avg}%` : '—'}
-                </span>
+                <span className="rc-kpi-val">{stats.avg !== null && stats.avg !== undefined ? `${stats.avg}%` : '—'}</span>
               </div>
               <div className="rc-kpi" style={{ background: '#fdf2f8', border: '2px solid #db2777' }}>
                 <span className="rc-kpi-lbl" style={{ color: '#db2777' }}>Rank</span>
-                <span className="rc-kpi-val" style={{ color: '#be185d' }}>
-                  {ordinal(stats.rank)}
-                </span>
+                <span className="rc-kpi-val">{ordinal(stats.rank)}</span>
               </div>
               <div className="rc-kpi" style={{ background: '#fefce8', border: '2px solid #ca8a04' }}>
                 <span className="rc-kpi-lbl" style={{ color: '#ca8a04' }}>Of</span>
-                <span className="rc-kpi-val" style={{ color: '#a16207' }}>
-                  {stats.totalGraded}
-                </span>
+                <span className="rc-kpi-val">{stats.totalGraded}</span>
               </div>
             </div>
           </div>
 
-          {/* Student Bio info */}
+          {/* Bio */}
           <div className="rc-bio-grid">
-            <div className="rc-bio-item"><strong>Student:</strong> {activeLearner.fullName}</div>
-            <div className="rc-bio-item"><strong>Reg No:</strong> {activeLearner.regNumber}</div>
-            <div className="rc-bio-item"><strong>Gender:</strong> {activeLearner.gender}</div>
-            <div className="rc-bio-item"><strong>Class:</strong> {currentClass?.name || 'Grade'}</div>
-            <div className="rc-bio-item"><strong>Academic Year:</strong> {selectedYear}</div>
-            <div className="rc-bio-item"><strong>Term Period:</strong> {selectedTerm}</div>
+            <div className="rc-bio-item"><strong>Name:</strong>{activeLearner.fullName}</div>
+            <div className="rc-bio-item"><strong>Reg No:</strong>{activeLearner.regNumber || '—'}</div>
+            <div className="rc-bio-item"><strong>Gender:</strong>{activeLearner.gender || '—'}</div>
+            <div className="rc-bio-item"><strong>Class:</strong>{currentClass?.name || '—'}</div>
+            <div className="rc-bio-item"><strong>Academic Year:</strong>{selectedYear || '—'}</div>
+            <div className="rc-bio-item"><strong>Term:</strong>{selectedTerm}</div>
           </div>
 
           {/* Grades table */}
@@ -989,29 +887,25 @@ const ParentReportView = () => {
               <table className="rc-table">
                 <thead>
                   <tr>
-                    <th>Subject Title</th>
-                    <th className="c">CA (30%)</th>
-                    <th className="c">Exam (70%)</th>
-                    <th className="c">Total (100%)</th>
+                    <th>Subject</th>
+                    <th className="c">CA</th>
+                    <th className="c">Exam</th>
+                    <th className="c">Total</th>
                     <th className="c">Grade</th>
                     <th>Remark</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {learnerGrades.map((g, index) => {
-                    const colors = gradeColor(g.grade);
+                  {learnerGrades.map((g, i) => {
+                    const gc = gradeColor(g.grade);
                     return (
-                      <tr key={index}>
-                        <td style={{ fontWeight: 700, color: '#1e293b' }}>{g.subjectName}</td>
+                      <tr key={i}>
+                        <td style={{ fontWeight: 600 }}>{g.subjectName}</td>
                         <td className="c">{g.ca !== null ? Number(g.ca).toFixed(1) : '—'}</td>
                         <td className="c">{g.exam !== null ? Number(g.exam).toFixed(1) : '—'}</td>
-                        <td className="c" style={{ fontWeight: 800, color: '#0f172a' }}>{g.total !== null ? Number(g.total).toFixed(1) : '—'}</td>
-                        <td className="c">
-                          <span className="rc-gbadge" style={{ background: colors.bg, color: colors.text }}>
-                            {g.grade}
-                          </span>
-                        </td>
-                        <td style={{ color: colors.text, fontWeight: 700 }}>{g.remark}</td>
+                        <td className="c" style={{ fontWeight: 700, color: '#0f172a' }}>{g.total !== null ? Number(g.total).toFixed(1) : '—'}</td>
+                        <td className="c"><span className="rc-gbadge" style={{ background: gc.bg, color: gc.text }}>{g.grade}</span></td>
+                        <td style={{ color: gc.text, fontWeight: 600 }}>{g.remark}</td>
                       </tr>
                     );
                   })}
@@ -1019,70 +913,66 @@ const ParentReportView = () => {
               </table>
             </div>
           ) : (
-            <div style={{ textAlign: 'center', padding: '3rem 1.5rem', border: '2.5px dashed #cbd5e1', borderRadius: '16px', color: '#94a3b8', marginBottom: '1.5rem' }}>
-              <i className="fas fa-folder-open" style={{ fontSize: '2rem', marginBottom: '0.75rem', display: 'block' }}></i>
+            <div style={{ textAlign: 'center', padding: '2rem', border: '1px dashed #e2e8f0', borderRadius: '10px', color: '#94a3b8', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
               No subject score entries compiled for this term yet.
             </div>
           )}
 
-          {/* Advisory & Attendance Box */}
+          {/* ── Compact Bottom Grid ── */}
           <div className="rc-bottom-grid">
+            {/* Legend */}
             <div className="rc-sbox rc-legend-sbox">
-              <h4>Grade Legend</h4>
+              <h4>Grading Scale</h4>
               <div className="rc-legend-content">
-                {gradingScale.map((item, idx) => (
-                  <span key={idx} className="rc-legend-item">
-                    <strong>{item.grade}</strong> ({item.min}–{item.max}%)
+                {gradingScale.map((s, i) => (
+                  <span key={i} className="rc-legend-item">
+                    <strong>{s.grade}</strong> ({s.min}–{s.max}%)
                   </span>
                 ))}
               </div>
             </div>
 
+            {/* Conduct + Next term */}
             <div className="rc-sbox">
-              <h4>Attendance & Conduct</h4>
-              <p><strong>Attendance:</strong> {activeSummary?.attendancePresent ?? '—'} of {activeSummary?.attendanceTotal ?? '—'} days</p>
-              {activeSummary?.attendanceTotal > 0 && (
-                <div className="att-indicator">
-                  <div className="att-circle">{attendancePercent}%</div>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b' }}>Term Attendance Rate</span>
-                </div>
-              )}
-              <p style={{ marginTop: '0.5rem' }}><strong>Conduct:</strong> {activeSummary?.conduct || '—'}</p>
-              <p><strong>Attitude:</strong> {activeSummary?.attitude || '—'}</p>
+              <h4>Conduct &amp; Attendance</h4>
+              <p><strong>Attendance:</strong> {attP} of {attT} days</p>
+              <p><strong>Conduct:</strong> {conduct}</p>
+              <p><strong>Attitude:</strong> {attitude}</p>
             </div>
 
             <div className="rc-sbox">
-              <h4>Next Term Schedule</h4>
-              <p><strong>Vacation Date:</strong> {schoolInfo?.vacationDate || '—'}</p>
-              <p><strong>Reopens:</strong> {activeSummary?.nextTermBegins || schoolInfo?.nextTermBegins || '—'}</p>
-              {activeSummary?.promotedTo && (
-                <div style={{ marginTop: '0.5rem', padding: '0.35rem 0.6rem', background: 'rgba(16,185,129,0.08)', borderRadius: '8px', border: '1px solid rgba(16,185,129,0.15)', fontSize: '0.75rem', color: '#047857', fontWeight: 700 }}>
-                  <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i> Promoted To: {getClassName(activeSummary.promotedTo)}
+              <h4>Next Term &amp; Financials</h4>
+              <p><strong>Vacation Date:</strong> {vDate}</p>
+              <p><strong>Resumes:</strong> {nDate}</p>
+              {promoted && (
+                <p style={{ color: '#0d9488', fontWeight: 'bold', marginTop: '4px' }}>
+                  <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
+                  Decision: Promoted to {getPromotedClassName(promoted)}
+                </p>
+              )}
+              {(fees || bill) && (
+                <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0' }}>
+                  {bill && <p><strong>Next Term Bill:</strong> {bill}</p>}
+                  {fees && <p><strong>Previous Arrears:</strong> {fees}</p>}
                 </div>
               )}
             </div>
 
+            {/* Remarks */}
             <div className="rc-sbox rc-remarks-box">
               <h4>Advisory Remarks</h4>
-              <p style={{ marginBottom: '0.65rem' }}><strong>Class Advisor's Comment:</strong> {activeSummary?.teacherRemark || '—'}</p>
-              <p style={{ margin: 0 }}><strong>Principal's Endorsement:</strong> {activeSummary?.headteacherRemark || '—'}</p>
+              <p><strong>Class Advisor:</strong> {tRemark}</p>
+              {hRemark && hRemark !== '—' && hRemark.trim() !== '' && (
+                <p><strong>Headteacher:</strong> {hRemark}</p>
+              )}
             </div>
           </div>
 
-          {/* Signatures Footer */}
+          {/* Signatures */}
           <div className="rc-sig-strip">
-            <div className="rc-sig-block">
-              <div className="rc-sig-line"></div>
-              Class Teacher
-            </div>
-            <div className="rc-sig-block">
-              <div className="rc-sig-line"></div>
-              School stamp &amp; Date
-            </div>
-            <div className="rc-sig-block">
-              <div className="rc-sig-line"></div>
-              Headteacher Signature
-            </div>
+            <div className="rc-sig-block"><div className="rc-sig-line" />Class Advisor's Signature</div>
+            <div className="rc-sig-block"><div className="rc-sig-line" />School Stamp &amp; Date</div>
+            <div className="rc-sig-block"><div className="rc-sig-line" />Headteacher's Signature</div>
           </div>
         </div>
       </div>
