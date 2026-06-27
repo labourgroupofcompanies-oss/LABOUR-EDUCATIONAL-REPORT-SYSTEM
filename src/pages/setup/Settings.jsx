@@ -8,10 +8,21 @@ import { enqueueSync } from '../../services/syncEngine';
 import { compressImageToBlob } from '../../utils/imageUtils';
 
 const Settings = () => {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const globalSettings = useLiveQuery(() => db.settings.get('global'), []);
   const schoolData = useLiveQuery(() => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]);
   
+  const [profileName, setProfileName] = useState('');
+  const [profileStaffId, setProfileStaffId] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      setProfileName(user.fullName || '');
+      setProfileStaffId(user.staffId || '');
+    }
+  }, [user]);
+
   const [settings, setSettings] = useState({
     caWeight: 30,
     examWeight: 70,
@@ -270,6 +281,60 @@ const Settings = () => {
     alert('All school settings saved and synchronized successfully!');
   };
 
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    if (!profileName.trim()) {
+      alert('Full Name is required.');
+      return;
+    }
+    
+    setIsSavingProfile(true);
+    try {
+      const updatedFields = {
+        fullName: profileName.trim(),
+        staffId: profileStaffId.trim()
+      };
+      
+      // 1. Update locally in Dexie
+      await db.profiles.update(user.id, updatedFields);
+
+      // 2. Update context state
+      updateProfile(updatedFields);
+
+      // 3. Enqueue sync for cloud update
+      await enqueueSync('update', 'report_profiles', {
+        filter: { id: user.id },
+        data: {
+          full_name: updatedFields.fullName,
+          staff_id: updatedFields.staffId,
+          updated_at: new Date().toISOString()
+        }
+      }, user.schoolId);
+
+      // 4. Update Supabase Auth user metadata
+      if (navigator.onLine) {
+        try {
+          await supabase.auth.updateUser({
+            data: { 
+              full_name: updatedFields.fullName,
+              staff_id: updatedFields.staffId
+            }
+          });
+        } catch (authErr) {
+          console.warn('Failed to update auth metadata:', authErr);
+        }
+      }
+
+      alert('Profile details updated successfully!');
+    } catch (err) {
+      console.error('Failed to save profile:', err);
+      alert('Failed to update profile: ' + err.message);
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+
   const updateGradingScale = (index, field, value) => {
     const newScale = [...settings.gradingScale];
     if (field === 'min' || field === 'max') {
@@ -296,6 +361,71 @@ const Settings = () => {
     <Layout title="Portal Setup & School Settings">
       <div className="fade-in">
         <form onSubmit={handleSave}>
+          
+          {/* Headteacher Profile Card */}
+          <div className="card" style={{ marginBottom: '2rem' }}>
+            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-user-cog" style={{ color: 'var(--accent)' }}></i>
+              Headteacher Profile Settings
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Full Name</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="e.g. John Doe"
+                  value={profileName} 
+                  onChange={(e) => setProfileName(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Email Address (Read-only)</label>
+                <input 
+                  type="email" 
+                  className="form-input" 
+                  value={user?.email || ''} 
+                  disabled
+                  style={{ background: 'var(--background)', color: 'var(--text-muted)', cursor: 'not-allowed' }}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Staff ID</label>
+                <input 
+                  type="text" 
+                  className="form-input" 
+                  placeholder="e.g. HT-001"
+                  value={profileStaffId} 
+                  onChange={(e) => setProfileStaffId(e.target.value)}
+                />
+              </div>
+            </div>
+            
+            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-start' }}>
+              <button 
+                type="button" 
+                className="btn btn-accent" 
+                onClick={handleSaveProfile}
+                disabled={isSavingProfile}
+                style={{ 
+                  background: 'var(--accent)', 
+                  color: 'white', 
+                  padding: '0.6rem 1.25rem', 
+                  border: 'none', 
+                  borderRadius: '8px', 
+                  fontWeight: 'bold', 
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {isSavingProfile ? <i className="fas fa-spinner fa-spin"></i> : null}
+                <span>Save Profile Details</span>
+              </button>
+            </div>
+          </div>
           
           {/* School Profile & Term Settings Card */}
           <div className="card" style={{ marginBottom: '2rem' }}>
