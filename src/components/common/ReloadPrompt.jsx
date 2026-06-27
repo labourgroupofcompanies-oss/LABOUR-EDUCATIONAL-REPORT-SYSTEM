@@ -10,11 +10,26 @@ function ReloadPrompt() {
   } = useRegisterSW({
     onRegisteredSW(swUrl, r) {
       console.log(`Service Worker registered at: ${swUrl}`);
+      if (r) {
+        // Automatically check for updates every 15 minutes
+        setInterval(() => {
+          console.log('[PWA] Checking for service worker updates...');
+          r.update().catch(err => console.warn('Failed to check for PWA update:', err));
+        }, 15 * 60 * 1000);
+      }
     },
     onRegisterError(error) {
       console.error('Service Worker registration failed:', error);
     },
   });
+
+  // Auto-activate and override old software version instantly when new update is uploaded
+  React.useEffect(() => {
+    if (needRefresh) {
+      console.log('[PWA] New version detected! Auto-updating and reloading clients...');
+      updateServiceWorker(true);
+    }
+  }, [needRefresh, updateServiceWorker]);
 
   const close = () => {
     setOfflineReady(false);

@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
 import authService from '../../services/authService';
+import LearnerPhoto from '../../components/common/LearnerPhoto';
 
 const ParentFeesView = () => {
   const { learnerId } = useParams();
@@ -29,17 +30,20 @@ const ParentFeesView = () => {
 
     // 2. Load school metadata, classes, and report summaries in parallel
     const schoolId = learner.schoolId;
-    const [school, allClasses, summariesList] = await Promise.all([
+    const learnerKeys = [learner.id, String(learner.id), learner.supabaseId].filter(Boolean);
+    const [school, allClasses, summariesList, paymentsList] = await Promise.all([
       schoolId ? db.schools.get(schoolId) : null,
       schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
-      schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : []
+      schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : [],
+      db.payments.where('learnerId').anyOf(learnerKeys).toArray()
     ]);
 
     return {
       activeLearner: learner,
       schoolInfo: school,
       classes: allClasses,
-      reportSummaries: summariesList
+      reportSummaries: summariesList,
+      payments: paymentsList
     };
   }, [learnerId]);
 
@@ -47,6 +51,7 @@ const ParentFeesView = () => {
   const schoolInfo = viewData?.schoolInfo;
   const classes = viewData?.classes;
   const reportSummaries = viewData?.reportSummaries;
+  const payments = viewData?.payments || [];
 
   const currentClass = useMemo(() => {
     if (!activeLearner || !classes) return null;
@@ -65,6 +70,18 @@ const ParentFeesView = () => {
     );
   }, [activeLearner, reportSummaries, schoolInfo]);
 
+  // Filter payments for the active sibling in the current academic year and term
+  const activeTermPayments = useMemo(() => {
+    if (!activeLearner || !payments || !schoolInfo) return [];
+    const year = schoolInfo.currentAcademicYear || '';
+    const term = schoolInfo.currentTerm || 'Term 1';
+    
+    return payments.filter(p => 
+      p.academicYear === year && 
+      p.term === term
+    ).sort((a, b) => new Date(b.paymentDate) - new Date(a.paymentDate));
+  }, [activeLearner, payments, schoolInfo]);
+
   // Ledger totals calculation
   const financials = useMemo(() => {
     const parseValue = (val) => {
@@ -81,14 +98,19 @@ const ParentFeesView = () => {
     
     const arrearsVal = arrears === null ? 0 : arrears;
     const nextBillVal = nextBill === null ? 0 : nextBill;
-    const totalDue = (arrears === null && nextBill === null) ? NaN : (arrearsVal + nextBillVal);
+    
+    const totalPaymentsVal = activeTermPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const currentTermRemaining = arrearsVal - totalPaymentsVal;
+    const nextTermAmountToPay = currentTermRemaining + nextBillVal;
 
     return {
       arrears,
       nextBill,
-      totalDue
+      totalPaymentsVal,
+      currentTermRemaining,
+      nextTermAmountToPay
     };
-  }, [activeSummary]);
+  }, [activeSummary, activeTermPayments]);
 
   if (!viewData) {
     return (
@@ -97,6 +119,15 @@ const ParentFeesView = () => {
           <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#3b82f6' }}></i>
           <p>Loading ledger details...</p>
         </div>
+      </div>
+    );
+  }
+
+  if (viewData.notFound) {
+    return (
+      <div style={{ padding: '3rem', textAlign: 'center' }}>
+        <h2>Learner Not Found</h2>
+        <button className="btn" onClick={() => navigate('/parent/dashboard')}>Back to Dashboard</button>
       </div>
     );
   }
@@ -283,70 +314,6 @@ const ParentFeesView = () => {
           color: #3b82f6;
         }
 
-        .bank-details-box {
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-          padding: 1rem 1.25rem;
-          margin-top: 0.5rem;
-        }
-
-        .bank-row {
-          display: flex;
-          margin-bottom: 0.5rem;
-          font-size: 0.85rem;
-        }
-
-        .bank-row:last-child {
-          margin-bottom: 0;
-        }
-
-        .bank-lbl {
-          width: 130px;
-          color: #64748b;
-          font-weight: 600;
-        }
-
-        .bank-val {
-          font-weight: 700;
-          color: #0f172a;
-        }
-
-        .policy-item {
-          display: flex;
-          gap: 10px;
-          font-size: 0.85rem;
-          color: #475569;
-          margin-bottom: 0.75rem;
-          line-height: 1.4;
-        }
-
-        .policy-item:last-child {
-          margin-bottom: 0;
-        }
-
-        .policy-item i {
-          color: #10b981;
-          margin-top: 3px;
-        }
-
-        .disclaimer-banner {
-          background: rgba(245, 158, 11, 0.06);
-          border: 1px dashed rgba(245, 158, 11, 0.25);
-          border-radius: 16px;
-          padding: 1.25rem;
-          display: flex;
-          gap: 10px;
-          font-size: 0.82rem;
-          color: #b45309;
-          line-height: 1.5;
-        }
-
-        .disclaimer-banner i {
-          font-size: 1.1rem;
-          margin-top: 2px;
-        }
-
         @media (max-width: 480px) {
           .fees-student-header {
             flex-direction: column;
@@ -372,13 +339,11 @@ const ParentFeesView = () => {
 
         {/* Student Profile Card */}
         <div className="fees-student-header">
-          {activeLearner.photoUrl || activeLearner.photo ? (
-            <img src={activeLearner.photoUrl || activeLearner.photo} alt={activeLearner.fullName} className="f-avatar" />
-          ) : (
-            <div className="f-avatar-ph">
-              <i className="fas fa-user-graduate"></i>
-            </div>
-          )}
+          <LearnerPhoto
+            photo={activeLearner.photo || activeLearner.photoUrl || null}
+            alt={activeLearner.fullName}
+            className="f-avatar"
+          />
           
           <div>
             <h2 className="f-student-name">{activeLearner.fullName}</h2>
@@ -404,14 +369,81 @@ const ParentFeesView = () => {
           </div>
 
           <div className="ledger-row">
-            <span className="ledger-row-lbl">Current Term Academic Tuition &amp; Levies</span>
+            <span className="ledger-row-lbl">Total Payments (This Term)</span>
+            <span className="ledger-row-val" style={{ color: '#34d399' }}>GH¢ {financials.totalPaymentsVal.toFixed(2)}</span>
+          </div>
+
+          <div className="ledger-row">
+            <span className="ledger-row-lbl">Current Term Arrears Balance</span>
+            <span className="ledger-row-val">
+              {financials.currentTermRemaining < 0 
+                ? `Surplus: GH¢ ${Math.abs(financials.currentTermRemaining).toFixed(2)}` 
+                : `GH¢ ${financials.currentTermRemaining.toFixed(2)}`}
+            </span>
+          </div>
+
+          <div className="ledger-row">
+            <span className="ledger-row-lbl">Next Term Bill (Academic Tuition &amp; Levies)</span>
             <span className="ledger-row-val">{financials.nextBill !== null ? `GH¢ ${financials.nextBill.toFixed(2)}` : '-'}</span>
           </div>
 
           <div className="ledger-row total">
-            <span className="ledger-row-lbl">Total Sibling Account Balance Due</span>
-            <span className="ledger-row-val">GH¢ {financials.totalDue !== null && !isNaN(financials.totalDue) ? financials.totalDue.toFixed(2) : '0.00'}</span>
+            <span className="ledger-row-lbl">Next Term Total Amount to Pay</span>
+            <span className="ledger-row-val">GH¢ {financials.nextTermAmountToPay !== null && !isNaN(financials.nextTermAmountToPay) ? financials.nextTermAmountToPay.toFixed(2) : '0.00'}</span>
           </div>
+        </div>
+
+        {/* Payment History Card */}
+        <div className="info-card">
+          <h3 className="info-card-title" style={{ margin: 0, paddingBottom: '1rem', borderBottom: '1px solid #f1f5f9' }}>
+            <i className="fas fa-history"></i> Payment History ({schoolInfo?.currentTerm || 'Term 1'})
+          </h3>
+          
+          {activeTermPayments.length > 0 ? (
+            <div style={{ overflowX: 'auto', marginTop: '1rem' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #e2e8f0', color: '#64748b' }}>
+                    <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Date</th>
+                    <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Amount Paid</th>
+                    <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Payment Method</th>
+                    <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Reference</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeTermPayments.map((p, idx) => (
+                    <tr key={p.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                        {new Date(p.paymentDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#059669' }}>
+                        GH¢ {(parseFloat(p.amount) || 0).toFixed(2)}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', color: '#0f172a', fontWeight: 600 }}>
+                        <span style={{ 
+                          display: 'inline-block', 
+                          padding: '0.15rem 0.5rem', 
+                          borderRadius: '6px', 
+                          fontSize: '0.75rem',
+                          background: p.paymentMethod === 'Cash' ? '#fef3c7' : p.paymentMethod === 'Mobile Money' ? '#e0f2fe' : '#dcfce7',
+                          color: p.paymentMethod === 'Cash' ? '#92400e' : p.paymentMethod === 'Mobile Money' ? '#0369a1' : '#15803d'
+                        }}>
+                          {p.paymentMethod}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', color: '#64748b', fontFamily: 'monospace' }}>
+                        {p.reference || '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p style={{ margin: 0, color: '#64748b', fontSize: '0.85rem', fontStyle: 'italic', textAlign: 'center', padding: '2rem 1rem 1rem' }}>
+              No payments recorded for this term.
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -124,10 +124,18 @@ const TeacherList = () => {
             .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
-          // Delete any local teacher that is not in the remote list
+          // Delete any local teacher not in the remote list,
+          // BUT protect teachers with a pending insert in the outbox (registered offline)
           for (const lt of localTeachers) {
             if (!remoteIds.has(lt.id)) {
-              await db.profiles.delete(lt.id);
+              const hasPendingInsert = await db.outbox
+                .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(lt.id))
+                .first();
+              if (!hasPendingInsert) {
+                await db.profiles.delete(lt.id);
+              } else {
+                console.log(`[TeacherList Sync] Protecting unsynced local teacher ${lt.fullName} from deletion (pending insert in outbox).`);
+              }
             }
           }
 

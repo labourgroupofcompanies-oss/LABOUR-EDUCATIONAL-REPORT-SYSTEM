@@ -6,9 +6,12 @@ const ClassManager = ({
   setClassName,
   teachingMode,
   setTeachingMode,
+  classCategory,
+  setClassCategory,
   addClass,
   deleteClass,
-  updateClassMode
+  updateClassMode,
+  updateClassCategory
 }) => {
   return (
     <div className="card hover-card" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -29,7 +32,7 @@ const ClassManager = ({
           Classes Manager
         </h2>
         <p style={{ margin: '5px 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          Register and configure your institution's grade groups and academic streams.
+          Register and configure your institution's grade groups, academic streams, and billing categories.
         </p>
       </div>
 
@@ -47,12 +50,23 @@ const ClassManager = ({
             />
             <select
               className="form-input"
-              style={{ flex: '1 1 180px', background: 'var(--surface)', cursor: 'pointer', fontSize: '0.875rem' }}
+              style={{ flex: '1 1 150px', background: 'var(--surface)', cursor: 'pointer', fontSize: '0.875rem' }}
               value={teachingMode}
               onChange={(e) => setTeachingMode(e.target.value)}
             >
               <option value="class_teacher">Class Teacher Mode</option>
               <option value="subject_teacher">Subject Teacher Mode</option>
+            </select>
+            <select
+              className="form-input"
+              style={{ flex: '1 1 150px', background: 'var(--surface)', cursor: 'pointer', fontSize: '0.875rem' }}
+              value={classCategory}
+              onChange={(e) => setClassCategory(e.target.value)}
+            >
+              <option value="early grade">Early Grade</option>
+              <option value="basic 1-3">Basic 1-3</option>
+              <option value="basic 4-6">Basic 4-6</option>
+              <option value="basic 7-9">Basic 7-9</option>
             </select>
           </div>
           
@@ -74,9 +88,7 @@ const ClassManager = ({
         }}>
           <i className="fas fa-info-circle" style={{ color: 'var(--accent)', marginTop: '2px' }}></i>
           <div>
-            <strong>Tip:</strong> Toggle a class's teaching mode instantly below. 
-            <em> Class Teacher</em> locks score sheets to the classroom head, while 
-            <em> Subject Teacher</em> unlocks individual specialization maps.
+            <strong>Tip:</strong> Set class billing category (e.g. Early Grade, Basic 1-3) to allow bulk billing and financials management.
           </div>
         </div>
       </form>
@@ -110,30 +122,46 @@ const ClassManager = ({
             >
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: '1 1 auto' }}>
                 <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.9rem' }}>{c.name}</span>
-                <select
-                  style={{ 
-                    alignSelf: 'flex-start', 
-                    fontSize: '0.7rem', 
-                    padding: '0.2rem 0.5rem', 
-                    borderRadius: '6px',
-                    fontWeight: 700,
-                    background: isClassTeacher ? 'rgba(245, 158, 11, 0.08)' : 'rgba(59, 130, 246, 0.08)',
-                    color: isClassTeacher ? '#d97706' : '#2563eb',
-                    border: isClassTeacher ? '1px solid rgba(245, 158, 11, 0.15)' : '1px solid rgba(59, 130, 246, 0.15)',
-                    cursor: 'pointer',
-                    width: 'auto',
-                    height: 'auto',
-                    minHeight: 'unset',
-                    outline: 'none',
-                    letterSpacing: '0.3px',
-                    transition: 'var(--transition)'
-                  }}
-                  value={mode}
-                  onChange={(e) => updateClassMode(c.id, e.target.value)}
-                >
-                  <option value="class_teacher" style={{ background: 'var(--surface)', color: '#d97706' }}>Class Teacher Mode</option>
-                  <option value="subject_teacher" style={{ background: 'var(--surface)', color: '#2563eb' }}>Subject Teacher Mode</option>
-                </select>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <select
+                    style={{ 
+                      fontSize: '0.7rem', 
+                      padding: '0.2rem 0.5rem', 
+                      borderRadius: '6px',
+                      fontWeight: 700,
+                      background: isClassTeacher ? 'rgba(245, 158, 11, 0.08)' : 'rgba(59, 130, 246, 0.08)',
+                      color: isClassTeacher ? '#d97706' : '#2563eb',
+                      border: isClassTeacher ? '1px solid rgba(245, 158, 11, 0.15)' : '1px solid rgba(59, 130, 246, 0.15)',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                    value={mode}
+                    onChange={(e) => updateClassMode(c.id, e.target.value)}
+                  >
+                    <option value="class_teacher">Class Teacher Mode</option>
+                    <option value="subject_teacher">Subject Teacher Mode</option>
+                  </select>
+                  <select
+                    style={{ 
+                      fontSize: '0.7rem', 
+                      padding: '0.2rem 0.5rem', 
+                      borderRadius: '6px',
+                      fontWeight: 700,
+                      background: 'rgba(16, 185, 129, 0.08)',
+                      color: '#059669',
+                      border: '1px solid rgba(16, 185, 129, 0.15)',
+                      cursor: 'pointer',
+                      outline: 'none'
+                    }}
+                    value={c.category || 'basic 1-3'}
+                    onChange={(e) => updateClassCategory(c.id, e.target.value)}
+                  >
+                    <option value="early grade">Early Grade</option>
+                    <option value="basic 1-3">Basic 1-3</option>
+                    <option value="basic 4-6">Basic 4-6</option>
+                    <option value="basic 7-9">Basic 7-9</option>
+                  </select>
+                </div>
               </div>
               <button 
                 className="btn btn-danger" 

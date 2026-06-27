@@ -4,13 +4,14 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import authService from '../../services/authService';
+import { downloadImageAsBlob } from '../../utils/imageUtils';
+import LearnerPhoto from '../../components/common/LearnerPhoto';
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
   const parent = authService.getCurrentParent();
   
   // Sibling selection
-  const [siblings, setSiblings] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(null);
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
 
@@ -54,13 +55,47 @@ const ParentDashboard = () => {
       setPwdLoading(false);
     }
   };
+
+  const cachedSiblingsRaw = React.useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem('labour_edu_parent_siblings') || '[]');
+    } catch {
+      return [];
+    }
+  }, []);
+
+  // Live query to fetch siblings from IndexedDB so they are automatically updated when photos cache
+  const siblings = useLiveQuery(async () => {
+    if (!parent?.phone_number) return [];
+    
+    if (cachedSiblingsRaw.length > 0) {
+      const ids = cachedSiblingsRaw.map(s => s.supabaseId || s.id || s.learnerId).filter(Boolean);
+      if (ids.length > 0) {
+        const list = await db.learners.where('supabaseId').anyOf(ids).toArray();
+        if (list.length > 0) {
+          const idIndexMap = new Map(ids.map((id, index) => [String(id), index]));
+          return list.sort((a, b) => {
+            const idxA = idIndexMap.get(String(a.supabaseId));
+            const idxB = idIndexMap.get(String(b.supabaseId));
+            return (idxA ?? 0) - (idxB ?? 0);
+          });
+        }
+      }
+    }
+    
+    const clean = parent.phone_number.replace(/[\s\-\+\(\)]/g, '').slice(-9);
+    return await db.learners
+      .filter(l => {
+        const c1 = l.guardianContact1 ? l.guardianContact1.replace(/[\s\-\+\(\)]/g, '').slice(-9) : '';
+        const c2 = l.guardianContact2 ? l.guardianContact2.replace(/[\s\-\+\(\)]/g, '').slice(-9) : '';
+        return c1 === clean || c2 === clean;
+      })
+      .toArray();
+  }, [parent?.phone_number, cachedSiblingsRaw]) || [];
   
   useEffect(() => {
-    // Load siblings list saved during login
     const cachedSiblings = JSON.parse(localStorage.getItem('labour_edu_parent_siblings') || '[]');
     if (cachedSiblings.length > 0) {
-      setSiblings(cachedSiblings);
-      
       // Auto-heal/seed the cached sibling records back into db.learners to guarantee they exist in IndexedDB
       const seedCachedSiblings = async () => {
         try {
@@ -70,13 +105,22 @@ const ParentDashboard = () => {
               local = await db.learners.where('regNumber').equals(sibling.regNumber).first();
             }
             
+            const remotePhotoUrl = sibling.photoUrl || sibling.photo_url;
+            let photoBlobCache = local ? (local.photo instanceof Blob ? local.photo : null) : null;
+            if (navigator.onLine && remotePhotoUrl) {
+              if (!local || local.photoUrl !== remotePhotoUrl || !(local.photo instanceof Blob)) {
+                photoBlobCache = await downloadImageAsBlob(remotePhotoUrl).catch(() => null);
+              }
+            }
+
             const entry = {
               schoolId: sibling.schoolId || sibling.school_id,
               regNumber: sibling.regNumber || sibling.reg_number,
               fullName: sibling.fullName || sibling.full_name,
               gender: sibling.gender,
               currentClassId: sibling.currentClassId || sibling.class_id || sibling.classId,
-              photoUrl: sibling.photoUrl || sibling.photo_url,
+              photo: photoBlobCache,
+              photoUrl: remotePhotoUrl,
               guardianName: sibling.guardianName || sibling.guardian_name,
               guardianRelation: sibling.guardianRelation || sibling.guardian_relation,
               guardianContact1: sibling.guardianContact1 || sibling.guardian_contact_1,
@@ -117,7 +161,6 @@ const ParentDashboard = () => {
               return c1 === clean || c2 === clean;
             })
             .toArray();
-          setSiblings(matched);
           localStorage.setItem('labour_edu_parent_siblings', JSON.stringify(matched));
         }
       };
@@ -433,13 +476,52 @@ const ParentDashboard = () => {
           }
         }
 
+        // 9. Sync report_payments via secure RPC
+        const { data: remotePayments, error: payErr } = await supabase
+          .rpc('get_payments_by_guardian_contact', { p_contact: parent.phone_number });
+
+        if (payErr) {
+          console.error('[ParentDashboard] Failed to sync remote payments via RPC:', payErr);
+        }
+
+        if (remotePayments && !payErr) {
+          const siblingIds = siblings.map(s => s.supabaseId || s.id || String(s.id));
+          for (const sId of siblingIds) {
+            await db.payments.where('learnerId').equals(sId).delete();
+            await db.payments.where('learnerId').equals(String(sId)).delete();
+          }
+          for (const rp of remotePayments) {
+            await db.payments.add({
+              schoolId: rp.school_id,
+              learnerId: rp.learner_id,
+              academicYear: rp.academic_year,
+              term: rp.term,
+              amount: rp.amount,
+              paymentDate: rp.payment_date,
+              paymentMethod: rp.payment_method,
+              reference: rp.reference,
+              supabaseId: rp.id,
+              synced: true
+            });
+          }
+        }
+
       } catch (err) {
         console.warn('Failed to run parent portal secure sync:', err);
       }
     };
 
     syncParentPortalData();
-  }, [schoolId, activeSibling, parent?.phone_number]);
+
+    // ── Auto pull-sync every 2 minutes ──────────────────────────────────
+    // Keeps messages, report cards, fees, and notifications up to date automatically.
+    const AUTO_SYNC_INTERVAL = 2 * 60 * 1000; // 2 minutes
+    const intervalId = setInterval(() => {
+      if (navigator.onLine) syncParentPortalData();
+    }, AUTO_SYNC_INTERVAL);
+
+    return () => clearInterval(intervalId);
+  }, [schoolId, activeSibling, parent?.phone_number, siblings]);
 
   // Sibling stats / academic reports
   const siblingSummary = useLiveQuery(async () => {
@@ -3147,20 +3229,12 @@ const ParentDashboard = () => {
                 <div key={sib.id} className={`sibling-card ${sib.gender === 'Female' ? 'card-female' : 'card-male'}`} onClick={() => setSelectedIdx(idx)}>
                   <div className="sib-card-header">
                     <div className="sib-avatar-wrapper">
-                      {sib.photoUrl || sib.photo ? (
-                        <img src={sib.photoUrl || sib.photo} alt={sib.fullName} className="sib-avatar" />
-                      ) : (
-                        <div 
-                          className="sib-avatar-ph"
-                          style={{ 
-                            background: sib.gender === 'Female' ? 'rgba(236,72,153,0.12)' : 'rgba(59,130,246,0.12)',
-                            color: sib.gender === 'Female' ? '#ec4899' : '#3b82f6',
-                            borderColor: sib.gender === 'Female' ? 'rgba(236,72,153,0.2)' : 'rgba(59,130,246,0.2)'
-                          }}
-                        >
-                          <i className="fas fa-user-graduate"></i>
-                        </div>
-                      )}
+                      <LearnerPhoto
+                        photo={sib.photo || sib.photoUrl || null}
+                        alt={sib.fullName}
+                        className="sib-avatar"
+                        style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                      />
                     </div>
                     <span className="sib-badge">Student</span>
                   </div>
@@ -3234,20 +3308,12 @@ const ParentDashboard = () => {
                   <div className="id-chip">Student</div>
                 </div>
                 <div className="id-body">
-                  {activeSibling.photoUrl || activeSibling.photo ? (
-                    <img src={activeSibling.photoUrl || activeSibling.photo} alt={activeSibling.fullName} className="id-photo-frame" />
-                  ) : (
-                    <div 
-                      className="id-photo-placeholder"
-                      style={{ 
-                        background: activeSibling.gender === 'Female' ? 'rgba(236,72,153,0.15)' : 'rgba(59,130,246,0.15)',
-                        color: activeSibling.gender === 'Female' ? '#ec4899' : '#3b82f6',
-                        borderColor: activeSibling.gender === 'Female' ? 'rgba(236,72,153,0.25)' : 'rgba(59,130,246,0.25)'
-                      }}
-                    >
-                      <i className="fas fa-user-graduate"></i>
-                    </div>
-                  )}
+                  <LearnerPhoto
+                    photo={activeSibling.photo || activeSibling.photoUrl || null}
+                    alt={activeSibling.fullName}
+                    className="id-photo-frame"
+                    style={{ width: 110, height: 130, objectFit: 'cover', borderRadius: 8 }}
+                  />
                   <div className="id-details">
                     <div className="id-name" title={activeSibling.fullName}>{activeSibling.fullName}</div>
                     <div className="id-row">

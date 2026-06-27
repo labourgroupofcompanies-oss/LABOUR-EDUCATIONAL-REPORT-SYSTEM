@@ -62,8 +62,8 @@ export const enqueueSync = async (operation, tableName, payload, schoolId = null
  * Processes all pending outbox items sequentially.
  * Safe to call multiple times — locks via _isSyncing flag.
  */
-export const drainOutbox = async () => {
-  if (_isSyncing || !navigator.onLine) return;
+export const drainOutbox = async (ignoreOnlineCheck = false) => {
+  if (_isSyncing || (!ignoreOnlineCheck && !navigator.onLine)) return;
 
   _isSyncing = true;
   console.log('[SyncEngine] Draining outbox...');
@@ -214,6 +214,74 @@ export const drainOutbox = async () => {
                   }
                 } else {
                   opError = updErr;
+                }
+              }
+            } else if (item.table === 'report_profiles') {
+              const email = payload.email;
+              if (email) {
+                console.log(`[SyncEngine] 🔄 Querying Supabase for existing profile with email: ${email}`);
+                const { data: existingProfile } = await supabase
+                  .from('report_profiles')
+                  .select('id')
+                  .eq('email', email)
+                  .maybeSingle();
+
+                if (existingProfile?.id) {
+                  console.log(`[SyncEngine] 🔄 Found existing remote profile ID ${existingProfile.id}. Upgrading insert to update.`);
+                  
+                  // Update remote row with payload metadata
+                  const { error: updErr } = await supabase
+                    .from('report_profiles')
+                    .update({
+                      school_id: payload.school_id,
+                      full_name: payload.full_name,
+                      role: payload.role,
+                      staff_id: payload.staff_id
+                    })
+                    .eq('id', existingProfile.id);
+
+                  if (!updErr) {
+                    opError = null; // Mark operation as successful!
+                    
+                    // 1. Re-route any local teacherAssignments to use the correct remote ID
+                    const assignments = await db.teacherAssignments
+                      .where('teacherId').equals(payload.id)
+                      .toArray();
+                    for (const ass of assignments) {
+                      await db.teacherAssignments.update(ass.id, { teacherId: existingProfile.id });
+                    }
+                    console.log(`[SyncEngine] 🔄 Re-routed ${assignments.length} local teacher assignment(s) to reconciled profile ID ${existingProfile.id}`);
+
+                    // 2. Scan pending outbox items and rewrite references to the old temporary profile ID
+                    const pendingOutbox = await db.outbox.toArray();
+                    let rewriteCount = 0;
+                    for (const outboxItem of pendingOutbox) {
+                      if (outboxItem.payload && outboxItem.payload.includes(payload.id)) {
+                        const updatedPayload = outboxItem.payload.replaceAll(payload.id, existingProfile.id);
+                        await db.outbox.update(outboxItem.id, { payload: updatedPayload });
+                        rewriteCount++;
+                      }
+                    }
+                    if (rewriteCount > 0) {
+                      console.log(`[SyncEngine] 🔄 Rewrote ${rewriteCount} outbox item payload(s) referencing old temporary profile ID.`);
+                    }
+
+                    // 3. Delete the old temporary profile locally and insert/update under the correct remote ID
+                    await db.profiles.delete(payload.id);
+                    await db.profiles.put({
+                      id: existingProfile.id,
+                      schoolId: payload.school_id,
+                      fullName: payload.full_name,
+                      role: payload.role,
+                      email: payload.email,
+                      staffId: payload.staff_id,
+                      isClaimed: payload.is_claimed || false,
+                      createdAt: payload.created_at || new Date().toISOString()
+                    });
+                    console.log(`[SyncEngine] ✅ Successfully self-healed local profile ID ${payload.id} to remote ID ${existingProfile.id}`);
+                  } else {
+                    opError = updErr;
+                  }
                 }
               }
             } else if (item.table === 'report_learners') {
@@ -401,7 +469,7 @@ export const retryFailed = async () => {
   await db.outbox
     .where('status').equals('failed')
     .modify({ status: 'pending', retryCount: 0, errorMessage: null });
-  await drainOutbox();
+  await drainOutbox(true);
 };
 
 // ─── Force drain: reset ALL non-pending items then drain ─────────────────────
@@ -411,7 +479,7 @@ export const forceDrain = async () => {
   await db.outbox
     .where('status').anyOf(['failed', 'processing'])
     .modify({ status: 'pending', retryCount: 0, errorMessage: null });
-  await drainOutbox();
+  await drainOutbox(true);
 };
 
 // ─── Promote any 'processing' items stuck from a previous crashed session ────

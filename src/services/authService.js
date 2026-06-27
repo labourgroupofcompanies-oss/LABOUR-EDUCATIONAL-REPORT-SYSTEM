@@ -1,5 +1,6 @@
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
+import { downloadImageAsBlob } from '../utils/imageUtils';
 
 // ─── Auth Service ────────────────────────────────────────────────────────────
 export const authService = {
@@ -158,14 +159,21 @@ export const authService = {
             if (!local && rl.reg_number) {
               local = await db.learners.where('regNumber').equals(rl.reg_number).first();
             }
-            
+
+            // Download photo as a Blob for offline caching (only if URL is new or not yet cached)
+            let photoBlobCache = local?.photo instanceof Blob ? local.photo : null;
+            if (rl.photo_url && rl.photo_url !== local?.photoUrl) {
+              photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+            }
+
             const mapped = {
               schoolId: rl.school_id,
               regNumber: rl.reg_number,
               fullName: rl.full_name,
               gender: rl.gender,
               currentClassId: rl.class_id,
-              photoUrl: rl.photo_url,
+              photo: photoBlobCache,    // Binary Blob for offline display
+              photoUrl: rl.photo_url,  // Remote URL for reference
               guardianName: rl.guardian_name,
               guardianRelation: rl.guardian_relation,
               guardianContact1: rl.guardian_contact_1,
@@ -175,7 +183,7 @@ export const authService = {
               synced: true,
               supabaseId: rl.id
             };
-            
+
             if (!local) {
               await db.learners.add(mapped);
             } else {

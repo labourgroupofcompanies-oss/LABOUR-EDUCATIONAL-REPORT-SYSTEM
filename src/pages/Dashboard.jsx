@@ -4,7 +4,8 @@ import { useAuth } from '../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
-import { enqueueSync } from '../services/syncEngine';
+import { enqueueSync, retryFailed, forceDrain } from '../services/syncEngine';
+import { downloadImageAsBlob } from '../utils/imageUtils';
 import AdminAnalytics from '../components/analytics/AdminAnalytics';
 import TeacherAnalytics from '../components/analytics/TeacherAnalytics';
 
@@ -86,6 +87,12 @@ const Dashboard = () => {
     () => user?.schoolId ? db.announcements.where('schoolId').equals(user.schoolId).reverse().sortBy('created_at') : [],
     [user?.schoolId]
   );
+
+  // Reactive queries for sync outbox monitoring
+  const pendingCount = useLiveQuery(() => db.outbox.where('status').equals('pending').count()) || 0;
+  const failedCount = useLiveQuery(() => db.outbox.where('status').equals('failed').count()) || 0;
+  const processingCount = useLiveQuery(() => db.outbox.where('status').equals('processing').count()) || 0;
+  const failedItems = useLiveQuery(() => db.outbox.where('status').equals('failed').toArray()) || [];
 
   const formatDate = (isoStr) => {
     if (!isoStr) return '';
@@ -402,10 +409,19 @@ const Dashboard = () => {
             .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
-          // Delete any local teacher that is not in the remote list
+          // Delete any local teacher that is not in the remote list,
+          // BUT guard against deleting teachers with a pending insert in the outbox
           for (const lt of localTeachers) {
             if (!remoteIds.has(lt.id)) {
-              await db.profiles.delete(lt.id);
+              // Check if there is a pending insert in the outbox for this teacher
+              const hasPendingInsert = await db.outbox
+                .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(lt.id))
+                .first();
+              if (!hasPendingInsert) {
+                await db.profiles.delete(lt.id);
+              } else {
+                console.log(`[Dashboard Sync] Protecting unsynced local teacher ${lt.fullName} from deletion (pending insert in outbox).`);
+              }
             }
           }
 
@@ -527,22 +543,34 @@ const Dashboard = () => {
             }
 
             if (!local) {
+              // Download photo as Blob for offline caching if remote URL present
+              let photoBlobCache = null;
+              if (navigator.onLine && rl.photo_url) {
+                photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+              }
               await db.learners.add({
                 schoolId: rl.school_id,
                 regNumber: rl.reg_number,
                 fullName: rl.full_name,
                 gender: rl.gender,
                 currentClassId: rl.class_id,
-                photoUrl: rl.photo_url,
+                photo: photoBlobCache,      // Blob for offline rendering
+                photoUrl: rl.photo_url,    // Remote URL for sync reference
                 synced: true,
                 supabaseId: rl.id
               });
             } else {
+              // Only re-download the photo Blob if the remote URL has changed
+              let photoBlobCache = local.photo instanceof Blob ? local.photo : null;
+              if (navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl) {
+                photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+              }
               await db.learners.update(local.id, {
                 regNumber: rl.reg_number,
                 fullName: rl.full_name,
                 gender: rl.gender,
                 currentClassId: rl.class_id,
+                photo: photoBlobCache ?? local.photo,
                 photoUrl: rl.photo_url,
                 synced: true,
                 supabaseId: rl.id
@@ -641,9 +669,46 @@ const Dashboard = () => {
       } catch (err) {
         console.error('[Dashboard Sync] Announcements sync failed:', err);
       }
+
+      // 9. Sync Payments
+      try {
+        const { data: payData, error: payErr } = await supabase
+          .from('report_payments')
+          .select('*')
+          .eq('school_id', user.schoolId);
+        if (!payErr && payData) {
+          await db.payments.where('schoolId').equals(user.schoolId).delete();
+          for (const p of payData) {
+            await db.payments.add({
+              schoolId: p.school_id,
+              learnerId: p.learner_id,
+              academicYear: p.academic_year,
+              term: p.term,
+              amount: p.amount,
+              paymentDate: p.payment_date,
+              paymentMethod: p.payment_method,
+              reference: p.reference,
+              supabaseId: p.id,
+              synced: true
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[Dashboard Sync] Payments sync failed:', err);
+      }
     };
 
     pullAllSetupData();
+
+    // ── Auto pull-sync every 2 minutes ──────────────────────────────────
+    // Keeps all data (messages, learners, announcements, etc.) up to date
+    // automatically without requiring manual refresh.
+    const AUTO_SYNC_INTERVAL = 2 * 60 * 1000; // 2 minutes
+    const intervalId = setInterval(() => {
+      pullAllSetupData();
+    }, AUTO_SYNC_INTERVAL);
+
+    return () => clearInterval(intervalId);
   }, [user]);
 
   // ── Computing Teacher Portal Dashboard Data ──────────────────────────
@@ -1077,7 +1142,7 @@ const Dashboard = () => {
                     <i className="fas fa-sync" style={{ color: '#0d9488', fontSize: '0.85rem' }}></i>
                     <span>Offline Sync Engine</span>
                   </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>Network Connection State:</span>
                       <strong style={{ color: navigator.onLine ? '#059669' : '#d97706' }}>
@@ -1088,6 +1153,60 @@ const Dashboard = () => {
                       <span>Local Databases:</span>
                       <strong style={{ color: '#0f766e' }}>Dexie (Healthy)</strong>
                     </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                      <span>Pending Sync Items:</span>
+                      <strong style={{ color: pendingCount > 0 ? '#3b82f6' : '#64748b' }}>{pendingCount}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Processing Sync Items:</span>
+                      <strong style={{ color: processingCount > 0 ? '#3b82f6' : '#64748b' }}>{processingCount}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span>Failed Sync Items:</span>
+                      <strong style={{ color: failedCount > 0 ? '#ef4444' : '#64748b' }}>{failedCount}</strong>
+                    </div>
+
+                    {(pendingCount > 0 || failedCount > 0 || processingCount > 0) && (
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm('Force re-sync of all pending and failed items?')) {
+                              await forceDrain();
+                              alert('Sync started!');
+                            }
+                          }}
+                          className="btn" 
+                          style={{ padding: '0.3rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, flex: 1, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}
+                        >
+                          <i className="fas fa-play" style={{ marginRight: '4px' }}></i> Force Sync
+                        </button>
+                        <button 
+                          onClick={async () => {
+                            if (window.confirm('Clear all pending changes? WARNING: This will discard all unsynced local drafts!')) {
+                              await db.outbox.clear();
+                              alert('Sync queue cleared.');
+                            }
+                          }}
+                          className="btn" 
+                          style={{ padding: '0.3rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, flex: 1, background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca' }}
+                        >
+                          <i className="fas fa-trash-can" style={{ marginRight: '4px' }}></i> Clear Queue
+                        </button>
+                      </div>
+                    )}
+
+                    {failedItems.length > 0 && (
+                      <div style={{ marginTop: '8px', borderTop: '1px solid #e2e8f0', paddingTop: '8px' }}>
+                        <div style={{ fontWeight: 700, color: '#ef4444', marginBottom: '4px' }}>Recent Sync Errors:</div>
+                        <div style={{ maxHeight: '100px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                          {failedItems.slice(0, 5).map((item) => (
+                            <div key={item.id} style={{ background: '#fef2f2', padding: '6px', borderRadius: '4px', border: '1px solid #fecaca', fontSize: '0.65rem', color: '#991b1b', lineHeight: 1.3 }}>
+                              <strong>{item.operation} {item.table}</strong>: {item.errorMessage || 'Unknown error'}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

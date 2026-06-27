@@ -3,6 +3,7 @@ import Layout from '../../components/layout/Layout';
 import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { enqueueSync } from '../../services/syncEngine';
+import LearnerPhoto from '../../components/common/LearnerPhoto';
 
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -1792,9 +1793,11 @@ const Reports = () => {
               {[schoolInfo?.location, schoolInfo?.district, schoolInfo?.region].filter(Boolean).join(' • ')}
             </p>
           </div>
-          {learner.photo
-            ? <img src={learner.photo} alt={learner.fullName} className="rc-student-photo" />
-            : <div className="rc-student-photo-ph"><i className="fas fa-user" style={{ fontSize: '1.5rem', opacity: 0.35 }} /><span>No Photo</span></div>}
+          <LearnerPhoto
+            photo={learner.photo || learner.photoUrl || null}
+            alt={learner.fullName}
+            className="rc-student-photo"
+          />
         </div>
 
         {/* Title row + KPIs */}
@@ -2303,11 +2306,11 @@ const Reports = () => {
                                       <tr key={l.id}>
                                         <td>
                                           <div className="rc-student-cell">
-                                            {l.photoUrl || l.photo ? (
-                                              <img src={l.photoUrl || l.photo} alt={l.fullName} className="rc-student-cell-photo" />
-                                            ) : (
-                                              <div className="rc-student-cell-photo-ph"><i className="fas fa-user" /></div>
-                                            )}
+                                            <LearnerPhoto
+                                              photo={l.photo || l.photoUrl || null}
+                                              alt={l.fullName}
+                                              className="rc-student-cell-photo"
+                                            />
                                             <div>
                                               <div className="rc-student-name">{l.fullName}</div>
                                               <div className="rc-student-reg">{l.regNumber || 'No Reg No'}</div>

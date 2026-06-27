@@ -11,6 +11,8 @@ const SchoolSetup = () => {
     setClassName,
     teachingMode,
     setTeachingMode,
+    classCategory,
+    setClassCategory,
     subjectName,
     setSubjectName,
     selectedSetupClass,
@@ -23,6 +25,7 @@ const SchoolSetup = () => {
     addClass,
     deleteClass,
     updateClassMode,
+    updateClassCategory,
     addSubject,
     deleteSubject,
     handleToggleSubject,
@@ -76,9 +79,12 @@ const SchoolSetup = () => {
             setClassName={setClassName}
             teachingMode={teachingMode}
             setTeachingMode={setTeachingMode}
+            classCategory={classCategory}
+            setClassCategory={setClassCategory}
             addClass={addClass}
             deleteClass={deleteClass}
             updateClassMode={updateClassMode}
+            updateClassCategory={updateClassCategory}
           />
           
           <SubjectManager 

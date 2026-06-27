@@ -4,7 +4,8 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
-import { compressImage } from '../../utils/imageUtils';
+import { compressImageToBlob } from '../../utils/imageUtils';
+import LearnerPhoto from '../../components/common/LearnerPhoto';
 import authService from '../../services/authService';
 import { enqueueSync } from '../../services/syncEngine';
 import * as XLSX from 'xlsx';
@@ -121,7 +122,10 @@ const LearnerList = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [photoMode, setPhotoMode] = useState('upload');
   const [cameraActive, setCameraActive] = useState(false);
+  // photoPreview holds a Blob (from camera/file) or a string URL (from existing record)
   const [photoPreview, setPhotoPreview] = useState(null);
+  // photoPreviewUrl is an object URL derived from a Blob preview, for memory-safe <img> rendering
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
   // Camera device management
   const [cameras, setCameras] = useState([]);       // list of VideoInputDeviceInfo
   const [activeCamIdx, setActiveCamIdx] = useState(0); // which camera is in use
@@ -298,26 +302,35 @@ const LearnerList = () => {
     await startCameraDevice(cameras[next]?.deviceId, next, cameras);
   }, [cameras, activeCamIdx, startCameraDevice]);
 
-  const capturePhoto = async () => {
+  const capturePhoto = () => {
     const v = videoRef.current, c = canvasRef.current;
     if (!v || !c) return;
     c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    const rawBase64 = c.toDataURL('image/jpeg', 0.85);
-    const compressed = await compressImage(rawBase64);
-    setPhotoPreview(compressed);
-    stopCamera();
+    // Get blob directly from canvas — no base64 string ever created
+    c.toBlob(async (rawBlob) => {
+      if (!rawBlob) return;
+      try {
+        const compressed = await compressImageToBlob(rawBlob, 500, 500, 0.85);
+        setPhotoPreview(compressed);
+      } catch (err) {
+        console.warn('Failed to compress camera capture:', err);
+        setPhotoPreview(rawBlob);
+      }
+      stopCamera();
+    }, 'image/jpeg', 0.92);
   };
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async ev => {
-      const compressed = await compressImage(ev.target.result);
+    try {
+      const compressed = await compressImageToBlob(file, 500, 500, 0.85);
       setPhotoPreview(compressed);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('Failed to compress uploaded file:', err);
+      setPhotoPreview(file);
+    }
   };
 
   const openModal = () => {
@@ -334,7 +347,7 @@ const LearnerList = () => {
       guardianProfession: '',
       guardianLocation: ''
     });
-    setPhotoPreview(null); setPhotoMode('upload');
+    setPhotoPreview(null); setPhotoPreviewUrl(null); setPhotoMode('upload');
     setCameras([]); setActiveCamIdx(0);
     setIsModalOpen(true);
   };
@@ -353,71 +366,80 @@ const LearnerList = () => {
       guardianProfession: l.guardianProfession || '',
       guardianLocation: l.guardianLocation || ''
     });
-    setPhotoPreview(l.photo || null);
+    // photo may be a Blob (local) or a string URL (remote cached)
+    setPhotoPreview(l.photo || l.photoUrl || null);
     setPhotoMode('upload');
     setCameras([]); setActiveCamIdx(0);
     setIsModalOpen(true);
   };
 
-  const closeModal = () => { stopCamera(); setIsModalOpen(false); setPhotoPreview(null); };
+  const closeModal = () => { stopCamera(); setIsModalOpen(false); setPhotoPreview(null); setPhotoPreviewUrl(null); };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!form.currentClassId) { alert('Please assign a class.'); return; }
     setIsSaving(true);
     try {
-      let photoUrl = photoPreview;
-      // Only upload to storage if it's a new preview photo (data URL)
-      if (navigator.onLine && photoPreview && photoPreview.startsWith('data:')) {
+      // Determine if we have a fresh local Blob (needs upload) or an existing URL
+      const isNewBlob = photoPreview instanceof Blob;
+      let remotePhotoUrl = null;
+
+      // If online and we have a fresh Blob, upload it immediately
+      if (navigator.onLine && isNewBlob) {
         try {
-          const res = await fetch(photoPreview);
-          const blob = await res.blob();
-          
-          // Crash-proof, clash-free, cache-busting unique storage naming path
           const cleanReg = String(form.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-          const path = `learners/${user.schoolId}_${cleanReg}_${Date.now()}.jpg`;
-          
-          const { error } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true });
+          const path = `learners/${user.schoolId}_${cleanReg}_${Date.now()}.webp`;
+          const { error } = await supabase.storage.from('learner-photos').upload(path, photoPreview, { upsert: true, contentType: 'image/webp' });
           if (!error) {
             const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
-            if (data?.publicUrl) photoUrl = data.publicUrl;
+            if (data?.publicUrl) remotePhotoUrl = data.publicUrl;
           }
         } catch (err) {
-          console.warn('Failed to upload photo:', err);
+          console.warn('Failed to upload photo to storage:', err);
         }
+      } else if (typeof photoPreview === 'string' && photoPreview.startsWith('http')) {
+        // Existing remote URL kept as-is
+        remotePhotoUrl = photoPreview;
       }
-      
-      const record = { 
-        fullName: form.fullName, 
-        regNumber: String(form.regNumber), 
-        gender: form.gender, 
-        schoolId: user.schoolId, 
-        currentClassId: Number(form.currentClassId), 
-        photo: photoUrl, 
+
+      // photo field stores the Blob (for offline display) OR the remote URL as a string fallback
+      // photoUrl field stores the remote HTTP URL (for Supabase sync)
+      const photoField = isNewBlob ? photoPreview : (photoPreview || null);
+      // If we uploaded, store the URL reference so we can detect URL changes on next pull sync
+      const photoUrlField = remotePhotoUrl;
+
+      const record = {
+        fullName: form.fullName,
+        regNumber: String(form.regNumber),
+        gender: form.gender,
+        schoolId: user.schoolId,
+        currentClassId: Number(form.currentClassId),
+        photo: photoField,
+        photoUrl: photoUrlField,
         guardianName: form.guardianName,
         guardianRelation: form.guardianRelation,
         guardianContact1: form.guardianContact1,
         guardianContact2: form.guardianContact2,
         guardianProfession: form.guardianProfession,
         guardianLocation: form.guardianLocation,
-        synced: false, 
-        updatedAt: new Date().toISOString() 
+        // Mark synced=false if we have an un-uploaded local Blob (sync engine will handle it)
+        synced: isNewBlob && !remotePhotoUrl ? false : false,
+        updatedAt: new Date().toISOString()
       };
 
       if (editingId) {
-        // Get existing learner to check for supabaseId
         const existing = await db.learners.get(editingId);
         await db.learners.update(editingId, record);
-        
+
         if (existing?.supabaseId) {
-          await enqueueSync('update', 'report_learners', { 
+          await enqueueSync('update', 'report_learners', {
             filter: { id: existing.supabaseId },
             data: {
-              full_name: record.fullName, 
-              reg_number: record.regNumber, 
-              gender: record.gender, 
-              class_id: record.currentClassId, 
-              photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
+              full_name: record.fullName,
+              reg_number: record.regNumber,
+              gender: record.gender,
+              class_id: record.currentClassId,
+              photo_url: remotePhotoUrl,
               guardian_name: record.guardianName,
               guardian_relation: record.guardianRelation,
               guardian_contact_1: record.guardianContact1,
@@ -432,36 +454,35 @@ const LearnerList = () => {
       } else {
         record.createdAt = new Date().toISOString();
         const localId = await db.learners.add(record);
-        await enqueueSync('insert', 'report_learners', { 
-          full_name: record.fullName, 
-          reg_number: record.regNumber, 
-          gender: record.gender, 
-          class_id: record.currentClassId, 
-          school_id: record.schoolId, 
-          photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null, 
+        await enqueueSync('insert', 'report_learners', {
+          full_name: record.fullName,
+          reg_number: record.regNumber,
+          gender: record.gender,
+          class_id: record.currentClassId,
+          school_id: record.schoolId,
+          photo_url: remotePhotoUrl,
           guardian_name: record.guardianName,
           guardian_relation: record.guardianRelation,
           guardian_contact_1: record.guardianContact1,
           guardian_contact_2: record.guardianContact2,
           guardian_profession: record.guardianProfession,
           guardian_location: record.guardianLocation,
-          created_at: record.createdAt 
+          created_at: record.createdAt
         });
         await db.learners.update(localId, { synced: true });
-        // Save prefix from whatever format user typed, then advance counter
         savePrefix(String(form.regNumber));
         getNextRegNumber();
       }
       closeModal();
-      // Trigger background sync immediately if online
+      // Trigger background sync immediately if online (handles any Blob uploads)
       if (navigator.onLine) {
         syncUnsyncedLearners().catch(err => console.warn('Failed to sync after register:', err));
       }
-    } catch (err) { 
+    } catch (err) {
       console.error(err);
-      alert('Failed to save. Please try again.'); 
-    } finally { 
-      setIsSaving(false); 
+      alert('Failed to save. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -743,23 +764,32 @@ const LearnerList = () => {
 
         console.log(`Syncing ${unsynced.length} un-synced learners to the cloud...`);
         for (const l of unsynced) {
-          // Upload compressed local Base64 photo to Supabase storage if it exists
-          let photoUrl = l.photo;
-          if (photoUrl && photoUrl.startsWith('data:')) {
+          // Upload local Blob photo to Supabase storage if present
+          let remotePhotoUrl = l.photoUrl || null;
+          const localPhoto = l.photo;
+          const needsUpload = localPhoto instanceof Blob || (typeof localPhoto === 'string' && localPhoto.startsWith('data:'));
+
+          if (needsUpload && !remotePhotoUrl) {
             try {
-              const res = await fetch(photoUrl);
-              const blob = await res.blob();
+              const blob = localPhoto instanceof Blob ? localPhoto : await fetch(localPhoto).then(r => r.blob());
               const cleanReg = String(l.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-              const path = `learners/${l.schoolId}_${cleanReg}_${Date.now()}.jpg`;
-              const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true });
+              const path = `learners/${l.schoolId}_${cleanReg}_${Date.now()}.webp`;
+              const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true, contentType: 'image/webp' });
               if (!uploadError) {
                 const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
-                if (data?.publicUrl) photoUrl = data.publicUrl;
+                if (data?.publicUrl) {
+                  remotePhotoUrl = data.publicUrl;
+                  // Keep local Blob in photo field, store the URL in photoUrl for sync reference
+                  await db.learners.update(l.id, { photoUrl: remotePhotoUrl });
+                }
               }
             } catch (uploadErr) {
               console.warn('Failed to upload photo during sync:', uploadErr);
             }
           }
+
+          // Use remotePhotoUrl (http) for cloud, never put a Blob into Supabase
+          const photoUrl = remotePhotoUrl;
 
           let supabaseId = l.supabaseId;
 
@@ -802,7 +832,7 @@ const LearnerList = () => {
             }).eq('id', supabaseId);
 
             if (!error) {
-              await db.learners.update(l.id, { photo: photoUrl, synced: true });
+              await db.learners.update(l.id, { photoUrl: remotePhotoUrl, synced: true });
             } else {
               console.error('Error syncing learner update:', error);
               
@@ -852,7 +882,7 @@ const LearnerList = () => {
                         }).eq('id', supabaseId);
                         
                         if (!retryErr) {
-                          await db.learners.update(l.id, { photo: photoUrl, synced: true });
+                          await db.learners.update(l.id, { photoUrl: remotePhotoUrl, synced: true });
                           console.log(`[Inline Sync] ✅ Successfully self-healed and synced learner ${l.fullName}`);
                         } else {
                           console.error('[Inline Sync] Retry update failed:', retryErr);
@@ -888,7 +918,7 @@ const LearnerList = () => {
             }]).select().single();
 
             if (!error && data) {
-              await db.learners.update(l.id, { supabaseId: data.id, photo: photoUrl, synced: true });
+              await db.learners.update(l.id, { supabaseId: data.id, photoUrl: remotePhotoUrl, synced: true });
             } else if (error) {
               console.error('Error syncing learner insert:', error);
             }
@@ -1374,13 +1404,12 @@ const LearnerList = () => {
             <div key={l.id} className="learner-card">
               <div className="lc-header">
                 <div className="lc-photo-wrap">
-                  {l.photo ? (
-                    <img src={l.photo} alt={l.fullName} className="lc-photo" />
-                  ) : (
-                    <div className="lc-photo-placeholder" style={{ background: l.gender === 'Female' ? 'rgba(236,72,153,.1)' : 'rgba(59,130,246,.1)' }}>
-                      <i className="fas fa-user" style={{ color: l.gender === 'Female' ? '#ec4899' : '#3b82f6', fontSize: '1.2rem' }}></i>
-                    </div>
-                  )}
+                  <LearnerPhoto
+                    photo={l.photo || l.photoUrl || null}
+                    alt={l.fullName}
+                    className="lc-photo"
+                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                  />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="lc-name" title={l.fullName}>{l.fullName}</div>
@@ -1485,8 +1514,8 @@ const LearnerList = () => {
 
                   {photoPreview ? (
                     <div className="photo-preview-wrap">
-                      <img src={photoPreview} alt="preview" className="photo-avatar" />
-                      <button type="button" onClick={() => { setPhotoPreview(null); stopCamera(); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '.78rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+                      <LearnerPhoto photo={photoPreview} alt="preview" className="photo-avatar" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #0d9488', boxShadow: '0 4px 14px rgba(13,148,136,.25)' }} />
+                      <button type="button" onClick={() => { setPhotoPreview(null); setPhotoPreviewUrl(null); stopCamera(); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '.78rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
                         <i className="fas fa-redo" style={{ marginRight: 4 }}></i>Retake / Change
                       </button>
                     </div>
@@ -1671,13 +1700,12 @@ const LearnerList = () => {
             <div className="profile-body">
               {/* Avatar */}
               <div className="profile-avatar-container">
-                {profileLearner.photo ? (
-                  <img src={profileLearner.photo} alt={profileLearner.fullName} className="profile-avatar-img" />
-                ) : (
-                  <div className={`profile-avatar-placeholder ${profileLearner.gender === 'Female' ? 'female' : 'male'}`}>
-                    <i className="fas fa-user"></i>
-                  </div>
-                )}
+                <LearnerPhoto
+                  photo={profileLearner.photo || profileLearner.photoUrl || null}
+                  alt={profileLearner.fullName}
+                  className="profile-avatar-img"
+                  style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '4px solid #0d9488', boxShadow: '0 8px 24px rgba(13,148,136,.3)' }}
+                />
               </div>
 
               {/* Name & Reg Badge */}

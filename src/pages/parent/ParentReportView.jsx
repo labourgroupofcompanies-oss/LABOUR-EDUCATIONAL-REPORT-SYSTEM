@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
 import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade } from '../../lib/grading';
 import authService from '../../services/authService';
+import LearnerPhoto from '../../components/common/LearnerPhoto';
 
 const DEFAULT_GRADING_SCALE = [
   { min: 90, max: 100, grade: 'A1', remark: 'Excellent' },
@@ -859,9 +860,11 @@ const ParentReportView = () => {
                 {[schoolInfo?.location, schoolInfo?.district, schoolInfo?.region].filter(Boolean).join(' • ')}
               </p>
             </div>
-            {activeLearner.photoUrl || activeLearner.photo
-              ? <img src={activeLearner.photoUrl || activeLearner.photo} alt={activeLearner.fullName} className="rc-student-photo" />
-              : <div className="rc-student-photo-ph"><i className="fas fa-user" style={{ fontSize: '1.5rem', opacity: 0.35 }} /><span>No Photo</span></div>}
+            <LearnerPhoto
+              photo={activeLearner.photo || activeLearner.photoUrl || null}
+              alt={activeLearner.fullName}
+              className="rc-student-photo"
+            />
           </div>
 
           {/* Title row + KPIs */}

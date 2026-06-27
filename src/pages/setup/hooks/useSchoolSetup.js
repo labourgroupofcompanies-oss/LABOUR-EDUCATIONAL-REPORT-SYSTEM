@@ -8,6 +8,7 @@ import { enqueueSync } from '../../../services/syncEngine';
 export const useSchoolSetup = () => {
   const [className, setClassName] = useState('');
   const [teachingMode, setTeachingMode] = useState('class_teacher');
+  const [classCategory, setClassCategory] = useState('basic 1-3');
   const [subjectName, setSubjectName] = useState('');
   const [selectedSetupClass, setSelectedSetupClass] = useState('');
   const { user } = useAuth();
@@ -67,11 +68,12 @@ export const useSchoolSetup = () => {
                   schoolId: rc.school_id,
                   name: rc.name,
                   teachingMode: rc.teaching_mode,
+                  category: rc.category,
                   createdAt: rc.created_at
                 });
               } else {
-                if (localByName.name !== rc.name || localByName.teachingMode !== rc.teaching_mode) {
-                  await db.classes.update(rc.id, { name: rc.name, teachingMode: rc.teaching_mode });
+                if (localByName.name !== rc.name || localByName.teachingMode !== rc.teaching_mode || localByName.category !== rc.category) {
+                  await db.classes.update(rc.id, { name: rc.name, teachingMode: rc.teaching_mode, category: rc.category });
                 }
               }
             } else {
@@ -82,6 +84,7 @@ export const useSchoolSetup = () => {
                   schoolId: rc.school_id,
                   name: rc.name,
                   teachingMode: rc.teaching_mode,
+                  category: rc.category,
                   createdAt: rc.created_at
                 });
               }
@@ -193,10 +196,18 @@ export const useSchoolSetup = () => {
             .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
-          // Delete any local teacher that is not in the remote list
+          // Delete any local teacher that is not in the remote list,
+          // BUT protect those with a pending insert in the outbox (registered offline)
           for (const lt of localTeachers) {
             if (!remoteIds.has(lt.id)) {
-              await db.profiles.delete(lt.id);
+              const hasPendingInsert = await db.outbox
+                .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(lt.id))
+                .first();
+              if (!hasPendingInsert) {
+                await db.profiles.delete(lt.id);
+              } else {
+                console.log(`[Setup Sync] Protecting unsynced local teacher ${lt.fullName} from deletion (pending insert in outbox).`);
+              }
             }
           }
 
@@ -282,6 +293,7 @@ export const useSchoolSetup = () => {
       schoolId: user.schoolId, 
       name: className, 
       teachingMode: teachingMode,
+      category: classCategory,
       createdAt: new Date().toISOString() 
     });
 
@@ -289,7 +301,8 @@ export const useSchoolSetup = () => {
     await enqueueSync('insert', 'report_classes', {
       school_id: user.schoolId,
       name: className,
-      teaching_mode: teachingMode
+      teaching_mode: teachingMode,
+      category: classCategory
     }, user.schoolId);
 
     setClassName('');
@@ -342,6 +355,24 @@ export const useSchoolSetup = () => {
       }
     } catch (err) {
       console.error('Failed to update class teaching mode:', err);
+    }
+  };
+
+  const updateClassCategory = async (id, newCategory) => {
+    try {
+      await db.classes.update(id, { category: newCategory });
+      
+      if (navigator.onLine) {
+        const { error } = await supabase
+          .from('report_classes')
+          .update({ category: newCategory })
+          .eq('id', id);
+        if (error) {
+          console.warn('Failed to update class category on Supabase:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update class category:', err);
     }
   };
 
@@ -655,6 +686,8 @@ export const useSchoolSetup = () => {
     setClassName,
     teachingMode,
     setTeachingMode,
+    classCategory,
+    setClassCategory,
     subjectName,
     setSubjectName,
     selectedSetupClass,
@@ -668,6 +701,7 @@ export const useSchoolSetup = () => {
     addClass,
     deleteClass,
     updateClassMode,
+    updateClassCategory,
     addSubject,
     deleteSubject,
     handleToggleSubject,
