@@ -3232,8 +3232,8 @@ const ParentDashboard = () => {
                       <LearnerPhoto
                         photo={sib.photo || sib.photoUrl || null}
                         alt={sib.fullName}
+                        gender={sib.gender}
                         className="sib-avatar"
-                        style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
                       />
                     </div>
                     <span className="sib-badge">Student</span>
@@ -3311,6 +3311,7 @@ const ParentDashboard = () => {
                   <LearnerPhoto
                     photo={activeSibling.photo || activeSibling.photoUrl || null}
                     alt={activeSibling.fullName}
+                    gender={activeSibling.gender}
                     className="id-photo-frame"
                     style={{ width: 110, height: 130, objectFit: 'cover', borderRadius: 8 }}
                   />

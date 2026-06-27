@@ -863,6 +863,7 @@ const ParentReportView = () => {
             <LearnerPhoto
               photo={activeLearner.photo || activeLearner.photoUrl || null}
               alt={activeLearner.fullName}
+              gender={activeLearner.gender}
               className="rc-student-photo"
             />
           </div>

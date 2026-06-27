@@ -1796,6 +1796,7 @@ const Reports = () => {
           <LearnerPhoto
             photo={learner.photo || learner.photoUrl || null}
             alt={learner.fullName}
+            gender={learner.gender}
             className="rc-student-photo"
           />
         </div>
@@ -2309,6 +2310,7 @@ const Reports = () => {
                                             <LearnerPhoto
                                               photo={l.photo || l.photoUrl || null}
                                               alt={l.fullName}
+                                              gender={l.gender}
                                               className="rc-student-cell-photo"
                                             />
                                             <div>

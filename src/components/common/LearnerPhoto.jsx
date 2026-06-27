@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 
 /**
  * LearnerPhoto
@@ -6,9 +6,9 @@
  *   - A local Blob (IndexedDB blob field) → creates an ObjectURL, cleans up on unmount
  *   - A remote HTTP/HTTPS URL string → uses directly as <img src>
  *   - A legacy Base64 data: string → uses directly (backward compat)
- *   - null / undefined → shows an initials-based avatar placeholder
+ *   - null / undefined → shows a beautiful gender-aware initials placeholder
  */
-const LearnerPhoto = ({ photo, alt = "", className = "", style = {} }) => {
+const LearnerPhoto = ({ photo, alt = "", gender = "", className = "", style = {} }) => {
   const [src, setSrc] = useState(null);
 
   useEffect(() => {
@@ -36,11 +36,26 @@ const LearnerPhoto = ({ photo, alt = "", className = "", style = {} }) => {
     const initials = alt
       ? alt
           .split(" ")
+          .filter(Boolean)
           .map((n) => n[0])
           .join("")
           .slice(0, 2)
           .toUpperCase()
       : "?";
+
+    // Premium gender-aware backgrounds
+    let bg = "linear-gradient(135deg, #f1f5f9, #cbd5e1)";
+    let textColor = "#475569";
+    
+    const cleanGender = String(gender).toLowerCase();
+    if (cleanGender === "female") {
+      bg = "linear-gradient(135deg, #fff1f2, #fecdd3)"; // Soft rose gradient
+      textColor = "#db2777"; // Rose-600
+    } else if (cleanGender === "male") {
+      bg = "linear-gradient(135deg, #eff6ff, #bfdbfe)"; // Soft blue gradient
+      textColor = "#2563eb"; // Blue-600
+    }
+
     return (
       <div
         className={className}
@@ -48,9 +63,8 @@ const LearnerPhoto = ({ photo, alt = "", className = "", style = {} }) => {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "linear-gradient(135deg, #e2e8f0, #cbd5e1)",
-          color: "#64748b",
-          fontSize: "1rem",
+          background: bg,
+          color: textColor,
           fontWeight: 700,
           ...style,
         }}

@@ -1407,8 +1407,8 @@ const LearnerList = () => {
                   <LearnerPhoto
                     photo={l.photo || l.photoUrl || null}
                     alt={l.fullName}
+                    gender={l.gender}
                     className="lc-photo"
-                    style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
                   />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1514,7 +1514,7 @@ const LearnerList = () => {
 
                   {photoPreview ? (
                     <div className="photo-preview-wrap">
-                      <LearnerPhoto photo={photoPreview} alt="preview" className="photo-avatar" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #0d9488', boxShadow: '0 4px 14px rgba(13,148,136,.25)' }} />
+                      <LearnerPhoto photo={photoPreview} alt="preview" gender={form.gender} className="photo-avatar" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #0d9488', boxShadow: '0 4px 14px rgba(13,148,136,.25)' }} />
                       <button type="button" onClick={() => { setPhotoPreview(null); setPhotoPreviewUrl(null); stopCamera(); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '.78rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
                         <i className="fas fa-redo" style={{ marginRight: 4 }}></i>Retake / Change
                       </button>
@@ -1703,6 +1703,7 @@ const LearnerList = () => {
                 <LearnerPhoto
                   photo={profileLearner.photo || profileLearner.photoUrl || null}
                   alt={profileLearner.fullName}
+                  gender={profileLearner.gender}
                   className="profile-avatar-img"
                   style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '4px solid #0d9488', boxShadow: '0 8px 24px rgba(13,148,136,.3)' }}
                 />

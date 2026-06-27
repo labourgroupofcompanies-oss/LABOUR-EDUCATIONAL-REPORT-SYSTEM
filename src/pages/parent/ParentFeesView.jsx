@@ -342,6 +342,7 @@ const ParentFeesView = () => {
           <LearnerPhoto
             photo={activeLearner.photo || activeLearner.photoUrl || null}
             alt={activeLearner.fullName}
+            gender={activeLearner.gender}
             className="f-avatar"
           />
           
