@@ -384,11 +384,16 @@ const LearnerList = () => {
       const isNewBlob = photoPreview instanceof Blob;
       let remotePhotoUrl = null;
 
+      // Fetch the existing local record if editing, to preserve existing photoUrl
+      const existingRecord = editingId ? await db.learners.get(editingId) : null;
+
       // If online and we have a fresh Blob, upload it immediately
       if (navigator.onLine && isNewBlob) {
         try {
+          // FIX: Use a stable, deterministic path (no Date.now()) so the same learner's
+          // photo always overwrites the same file — prevents orphaned images in storage.
           const cleanReg = String(form.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-          const path = `learners/${user.schoolId}_${cleanReg}_${Date.now()}.webp`;
+          const path = `learners/${user.schoolId}_${cleanReg}.webp`;
           const { error } = await supabase.storage.from('learner-photos').upload(path, photoPreview, { upsert: true, contentType: 'image/webp' });
           if (!error) {
             const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
@@ -400,13 +405,22 @@ const LearnerList = () => {
       } else if (typeof photoPreview === 'string' && photoPreview.startsWith('http')) {
         // Existing remote URL kept as-is
         remotePhotoUrl = photoPreview;
+      } else if (!photoPreview && existingRecord?.photoUrl) {
+        // No photo selected/changed — preserve the existing remote URL
+        remotePhotoUrl = existingRecord.photoUrl;
       }
 
-      // photo field stores the Blob (for offline display) OR the remote URL as a string fallback
-      // photoUrl field stores the remote HTTP URL (for Supabase sync)
-      const photoField = isNewBlob ? photoPreview : (photoPreview || null);
-      // If we uploaded, store the URL reference so we can detect URL changes on next pull sync
-      const photoUrlField = remotePhotoUrl;
+      // photo field: keep existing Blob if no new photo was uploaded offline
+      const photoField = isNewBlob
+        ? photoPreview
+        : (photoPreview || existingRecord?.photo || null);
+
+      // photoUrl field: always prefer newly uploaded URL, fallback to preserved existing
+      const photoUrlField = remotePhotoUrl || existingRecord?.photoUrl || null;
+
+      // FIX: Set synced correctly — only mark unsynced when there is a local Blob
+      // that still needs to be uploaded (no remote URL yet).
+      const isSynced = !isNewBlob || !!remotePhotoUrl;
 
       const record = {
         fullName: form.fullName,
@@ -422,24 +436,22 @@ const LearnerList = () => {
         guardianContact2: form.guardianContact2,
         guardianProfession: form.guardianProfession,
         guardianLocation: form.guardianLocation,
-        // Mark synced=false if we have an un-uploaded local Blob (sync engine will handle it)
-        synced: isNewBlob && !remotePhotoUrl ? false : false,
+        synced: isSynced,
         updatedAt: new Date().toISOString()
       };
 
       if (editingId) {
-        const existing = await db.learners.get(editingId);
         await db.learners.update(editingId, record);
 
-        if (existing?.supabaseId) {
+        if (existingRecord?.supabaseId) {
           await enqueueSync('update', 'report_learners', {
-            filter: { id: existing.supabaseId },
+            filter: { id: existingRecord.supabaseId },
             data: {
               full_name: record.fullName,
               reg_number: record.regNumber,
               gender: record.gender,
               class_id: record.currentClassId,
-              photo_url: remotePhotoUrl,
+              photo_url: photoUrlField,
               guardian_name: record.guardianName,
               guardian_relation: record.guardianRelation,
               guardian_contact_1: record.guardianContact1,
@@ -772,8 +784,10 @@ const LearnerList = () => {
           if (needsUpload && !remotePhotoUrl) {
             try {
               const blob = localPhoto instanceof Blob ? localPhoto : await fetch(localPhoto).then(r => r.blob());
+              // FIX: Use deterministic path — no Date.now() — so re-syncing the same learner
+              // always overwrites the same file and never creates duplicate storage objects.
               const cleanReg = String(l.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-              const path = `learners/${l.schoolId}_${cleanReg}_${Date.now()}.webp`;
+              const path = `learners/${l.schoolId}_${cleanReg}.webp`;
               const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true, contentType: 'image/webp' });
               if (!uploadError) {
                 const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);

@@ -483,6 +483,10 @@ const Dashboard = () => {
         if (!learnErr && remoteLearners) {
           // Self-healing duplicate cleanup
           const allLocalLearners = await db.learners.where('schoolId').equals(user.schoolId).toArray();
+
+          // Build a Set of all valid supabaseIds from the remote for fast lookup
+          const remoteSupabaseIds = new Set(remoteLearners.map(r => r.id));
+
           const seenSupabaseIds = new Set();
           const seenRegNumbers = new Set();
           
@@ -496,27 +500,39 @@ const Dashboard = () => {
           for (const l of sortedLocal) {
             if (typeof l.id === 'string' || !l.id) {
               await db.learners.delete(l.id);
-            } else {
-              let isDuplicate = false;
-              if (l.supabaseId) {
-                if (seenSupabaseIds.has(l.supabaseId)) {
-                  isDuplicate = true;
-                } else {
-                  seenSupabaseIds.add(l.supabaseId);
-                }
-              }
-              if (l.regNumber) {
-                if (seenRegNumbers.has(l.regNumber)) {
-                  isDuplicate = true;
-                } else {
-                  seenRegNumbers.add(l.regNumber);
-                }
-              }
+              continue;
+            }
 
-              if (isDuplicate) {
-                console.log(`[Self-Healing] Deleting duplicate local learner: ${l.fullName} (${l.regNumber})`);
+            // FIX: Also remove local records whose supabaseId is no longer in the remote
+            // manifest (i.e. the learner was hard-deleted on Supabase from another device)
+            if (l.supabaseId && !remoteSupabaseIds.has(l.supabaseId)) {
+              // Only purge if it's synced (not a new unsynced local learner)
+              if (l.synced) {
+                console.log(`[Self-Healing] Purging stale local learner no longer in remote: ${l.fullName} (${l.regNumber})`);
                 await db.learners.delete(l.id);
+                continue;
               }
+            }
+
+            let isDuplicate = false;
+            if (l.supabaseId) {
+              if (seenSupabaseIds.has(l.supabaseId)) {
+                isDuplicate = true;
+              } else {
+                seenSupabaseIds.add(l.supabaseId);
+              }
+            }
+            if (l.regNumber) {
+              if (seenRegNumbers.has(l.regNumber)) {
+                isDuplicate = true;
+              } else {
+                seenRegNumbers.add(l.regNumber);
+              }
+            }
+
+            if (isDuplicate) {
+              console.log(`[Self-Healing] Deleting duplicate local learner: ${l.fullName} (${l.regNumber})`);
+              await db.learners.delete(l.id);
             }
           }
 
@@ -534,16 +550,28 @@ const Dashboard = () => {
               continue;
             }
 
-            // 1. Check if the learner exists by Supabase ID
+            // 1. Check if the learner exists by Supabase ID (most reliable)
             let local = await db.learners.where('supabaseId').equals(rl.id).first();
             
-            // 2. Fallback: If not found, check by registration number (in case of a desynced offline upload)
+            // 2. Fallback: If not found by supabaseId, check by reg_number.
+            //    FIX: Also verify the full name matches to prevent cross-learner photo contamination
+            //    when reg numbers were reassigned after an offline session.
             if (!local && rl.reg_number) {
-              local = await db.learners.where('regNumber').equals(rl.reg_number).first();
+              const byReg = await db.learners.where('regNumber').equals(rl.reg_number).toArray();
+              if (byReg.length > 0) {
+                // Prefer exact full name match to avoid photo cross-contamination
+                const nameMatch = byReg.find(
+                  l => l.fullName?.trim().toLowerCase() === rl.full_name?.trim().toLowerCase()
+                );
+                local = nameMatch || byReg.find(l => !l.supabaseId) || null;
+                if (local && !nameMatch) {
+                  console.warn(`[Dashboard Sync] Reg number "${rl.reg_number}" matched by reg only (no name match). Remote: "${rl.full_name}", Local: "${local.fullName}". Binding cautiously.`);
+                }
+              }
             }
 
             if (!local) {
-              // Download photo as Blob for offline caching if remote URL present
+              // New learner from remote — download photo Blob for offline caching
               let photoBlobCache = null;
               if (navigator.onLine && rl.photo_url) {
                 photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
@@ -560,10 +588,13 @@ const Dashboard = () => {
                 supabaseId: rl.id
               });
             } else {
-              // Only re-download the photo Blob if the remote URL has changed
+              // Existing learner — only re-download photo Blob if the remote URL changed
               let photoBlobCache = local.photo instanceof Blob ? local.photo : null;
               if (navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl) {
                 photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+              } else if (!rl.photo_url) {
+                // Remote has no photo; preserve whatever Blob is cached locally
+                photoBlobCache = local.photo instanceof Blob ? local.photo : null;
               }
               await db.learners.update(local.id, {
                 regNumber: rl.reg_number,
@@ -571,7 +602,7 @@ const Dashboard = () => {
                 gender: rl.gender,
                 currentClassId: rl.class_id,
                 photo: photoBlobCache ?? local.photo,
-                photoUrl: rl.photo_url,
+                photoUrl: rl.photo_url || local.photoUrl,
                 synced: true,
                 supabaseId: rl.id
               });
