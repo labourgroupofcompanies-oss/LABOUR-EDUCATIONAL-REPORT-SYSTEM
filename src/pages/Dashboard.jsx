@@ -376,7 +376,7 @@ const Dashboard = () => {
             </div>
             <div className="welcome-banner-text">
               <h1>
-                Welcome back, {user?.fullName?.split(' ')[0]} ðŸ‘‹
+                Welcome back, {user?.fullName?.split(' ')[0]}
               </h1>
               <p>
                 {isAdmin ? `Headteacher Portal` : `Teacher Portal`}
