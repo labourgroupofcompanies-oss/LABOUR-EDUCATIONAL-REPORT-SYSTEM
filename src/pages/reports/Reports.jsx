@@ -899,6 +899,10 @@ const Reports = () => {
     () => schoolId ? db.teacherAssignments.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
   );
+  const payments           = useLiveQuery(
+    () => schoolId ? db.payments.where('schoolId').equals(schoolId).toArray() : [],
+    [schoolId]
+  );
   const globalSettings     = useLiveQuery(() => db.settings.get('global'), []);
   const schoolInfo         = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
@@ -1894,17 +1898,49 @@ const Reports = () => {
             <p><strong>Vacation Date:</strong> {vDate}</p>
             <p><strong>Resumes:</strong> {nDate}</p>
             {promoted && (
-              <p style={{ color: '#0d9488', fontWeight: 'bold', marginTop: '4px' }}>
+              <p style={{ color: '#0d9488', fontWeight: 'bold', margin: '4px 0' }}>
                 <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
                 Decision: Promoted to {getPromotedClassName(promoted)}
               </p>
             )}
-            {(fees || bill) && (
-              <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0' }}>
-                {bill && <p><strong>Next Term Bill:</strong> {bill}</p>}
-                {fees && <p><strong>Previous Arrears:</strong> {fees}</p>}
-              </div>
-            )}
+            {(() => {
+              const numFees = parseFloat(fees) || 0;
+              const numBill = parseFloat(bill) || 0;
+              
+              const learnerPayments = payments?.filter(pay => 
+                (pay.learnerId === learner.id || pay.learnerId === String(learner.id) || (learner.supabaseId && pay.learnerId === learner.supabaseId)) &&
+                pay.academicYear === academicYear &&
+                pay.term === selectedTerm
+              ) || [];
+              const totalPaid = learnerPayments.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+              
+              const totalBilled = numFees + numBill;
+              const balanceDue = totalBilled - totalPaid;
+              
+              if (totalBilled > 0 || totalPaid > 0) {
+                return (
+                  <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0', fontSize: '0.65rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Previous Arrears:</span>
+                      <strong>GH¢ {numFees.toFixed(2)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Next Term Bill:</span>
+                      <strong>GH¢ {numBill.toFixed(2)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>Total Paid This Term:</span>
+                      <strong style={{ color: '#10b981' }}>GH¢ {totalPaid.toFixed(2)}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #e2e8f0' }}>
+                      <span style={{ color: 'var(--text-muted)', fontWeight: 800 }}>BALANCE DUE:</span>
+                      <strong style={{ color: balanceDue > 0 ? '#ef4444' : '#10b981', fontSize: '0.75rem' }}>GH¢ {balanceDue.toFixed(2)}</strong>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
           </div>
 
           {/* Remarks */}

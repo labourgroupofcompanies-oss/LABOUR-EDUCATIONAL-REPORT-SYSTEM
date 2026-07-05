@@ -767,13 +767,9 @@ const Financials = () => {
 
               {/* Outstanding Balance Summary Widget */}
               {(() => {
-                const summary = reportSummaries?.find(
-                  s => (s.learnerId === selectedLearnerForPayment.id || s.learnerId === String(selectedLearnerForPayment.id) || (selectedLearnerForPayment.supabaseId && s.learnerId === selectedLearnerForPayment.supabaseId)) && 
-                       s.academicYear === academicYear && 
-                       s.term === selectedTerm
-                );
-                const prevArrears = parseFloat(summary?.feesOwed) || 0;
-                const termBill = parseFloat(summary?.nextTermBill) || 0;
+                const learnerId = selectedLearnerForPayment.id;
+                const prevArrears = parseFloat(financialData[learnerId]?.feesOwed) || 0;
+                const termBill = parseFloat(financialData[learnerId]?.nextTermBill) || 0;
                 const totalPaid = activeLearnerPaymentsForModal.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
                 const outstanding = (prevArrears + termBill) - totalPaid;
 

@@ -128,6 +128,31 @@ const Promotions = () => {
     }
   };
 
+  const handleUpdatePromotedTo = async (summary, newValue) => {
+    if (!navigator.onLine) {
+      alert("You must be online to change a promotion recommendation.");
+      return;
+    }
+    try {
+      // We must have a supabaseId to update the cloud record directly
+      // If it doesn't have one, it means the report hasn't synced yet.
+      const cloudId = summary.supabaseId || summary.id;
+      
+      const { error } = await supabase
+        .from('report_summaries')
+        .update({ promoted_to: newValue })
+        .eq('id', cloudId);
+
+      if (error) throw error;
+
+      // Update local cache to reflect immediately
+      await db.reportSummaries.update(summary.id, { promotedTo: newValue });
+    } catch (err) {
+      console.error(err);
+      alert("Failed to update recommendation: " + err.message);
+    }
+  };
+
   return (
     <Layout title="Academic Year Promotions">
       <style>{`
@@ -211,7 +236,8 @@ const Promotions = () => {
                   <tr>
                     <th>Learner Name</th>
                     <th>Reg Number</th>
-                    <th>Teacher's Recommendation (Promote To)</th>
+                    <th>Teacher's Recommendation</th>
+                    <th>Override / Repeat</th>
                     <th>Status</th>
                   </tr>
                 </thead>
@@ -233,7 +259,30 @@ const Promotions = () => {
                           {summary.promotedTo === 'Alumni' ? (
                             <span style={{ color: '#0d9488', fontWeight: 700 }}><i className="fas fa-graduation-cap"></i> Graduate (Alumni)</span>
                           ) : (
-                            <span style={{ fontWeight: 600 }}>{getClass(summary.promotedTo)}</span>
+                            <span style={{ fontWeight: 600 }}>
+                              {String(summary.promotedTo) === String(selectedClass) && <span style={{ color: '#d97706', marginRight: '4px' }}><i className="fas fa-redo"></i> Repeat:</span>}
+                              {getClass(summary.promotedTo)}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {summary.promotionStatus === 'approved' ? (
+                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Locked (Executed)</span>
+                          ) : (
+                            <select 
+                              className="form-input" 
+                              style={{ padding: '0.3rem', fontSize: '0.75rem', height: 'auto', minWidth: '130px', borderColor: String(summary.promotedTo) === String(selectedClass) ? '#f59e0b' : 'var(--border)' }}
+                              value={summary.promotedTo || ''}
+                              onChange={(e) => handleUpdatePromotedTo(summary, e.target.value)}
+                            >
+                              <option value={selectedClass}>↻ Repeat ({getClass(selectedClass)})</option>
+                              <optgroup label="Promote To">
+                                {classes?.filter(c => String(c.id) !== String(selectedClass)).map(c => (
+                                  <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                                <option value="Alumni">🎓 Graduate (Alumni)</option>
+                              </optgroup>
+                            </select>
                           )}
                         </td>
                         <td>
