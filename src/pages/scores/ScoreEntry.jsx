@@ -16,6 +16,29 @@ const ScoreEntry = () => {
   const [selectedClass, setSelectedClass] = useState(queryClass || '');
   const [selectedSubject, setSelectedSubject] = useState(querySubject || '');
 
+  // ── Online / Offline tracking ────────────────────────────────────────────────
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+  useEffect(() => {
+    const handleOnline  = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // Live count of pending/failed outbox items so teacher can see sync status
+  const outboxItems = useLiveQuery(() => db.outbox.toArray(), []);
+  useEffect(() => {
+    if (!outboxItems) return;
+    const count = outboxItems.filter(i => i.status === 'pending' || i.status === 'failed' || i.status === 'processing').length;
+    setPendingSyncCount(count);
+  }, [outboxItems]);
+
   useEffect(() => {
     if (queryClass) {
       setSelectedClass(queryClass);
@@ -64,11 +87,18 @@ const ScoreEntry = () => {
     }
   }, [schoolInfo]);
 
-  // ── Seeding/Self-Healing on Load ────────────────────────────────────
+  // ── Seeding/Self-Healing on Load ────────────────────────────────────────────
+  // NOTE: We always load from Dexie. Remote fetch is skipped silently when offline.
   useEffect(() => {
     const pullAssignmentsAndSetup = async () => {
-      if (!navigator.onLine || !user?.schoolId) return;
-      console.log('Pulling setup data for Score Entry with resilient sync...');
+      if (!user?.schoolId) return;
+      console.log('Loading setup data for Score Entry (online:', navigator.onLine, ')...');
+      
+      // When offline, Dexie already has the data from a previous sync — nothing extra needed.
+      if (!navigator.onLine) {
+        console.log('[ScoreEntry] Offline — serving from local IndexedDB cache.');
+        return;
+      }
       
       // 1. Pull Classes
       try {
@@ -642,6 +672,27 @@ const ScoreEntry = () => {
   };
 
   if (!settings || !settings.caBreakdown) {
+    // If we are offline, the settings were simply never seeded — show a meaningful message.
+    if (!isOnline) {
+      return (
+        <Layout title="Score Entry System">
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', flexDirection: 'column', color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem', boxShadow: '0 8px 20px rgba(245,158,11,0.2)' }}>
+              <i className="fas fa-wifi-slash" style={{ fontSize: '2rem', color: '#d97706' }}></i>
+            </div>
+            <h2 style={{ color: '#92400e', marginBottom: '0.75rem', fontWeight: 800 }}>You're Offline</h2>
+            <p style={{ color: '#b45309', maxWidth: '420px', lineHeight: 1.6 }}>
+              Score entry configuration hasn't been downloaded yet. Please connect to the internet once to sync your school's grading rules, then scores will work offline.
+            </p>
+            <div style={{ marginTop: '1.5rem', padding: '0.75rem 1.25rem', background: 'rgba(245,158,11,0.1)', border: '1px solid #fde68a', borderRadius: '12px', fontSize: '0.85rem', color: '#92400e' }}>
+              <i className="fas fa-info-circle" style={{ marginRight: '6px' }}></i>
+              Once connected, data syncs automatically in the background.
+            </div>
+          </div>
+        </Layout>
+      );
+    }
+    // Online — still loading from Supabase
     return (
       <Layout title="Score Entry System">
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', flexDirection: 'column', color: 'var(--text-muted)' }}>
@@ -721,6 +772,52 @@ const ScoreEntry = () => {
   return (
     <Layout title="Score Entry System">
       <div className="fade-in">
+
+        {/* ── Offline / Sync status banner ────────────────────────────────── */}
+        {!isOnline && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+            border: '1px solid #fcd34d', borderRadius: '12px',
+            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
+            fontSize: '0.88rem', color: '#92400e', fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(245,158,11,0.15)'
+          }}>
+            <i className="fas fa-wifi-slash" style={{ fontSize: '1.1rem', color: '#d97706', flexShrink: 0 }}></i>
+            <div>
+              <strong>You are offline.</strong> Scores you save will be stored locally and synced automatically when you reconnect.
+            </div>
+          </div>
+        )}
+        {isOnline && pendingSyncCount > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+            border: '1px solid #93c5fd', borderRadius: '12px',
+            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
+            fontSize: '0.88rem', color: '#1e40af', fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(59,130,246,0.1)'
+          }}>
+            <i className="fas fa-rotate fa-spin" style={{ fontSize: '1rem', color: '#3b82f6', flexShrink: 0 }}></i>
+            <div>
+              Syncing {pendingSyncCount} pending record{pendingSyncCount !== 1 ? 's' : ''} to the cloud…
+            </div>
+          </div>
+        )}
+        {isOnline && pendingSyncCount === 0 && outboxItems !== undefined && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+            border: '1px solid #6ee7b7', borderRadius: '12px',
+            padding: '0.65rem 1.25rem', marginBottom: '1.25rem',
+            fontSize: '0.85rem', color: '#065f46', fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(16,185,129,0.1)'
+          }}>
+            <i className="fas fa-cloud-check" style={{ fontSize: '1rem', color: '#10b981', flexShrink: 0 }}></i>
+            <div>All scores synced to the cloud.</div>
+          </div>
+        )}
+
         <div className="card" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
             <label className="form-label">Select Class</label>

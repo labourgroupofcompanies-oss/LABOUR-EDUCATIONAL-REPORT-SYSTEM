@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import authService from '../../services/authService';
 import { downloadImageAsBlob } from '../../utils/imageUtils';
+import { startParentSync } from '../../services/syncDown';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
 
 const ParentDashboard = () => {
@@ -261,268 +262,14 @@ const ParentDashboard = () => {
     return (sum / validScores.length).toFixed(1);
   }, [activeSibling, schoolInfo]);
 
-  // Comprehensive multi-school database background synchronizer
+  // â”€â”€ Smart Background Pull Sync (Parent Portal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // Uses syncDown.js which diffs cloud vs local before writing to Dexie.
+  // This prevents useLiveQuery from triggering re-renders when nothing changed,
+  // eliminating the "just reloaded" visual flash on background refresh.
+  // Also re-triggers instantly whenever the device comes back online.
   useEffect(() => {
-    const syncParentPortalData = async () => {
-      if (!navigator.onLine || !parent?.phone_number || !schoolId || !activeSibling) return;
-      try {
-        console.log('[ParentDashboard] Syncing multi-school sibling data for school ID:', schoolId);
-
-        // 1. Sync report_schools for the active sibling's school
-        const { data: remoteSchoolList, error: schoolError } = await supabase
-          .from('report_schools')
-          .select('*')
-          .eq('id', schoolId);
-        const remoteSchool = remoteSchoolList?.[0];
-
-        if (remoteSchool && !schoolError) {
-          await db.schools.put({
-            id: schoolId,
-            name: remoteSchool.name || '',
-            location: remoteSchool.location || '',
-            district: remoteSchool.district || '',
-            region: remoteSchool.region || '',
-            circuit: remoteSchool.circuit || '',
-            motto: remoteSchool.motto || '',
-            logoUrl: remoteSchool.logo_url || '',
-            currentAcademicYear: remoteSchool.current_academic_year || '',
-            currentTerm: remoteSchool.current_term || 'Term 1',
-            vacationDate: remoteSchool.vacation_date || '',
-            nextTermBegins: remoteSchool.next_term_begins || '',
-            phone: remoteSchool.phone || '',
-            email: remoteSchool.email || ''
-          });
-        }
-
-        // 2. Sync report_settings for this school
-        const { data: settingsList, error: settingsError } = await supabase
-          .from('report_settings')
-          .select('*')
-          .eq('id', schoolId);
-        const settingsData = settingsList?.[0];
-
-        if (settingsData && !settingsError) {
-          await db.settings.put({
-            id: schoolId,
-            caWeight: settingsData.ca_weight,
-            examWeight: settingsData.exam_weight,
-            caModel: settingsData.ca_model,
-            caBestNCount: settingsData.ca_best_n || '',
-            caBreakdown: settingsData.ca_breakdown || [],
-            gradingScale: settingsData.grading_scale || []
-          });
-        }
-
-        // 3. Sync report_classes for this school
-        const { data: remoteClasses, error: classErr } = await supabase
-          .from('report_classes')
-          .select('*')
-          .eq('school_id', schoolId);
-
-        if (remoteClasses && !classErr) {
-          await db.classes.where('schoolId').equals(schoolId).delete();
-          for (const rc of remoteClasses) {
-            await db.classes.put({
-              id: rc.id,
-              schoolId: rc.school_id,
-              name: rc.name,
-              teachingMode: rc.teaching_mode,
-              createdAt: rc.created_at
-            });
-          }
-        }
-
-        // 4. Sync report_subjects for this school
-        const { data: remoteSubjects, error: subErr } = await supabase
-          .from('report_subjects')
-          .select('*')
-          .eq('school_id', schoolId);
-
-        if (remoteSubjects && !subErr) {
-          for (const rs of remoteSubjects) {
-            await db.subjects.put({
-              id: rs.id,
-              schoolId: rs.school_id,
-              name: rs.name,
-              createdAt: rs.created_at
-            });
-          }
-        }
-
-        // 5. Sync Class-Subject Mappings for this school
-        const { data: classSubsData, error: classSubsErr } = await supabase
-          .from('report_class_subjects')
-          .select('*')
-          .eq('school_id', schoolId);
-
-        if (classSubsData && !classSubsErr) {
-          await db.classSubjects.where('schoolId').equals(schoolId).delete();
-          for (const cs of classSubsData) {
-            await db.classSubjects.put({
-              supabaseId: cs.id,
-              schoolId: cs.school_id,
-              classId: Number(cs.class_id),
-              subjectId: Number(cs.subject_id),
-              synced: true
-            });
-          }
-        }
-
-        // 6. Sync report_summaries via secure RPC
-        const { data: remoteSummaries, error: summaryErr } = await supabase
-          .rpc('get_summaries_by_guardian_contact', { p_contact: parent.phone_number });
-
-        if (summaryErr) {
-          console.error('[ParentDashboard] Failed to sync remote summaries via RPC:', summaryErr);
-        }
-
-        if (remoteSummaries && !summaryErr) {
-          for (const rs of remoteSummaries) {
-            const existing = await db.reportSummaries
-              .where('learnerId').equals(rs.learner_id)
-              .filter(s => s.academicYear === rs.academic_year && s.term === rs.term)
-              .first();
-
-            const entry = {
-              schoolId: rs.school_id,
-              learnerId: rs.learner_id,
-              classId: rs.class_id,
-              academicYear: rs.academic_year,
-              term: rs.term,
-              attendancePresent: rs.attendance_present,
-              attendanceTotal: rs.attendance_total,
-              conduct: rs.conduct,
-              attitude: rs.attitude,
-              teacherRemark: rs.teacher_remark,
-              headteacherRemark: rs.headteacher_remark,
-              promotedTo: rs.promoted_to,
-              nextTermBegins: rs.next_term_begins,
-              feesOwed: rs.fees_owed,
-              nextTermBill: rs.next_term_bill,
-              isReleased: rs.is_released || false,
-              classAverage: rs.class_average !== undefined ? rs.class_average : null,
-              classRank: rs.class_rank !== undefined ? rs.class_rank : null,
-              totalGraded: rs.total_graded !== undefined ? rs.total_graded : 0,
-              synced: true,
-              supabaseId: rs.id
-            };
-
-            if (existing) {
-              await db.reportSummaries.update(existing.id, entry);
-            } else {
-              await db.reportSummaries.add(entry);
-            }
-          }
-        }
-
-        // 7. Sync report_scores via secure RPC
-        const { data: remoteScores, error: scoresErr } = await supabase
-          .rpc('get_scores_by_guardian_contact', { p_contact: parent.phone_number });
-
-        if (scoresErr) {
-          console.error('[ParentDashboard] Failed to sync remote scores via RPC:', scoresErr);
-        }
-
-        if (remoteScores && !scoresErr) {
-          for (const cs of remoteScores) {
-            const existing = await db.scores
-              .where('learnerId').equals(cs.learner_id)
-              .filter(s => s.classId === cs.class_id && s.subjectId === cs.subject_id && s.term === cs.term && s.academicYear === cs.academic_year)
-              .first();
-
-            const entry = {
-              learnerId: cs.learner_id,
-              classId: cs.class_id,
-              subjectId: cs.subject_id,
-              caScores: cs.ca_scores || [],
-              examScore: cs.exam_score || '',
-              classScore: cs.class_score || 0,
-              totalScore: cs.total_score || 0,
-              grade: cs.grade || '',
-              remark: cs.remark || '',
-              isSubmitted: cs.is_submitted || false,
-              termId: null,
-              term: cs.term || '',
-              academicYear: cs.academic_year || '',
-              updatedAt: cs.updated_at
-            };
-
-            if (existing) {
-              await db.scores.update(existing.id, entry);
-            } else {
-              await db.scores.add(entry);
-            }
-          }
-        }
-
-        // 8. Sync Announcements for this school
-        const { data: annData, error: annErr } = await supabase
-          .from('report_announcements')
-          .select('*')
-          .eq('school_id', schoolId)
-          .order('created_at', { ascending: false });
-
-        if (!annErr && annData) {
-          await db.announcements.where('schoolId').equals(schoolId).delete();
-          for (const a of annData) {
-            await db.announcements.add({
-              title: a.title,
-              content: a.content,
-              schoolId: a.school_id,
-              supabaseId: a.id,
-              created_at: a.created_at,
-              synced: true
-            });
-          }
-        }
-
-        // 9. Sync report_payments via secure RPC
-        const { data: remotePayments, error: payErr } = await supabase
-          .rpc('get_payments_by_guardian_contact', { p_contact: parent.phone_number });
-
-        if (payErr) {
-          console.error('[ParentDashboard] Failed to sync remote payments via RPC:', payErr);
-        }
-
-        if (remotePayments && !payErr) {
-          const siblingIds = siblings.map(s => s.supabaseId || s.id || String(s.id));
-          for (const sId of siblingIds) {
-            await db.payments.where('learnerId').equals(sId).delete();
-            await db.payments.where('learnerId').equals(String(sId)).delete();
-          }
-          for (const rp of remotePayments) {
-            await db.payments.add({
-              schoolId: rp.school_id,
-              learnerId: rp.learner_id,
-              academicYear: rp.academic_year,
-              term: rp.term,
-              amount: rp.amount,
-              paymentDate: rp.payment_date,
-              paymentMethod: rp.payment_method,
-              reference: rp.reference,
-              supabaseId: rp.id,
-              synced: true
-            });
-          }
-        }
-
-      } catch (err) {
-        console.warn('Failed to run parent portal secure sync:', err);
-      }
-    };
-
-    syncParentPortalData();
-
-    // ── Auto pull-sync every 2 minutes ──────────────────────────────────
-    // Keeps messages, report cards, fees, and notifications up to date automatically.
-    const AUTO_SYNC_INTERVAL = 2 * 60 * 1000; // 2 minutes
-    const intervalId = setInterval(() => {
-      if (navigator.onLine) syncParentPortalData();
-    }, AUTO_SYNC_INTERVAL);
-
-    return () => clearInterval(intervalId);
-  }, [schoolId, activeSibling, parent?.phone_number, siblings]);
-
+    return startParentSync({ parent, schoolId, activeSibling, siblings });
+  }, [schoolId, activeSibling?.id, parent?.phone_number]);
   // Sibling stats / academic reports
   const siblingSummary = useLiveQuery(async () => {
     if (!activeSibling || !schoolInfo) return null;
@@ -541,7 +288,7 @@ const ParentDashboard = () => {
   const isReportReleased = siblingSummary && (siblingSummary.isReleased || siblingSummary.is_released);
 
   const attendanceRate = React.useMemo(() => {
-    if (!siblingSummary?.attendanceTotal || siblingSummary.attendanceTotal <= 0) return '—';
+    if (!siblingSummary?.attendanceTotal || siblingSummary.attendanceTotal <= 0) return 'â€”';
     const present = Number(siblingSummary.attendancePresent || 0);
     const total = Number(siblingSummary.attendanceTotal || 0);
     return `${Math.round((present / total) * 100)}%`;
@@ -571,7 +318,7 @@ const ParentDashboard = () => {
 
   const parentName = siblings[0]?.guardianName || (parent?.phone_number ? `Parent (${parent.phone_number})` : 'Parent');
 
-  // ── Communication Center State ────────────────────────────────
+  // â”€â”€ Communication Center State â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [notifOpen, setNotifOpen]   = useState(false);
   const [chatOpen, setChatOpen]     = useState(false);
   const [chatInput, setChatInput]   = useState('');
@@ -584,7 +331,7 @@ const ParentDashboard = () => {
   const processingMsgIds            = useRef(new Set());
   const processingNotifIds          = useRef(new Set());
 
-  // Live Dexie queries — messages
+  // Live Dexie queries â€” messages
   const localMessages = useLiveQuery(
     () => {
       if (!schoolId || !parent?.phone_number) return Promise.resolve([]);
@@ -597,7 +344,7 @@ const ParentDashboard = () => {
     [schoolId, parent?.phone_number]
   );
 
-  // Live Dexie queries — notifications
+  // Live Dexie queries â€” notifications
   const localNotifications = useLiveQuery(
     () => {
       if (!schoolId || !parent?.phone_number) return Promise.resolve([]);
@@ -722,7 +469,7 @@ const ParentDashboard = () => {
   }, []);
 
   // Sync messages & notifications from Supabase
-  // NOTE: chatOpen intentionally excluded from deps — we only sync once on mount,
+  // NOTE: chatOpen intentionally excluded from deps â€” we only sync once on mount,
   // then rely on real-time channels. Including chatOpen caused re-runs that
   // duplicated messages already written by the real-time listener.
   useEffect(() => {
@@ -872,7 +619,7 @@ const ParentDashboard = () => {
               }
             } finally {
               // Keep the ID in the set permanently so syncComms never re-inserts
-              // (the set is small — only grows within this session)
+              // (the set is small â€” only grows within this session)
             }
           }
         }
@@ -1072,7 +819,7 @@ const ParentDashboard = () => {
           color: #fca5a5;
         }
 
-        /* ── Header Right Actions ── */
+        /* â”€â”€ Header Right Actions â”€â”€ */
         .header-right-actions {
           display: flex;
           align-items: center;
@@ -1080,7 +827,7 @@ const ParentDashboard = () => {
           position: relative;
         }
 
-        /* ── Notification Bell ── */
+        /* â”€â”€ Notification Bell â”€â”€ */
         .btn-notif-bell {
           position: relative;
           background: rgba(255,255,255,0.08);
@@ -1134,7 +881,7 @@ const ParentDashboard = () => {
           50%      { transform: scale(1.2); }
         }
 
-        /* ── Notification Dropdown ── */
+        /* â”€â”€ Notification Dropdown â”€â”€ */
         .notif-dropdown {
           position: absolute;
           top: calc(100% + 10px);
@@ -1254,7 +1001,7 @@ const ParentDashboard = () => {
         .notif-empty i { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
         .notif-empty p { font-size: 0.82rem; margin: 0; }
 
-        /* ── Chat Overlay & Drawer ── */
+        /* â”€â”€ Chat Overlay & Drawer â”€â”€ */
         .chat-overlay {
           position: fixed;
           inset: 0;
@@ -2612,7 +2359,7 @@ const ParentDashboard = () => {
           border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        /* ── Glassmorphic Modal & Change Password Styling ── */
+        /* â”€â”€ Glassmorphic Modal & Change Password Styling â”€â”€ */
         .modal-overlay {
           position: fixed;
           inset: 0;
@@ -2803,7 +2550,7 @@ const ParentDashboard = () => {
           color: #2dd4bf;
         }
 
-        /* ── Responsive Header Layout on Mobile Screens ── */
+        /* â”€â”€ Responsive Header Layout on Mobile Screens â”€â”€ */
         @media (max-width: 768px) {
           .dashboard-header {
             padding: 0.85rem 1.25rem;
@@ -2855,7 +2602,7 @@ const ParentDashboard = () => {
         }
       `}</style>
 
-      {/* ── Change Password Modal ── */}
+      {/* â”€â”€ Change Password Modal â”€â”€ */}
       {changePwdOpen && (
         <>
           <div className="modal-overlay" onClick={() => { if(!pwdLoading) setChangePwdOpen(false); }} />
@@ -2957,7 +2704,7 @@ const ParentDashboard = () => {
         </>
       )}
 
-      {/* ── Report Card Pending Release Explanation Modal ── */}
+      {/* â”€â”€ Report Card Pending Release Explanation Modal â”€â”€ */}
       {releaseModalOpen && (
         <>
           <div className="modal-overlay" onClick={() => setReleaseModalOpen(false)} />
@@ -3008,7 +2755,7 @@ const ParentDashboard = () => {
         </>
       )}
 
-      {/* ── Glassmorphic Chat Drawer ── */}
+      {/* â”€â”€ Glassmorphic Chat Drawer â”€â”€ */}
       {chatOpen && (
         <>
           <div className="chat-overlay" onClick={() => setChatOpen(false)} />
@@ -3054,7 +2801,7 @@ const ParentDashboard = () => {
                     <div className="msg-meta">
                       {formatTime(m.created_at)}
                       {m.senderRole === 'parent' && !m.synced && (
-                        <i className="fas fa-clock msg-pending" title="Sending…"></i>
+                        <i className="fas fa-clock msg-pending" title="Sendingâ€¦"></i>
                       )}
                     </div>
                   </div>
@@ -3068,7 +2815,7 @@ const ParentDashboard = () => {
                 <textarea
                   className="chat-textarea"
                   rows={1}
-                  placeholder="Type a message…"
+                  placeholder="Type a messageâ€¦"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -3091,7 +2838,7 @@ const ParentDashboard = () => {
         </>
       )}
 
-      {/* ── Sticky Header ── */}
+      {/* â”€â”€ Sticky Header â”€â”€ */}
       <div className="dashboard-header">
         <div className="header-content">
           <div className="welcome-title" onClick={() => setSelectedIdx(null)} style={{ cursor: 'pointer' }} title="Go to Student Selection">
@@ -3116,7 +2863,7 @@ const ParentDashboard = () => {
           </div>
 
           <div className="header-right-actions" ref={notifPanelRef}>
-            {/* Notification Bell — only shown when a sibling is selected */}
+            {/* Notification Bell â€” only shown when a sibling is selected */}
             {activeSibling && (
               <button
                 className={`btn-notif-bell ${unreadNotifCount > 0 ? 'has-unread' : ''}`}
@@ -3219,7 +2966,7 @@ const ParentDashboard = () => {
       </div>
 
       {selectedIdx === null ? (
-        /* ── SIBLING CARDS GRID VIEW ── */
+        /* â”€â”€ SIBLING CARDS GRID VIEW â”€â”€ */
         <div className="selector-landing-container">
           <div className="selector-landing-card">
             <h3 className="landing-title">Registered Learners</h3>
@@ -3270,7 +3017,7 @@ const ParentDashboard = () => {
           </div>
         </div>
       ) : (
-        /* ── SELECTED SIBLING DETAILS DASHBOARD VIEW ── */
+        /* â”€â”€ SELECTED SIBLING DETAILS DASHBOARD VIEW â”€â”€ */
         <div className="dashboard-body">
           <div className="left-column">
             <button className="btn-back-selection" onClick={() => setSelectedIdx(null)}>
@@ -3327,7 +3074,7 @@ const ParentDashboard = () => {
                     </div>
                     <div className="id-row">
                       <span className="id-lbl">Grade Average</span>
-                      <span className="id-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : '—'}</span>
+                      <span className="id-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : 'â€”'}</span>
                     </div>
                   </div>
                 </div>
@@ -3352,7 +3099,7 @@ const ParentDashboard = () => {
                     <div className="metric-icon"><i className="fas fa-graduation-cap"></i></div>
                     <div className="metric-details">
                       <span className="metric-lbl">Academic Average</span>
-                      <h3 className="metric-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : '—'}</h3>
+                      <h3 className="metric-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : 'â€”'}</h3>
                       <span className="metric-sub">{isReportReleased ? `${schoolInfo?.currentTerm || 'Term 1'} Performance` : 'Awaiting Official Release'}</span>
                     </div>
                   </div>
@@ -3362,8 +3109,8 @@ const ParentDashboard = () => {
                       <span className="metric-lbl">Outstanding Balance</span>
                       <h3 className="metric-val" style={{ color: parseFloat(siblingSummary?.feesOwed) > 0 ? '#ef4444' : '#10b981' }}>
                         {siblingSummary?.feesOwed !== undefined && siblingSummary?.feesOwed !== null && !isNaN(parseFloat(siblingSummary.feesOwed))
-                          ? `GH¢ ${parseFloat(siblingSummary.feesOwed).toFixed(2)}`
-                          : 'GH¢ 0.00'}
+                          ? `GHÂ¢ ${parseFloat(siblingSummary.feesOwed).toFixed(2)}`
+                          : 'GHÂ¢ 0.00'}
                       </h3>
                       <span className="metric-sub">Sibling Account Ledger</span>
                     </div>
@@ -3434,7 +3181,7 @@ const ParentDashboard = () => {
                         </div>
                         <div className="qa-btn-action-indicator">Enter Portal <i className="fas fa-arrow-right"></i></div>
                       </button>
-                      {/* ── Chat with Head Teacher ── */}
+                      {/* â”€â”€ Chat with Head Teacher â”€â”€ */}
                       <button
                         className="qa-grid-btn qa-btn-chat"
                         onClick={() => { setChatOpen(true); setNotifOpen(false); }}

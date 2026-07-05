@@ -15,6 +15,21 @@ const ClassTeacherEntry = () => {
   const [activeLearnerId, setActiveLearnerId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  // ── Online / Offline tracking ────────────────────────────────────────────────
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+  useEffect(() => {
+    const handleOnline  = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online',  handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online',  handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
   const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
   const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
@@ -22,6 +37,14 @@ const ClassTeacherEntry = () => {
   const schoolInfo = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
+
+  // Live count of pending outbox items for sync status display
+  const outboxItems = useLiveQuery(() => db.outbox.toArray(), []);
+  useEffect(() => {
+    if (!outboxItems) return;
+    const count = outboxItems.filter(i => i.status === 'pending' || i.status === 'failed' || i.status === 'processing').length;
+    setPendingSyncCount(count);
+  }, [outboxItems]);
 
   const [form, setForm] = useState({
     attendancePresent: '',
@@ -39,9 +62,13 @@ const ClassTeacherEntry = () => {
     }
   }, [schoolInfo]);
 
-  // Sync summaries from cloud on load
+  // Sync summaries from cloud on load (skipped silently when offline — Dexie cache is used instead)
   useEffect(() => {
-    if (!navigator.onLine || !user?.schoolId) return;
+    if (!user?.schoolId) return;
+    if (!navigator.onLine) {
+      console.log('[ClassTeacherEntry] Offline — serving report summaries from local IndexedDB cache.');
+      return;
+    }
     (async () => {
       try {
         const { data, error } = await supabase.from('report_summaries').select('*').eq('school_id', user.schoolId);
@@ -167,14 +194,24 @@ const ClassTeacherEntry = () => {
         updated_at: new Date().toISOString(),
       };
 
+      // Enqueue cloud sync (works offline — drains when back online)
       if (activeSummary?.supabaseId) {
         await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
-        await db.reportSummaries.update(savedId, { synced: true });
       } else {
         await enqueueSync('insert', 'report_summaries', cloud);
+      }
+
+      // Mark synced:true only if we are online and the outbox can drain immediately,
+      // otherwise leave as synced:false so the SyncEngine marks it after a successful drain.
+      if (navigator.onLine) {
         await db.reportSummaries.update(savedId, { synced: true });
       }
-      alert('Remarks saved successfully!');
+
+      if (isOnline) {
+        alert('Remarks saved and synced to cloud successfully!');
+      } else {
+        alert('Remarks saved offline. They will sync automatically when you reconnect.');
+      }
     } catch (err) {
       console.error(err);
       alert('Error saving. Please try again.');
@@ -207,6 +244,52 @@ const ClassTeacherEntry = () => {
         .close-btn:hover { background: #e2e8f0; color: #0f172a; transform: rotate(90deg); }
       `}</style>
       <div className="fade-in">
+
+        {/* ── Offline / Sync status banner ────────────────────────────────── */}
+        {!isOnline && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+            border: '1px solid #fcd34d', borderRadius: '12px',
+            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
+            fontSize: '0.88rem', color: '#92400e', fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(245,158,11,0.15)'
+          }}>
+            <i className="fas fa-wifi-slash" style={{ fontSize: '1.1rem', color: '#d97706', flexShrink: 0 }}></i>
+            <div>
+              <strong>You are offline.</strong> Remarks you save will be stored locally and synced automatically when you reconnect.
+            </div>
+          </div>
+        )}
+        {isOnline && pendingSyncCount > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+            border: '1px solid #93c5fd', borderRadius: '12px',
+            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
+            fontSize: '0.88rem', color: '#1e40af', fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(59,130,246,0.1)'
+          }}>
+            <i className="fas fa-rotate fa-spin" style={{ fontSize: '1rem', color: '#3b82f6', flexShrink: 0 }}></i>
+            <div>
+              Syncing {pendingSyncCount} pending record{pendingSyncCount !== 1 ? 's' : ''} to the cloud…
+            </div>
+          </div>
+        )}
+        {isOnline && pendingSyncCount === 0 && outboxItems !== undefined && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '0.75rem',
+            background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
+            border: '1px solid #6ee7b7', borderRadius: '12px',
+            padding: '0.65rem 1.25rem', marginBottom: '1.25rem',
+            fontSize: '0.85rem', color: '#065f46', fontWeight: 600,
+            boxShadow: '0 2px 8px rgba(16,185,129,0.1)'
+          }}>
+            <i className="fas fa-cloud-check" style={{ fontSize: '1rem', color: '#10b981', flexShrink: 0 }}></i>
+            <div>All remarks synced to the cloud.</div>
+          </div>
+        )}
+
         <div className="card" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ flex: '1 1 200px', marginBottom: 0 }}>
             <label className="form-label">Select Assigned Class</label>
