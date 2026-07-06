@@ -9,3 +9,11 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Allow camera, microphone in PWA / offline mode
+    Permissions-Policy = "camera=(*), microphone=()"
+    # Required for SharedArrayBuffer + better PWA isolation
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"

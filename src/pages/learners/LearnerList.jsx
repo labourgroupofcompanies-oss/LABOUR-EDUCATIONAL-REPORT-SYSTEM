@@ -262,11 +262,25 @@ const LearnerList = () => {
   // ── Enumerate cameras (requests permission so labels appear) ──
   const loadCameras = useCallback(async () => {
     try {
+      // First try enumerateDevices — works offline if camera permission was already granted
+      const all = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = all.filter(d => d.kind === 'videoinput');
+      
+      // If we got labelled devices, we already have permission — no probe needed
+      if (videoDevices.length > 0 && videoDevices.some(d => d.label)) {
+        return videoDevices;
+      }
+      
+      // Labels are empty (permission not yet granted) — do a one-shot probe
+      // This requires network only for the first-ever permission grant on a new browser
       const probe = await navigator.mediaDevices.getUserMedia({ video: true });
       probe.getTracks().forEach(t => t.stop());
-      const all = await navigator.mediaDevices.enumerateDevices();
-      return all.filter(d => d.kind === 'videoinput');
-    } catch { return []; }
+      const refreshed = await navigator.mediaDevices.enumerateDevices();
+      return refreshed.filter(d => d.kind === 'videoinput');
+    } catch {
+      // Fallback: return a single generic camera entry so startCameraDevice can still try
+      return [{ deviceId: '', label: 'Camera', kind: 'videoinput' }];
+    }
   }, []);
 
   // ── Start a specific camera by deviceId ──
