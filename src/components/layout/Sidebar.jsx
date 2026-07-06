@@ -72,6 +72,12 @@ const Sidebar = ({ isOpen, onClose }) => {
         { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
         { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Class Remarks' }
       ]
+    },
+    {
+      title: 'System',
+      links: [
+        { to: '/settings', icon: 'fa-sliders-h', label: 'Profile & Settings' }
+      ]
     }
   ];
 

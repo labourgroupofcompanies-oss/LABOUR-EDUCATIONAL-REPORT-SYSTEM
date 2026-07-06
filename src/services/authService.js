@@ -568,6 +568,49 @@ export const authService = {
     return true;
   },
 
+  async changeStaffPassword(userId, currentPassword, newPassword) {
+    if (!navigator.onLine) {
+      throw new Error("You must be online to change your password.");
+    }
+
+    const cached = await db.profiles.get(userId);
+    if (!cached) {
+      throw new Error("User profile not found in local cache.");
+    }
+
+    // Verify current password
+    if (cached.passwordHash) {
+      const salt = cached.passwordSalt || 'labour_edu_salt_2026';
+      const inputHash = await hashUserPassword(currentPassword, salt);
+      if (inputHash !== cached.passwordHash) {
+        throw new Error("Incorrect current password.");
+      }
+    } else {
+      // Fallback: verify online
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: cached.email,
+        password: currentPassword
+      });
+      if (authError) {
+        throw new Error("Incorrect current password.");
+      }
+    }
+
+    // Update in Supabase Auth
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      throw new Error("Failed to update password: " + error.message);
+    }
+
+    // Update local hash & salt for offline access
+    const salt = cached.passwordSalt || 'labour_edu_salt_2026';
+    const newHash = await hashUserPassword(newPassword, salt);
+    cached.passwordHash = newHash;
+    await db.profiles.put(cached);
+
+    return true;
+  },
+
   getCurrentParent() {
     return JSON.parse(localStorage.getItem('labour_edu_parent_session') || 'null');
   },

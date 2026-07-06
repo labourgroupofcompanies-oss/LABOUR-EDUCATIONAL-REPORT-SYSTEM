@@ -109,7 +109,7 @@ function App() {
             <Route 
               path="/settings" 
               element={
-                <ProtectedRoute role="super_admin">
+                <ProtectedRoute>
                   <Settings />
                 </ProtectedRoute>
               } 

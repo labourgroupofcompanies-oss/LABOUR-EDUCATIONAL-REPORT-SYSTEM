@@ -6,6 +6,7 @@ import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { enqueueSync } from '../../services/syncEngine';
 import { compressImageToBlob } from '../../utils/imageUtils';
+import authService from '../../services/authService';
 
 const Settings = () => {
   const { user, updateProfile } = useAuth();
@@ -22,6 +23,40 @@ const Settings = () => {
       setProfileStaffId(user.staffId || '');
     }
   }, [user]);
+
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      alert("Please fill in all password fields.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      alert("New passwords do not match.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      alert("New password must be at least 6 characters long.");
+      return;
+    }
+    
+    setIsChangingPassword(true);
+    try {
+      await authService.changeStaffPassword(user.id, currentPassword, newPassword);
+      alert("Password changed successfully!");
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err) {
+      alert(err.message || "Failed to change password. Please verify your current password.");
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   const [settings, setSettings] = useState({
     caWeight: 30,
@@ -357,17 +392,18 @@ const Settings = () => {
     setSettings({ ...settings, gradingScale: newScale });
   };
 
+  const isAdmin = user?.role === 'super_admin';
+
   return (
-    <Layout title="Portal Setup & School Settings">
+    <Layout title={isAdmin ? "Portal Setup & School Settings" : "Profile & Settings"}>
       <div className="fade-in">
-        <form onSubmit={handleSave}>
-          
-          {/* Headteacher Profile Card */}
-          <div className="card" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fas fa-user-cog" style={{ color: 'var(--accent)' }}></i>
-              Headteacher Profile Settings
-            </h3>
+        
+        {/* User Profile Card */}
+        <div className="card" style={{ marginBottom: '2rem' }}>
+          <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fas fa-user-cog" style={{ color: 'var(--accent)' }}></i>
+            {isAdmin ? "Headteacher Profile Settings" : "User Profile Settings"}
+          </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label">Full Name</label>
@@ -426,8 +462,78 @@ const Settings = () => {
               </button>
             </div>
           </div>
+
+          {/* Change Password Card */}
+          <div className="card" style={{ marginBottom: '2rem' }}>
+            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-key" style={{ color: 'var(--accent)' }}></i>
+              Change Account Password
+            </h3>
+            <form onSubmit={handleChangePassword}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Current Password</label>
+                  <input 
+                    type="password" 
+                    className="form-input" 
+                    placeholder="••••••••"
+                    value={currentPassword} 
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">New Password (Min 6 chars)</label>
+                  <input 
+                    type="password" 
+                    className="form-input" 
+                    placeholder="••••••••"
+                    value={newPassword} 
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Confirm New Password</label>
+                  <input 
+                    type="password" 
+                    className="form-input" 
+                    placeholder="••••••••"
+                    value={confirmPassword} 
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              
+              <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-start' }}>
+                <button 
+                  type="submit" 
+                  className="btn btn-accent" 
+                  disabled={isChangingPassword}
+                  style={{ 
+                    background: 'var(--accent)', 
+                    color: 'white', 
+                    padding: '0.6rem 1.25rem', 
+                    border: 'none', 
+                    borderRadius: '8px', 
+                    fontWeight: 'bold', 
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {isChangingPassword ? <i className="fas fa-spinner fa-spin"></i> : null}
+                  <span>Update Password</span>
+                </button>
+              </div>
+            </form>
+          </div>
           
-          {/* School Profile & Term Settings Card */}
+          {isAdmin && (
+            <form onSubmit={handleSave}>
+              {/* School Profile & Term Settings Card */}
           <div className="card" style={{ marginBottom: '2rem' }}>
             <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <i className="fas fa-school" style={{ color: 'var(--accent)' }}></i>
@@ -821,17 +927,18 @@ const Settings = () => {
               + Add Grade Range
             </button>
             
-            <div style={{ marginTop: '2.5rem' }}>
-              <button type="submit" style={{ background: '#0084ff', color: 'white', padding: '0.8rem 1.5rem', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }} disabled={isSaving}>
-                 {isSaving ? <i className="fas fa-spinner fa-spin"></i> : null}
-                 <span>Save Academic Settings</span>
-              </button>
+              <div style={{ marginTop: '2.5rem' }}>
+                <button type="submit" style={{ background: '#0084ff', color: 'white', padding: '0.8rem 1.5rem', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }} disabled={isSaving}>
+                   {isSaving ? <i className="fas fa-spinner fa-spin"></i> : null}
+                   <span>Save Academic Settings</span>
+                </button>
+              </div>
             </div>
-          </div>
-        </form>
-      </div>
-    </Layout>
-  );
-};
-
-export default Settings;
+          </form>
+        )}
+        </div>
+      </Layout>
+    );
+  };
+  
+  export default Settings;
