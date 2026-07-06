@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
 import { enqueueSync } from '../../services/syncEngine';
+import LearnerPhoto from '../../components/common/LearnerPhoto';
 
 const ClassTeacherEntry = () => {
   const { user } = useAuth();
@@ -338,13 +339,12 @@ const ClassTeacherEntry = () => {
                 <div key={l.id} className="learner-card" onClick={() => setActiveLearnerId(l.id)}>
                   <div className="lc-header">
                     <div className="lc-photo-wrap">
-                      {l.photo ? (
-                        <img src={l.photo} alt={l.fullName} className="lc-photo" />
-                      ) : (
-                        <div className="lc-photo-placeholder" style={{ background: l.gender === 'Female' ? 'rgba(236,72,153,.1)' : 'rgba(59,130,246,.1)' }}>
-                          <i className="fas fa-user" style={{ color: l.gender === 'Female' ? '#ec4899' : '#3b82f6', fontSize: '1.2rem' }}></i>
-                        </div>
-                      )}
+                      <LearnerPhoto
+                        photo={l.photo || l.photoUrl}
+                        alt={l.fullName}
+                        gender={l.gender}
+                        className="lc-photo"
+                      />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div className="lc-name" title={l.fullName}>{l.fullName}</div>

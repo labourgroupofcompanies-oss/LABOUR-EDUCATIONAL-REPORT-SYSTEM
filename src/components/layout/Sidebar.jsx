@@ -40,9 +40,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     {
       title: 'Staff & Teaching',
       links: [
-        { to: '/teachers', icon: 'fa-chalkboard-teacher', label: 'Teachers Directory' },
-        { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
-        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Class Remarks' }
+        { to: '/teachers', icon: 'fa-chalkboard-teacher', label: 'Teachers Directory' }
       ]
     },
     {
