@@ -372,6 +372,36 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
           }
         }
 
+        if (opError && (opError.code === '23502' || String(opError.message || opError).toLowerCase().includes('not-null') || String(opError.message || opError).toLowerCase().includes('23502'))) {
+          console.log(`[SyncEngine] ⚠️ Not-null constraint violation (23502) detected on ${item.table}. Attempting automated self-healing...`);
+          try {
+            if (item.table === 'report_schools') {
+              const schoolId = payload.id || (payload.filter && payload.filter.id);
+              if (schoolId) {
+                const school = await db.schools.get(schoolId);
+                const schoolName = school?.name || 'My School';
+                console.log(`[SyncEngine] 🔄 Healing report_schools payload by injecting name: "${schoolName}"`);
+                
+                if (item.operation === 'upsert') {
+                  const updatedPayload = Array.isArray(payload) 
+                    ? payload.map(p => ({ ...p, name: p.name || schoolName }))
+                    : { ...payload, name: payload.name || schoolName };
+                  
+                  const rows = Array.isArray(updatedPayload) ? updatedPayload : [updatedPayload];
+                  const { error: retryErr } = await supabase.from(item.table).upsert(rows);
+                  if (!retryErr) {
+                    opError = null; // Mark operation as successful!
+                  } else {
+                    opError = retryErr;
+                  }
+                }
+              }
+            }
+          } catch (reconcileErr) {
+            console.error('[SyncEngine] Reconcile error:', reconcileErr);
+          }
+        }
+
         if (opError && (opError.code === '23503' || String(opError.message || opError).toLowerCase().includes('foreign key constraint') || String(opError.message || opError).toLowerCase().includes('23503'))) {
           console.log(`[SyncEngine] ⚠️ Foreign key constraint violation (23503) detected on ${item.table}. Attempting automated self-healing...`);
           
