@@ -411,7 +411,7 @@ const LearnerList = () => {
           const { error } = await supabase.storage.from('learner-photos').upload(path, photoPreview, { upsert: true, contentType: 'image/webp' });
           if (!error) {
             const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
-            if (data?.publicUrl) remotePhotoUrl = data.publicUrl;
+            if (data?.publicUrl) remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
           }
         } catch (err) {
           console.warn('Failed to upload photo to storage:', err);
@@ -806,7 +806,7 @@ const LearnerList = () => {
               if (!uploadError) {
                 const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
                 if (data?.publicUrl) {
-                  remotePhotoUrl = data.publicUrl;
+                  remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
                   // Keep local Blob in photo field, store the URL in photoUrl for sync reference
                   await db.learners.update(l.id, { photoUrl: remotePhotoUrl });
                 }

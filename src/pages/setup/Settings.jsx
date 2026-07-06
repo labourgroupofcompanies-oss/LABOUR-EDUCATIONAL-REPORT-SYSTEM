@@ -215,7 +215,22 @@ const Settings = () => {
       // Step 3: Save only the public URL — never a base64 string
       const { data } = supabase.storage.from('school-logos').getPublicUrl(fileName);
       const publicUrl = data?.publicUrl || '';
-      setSchool(prev => ({ ...prev, logoUrl: publicUrl }));
+      
+      const updatedSchool = { ...school, logoUrl: publicUrl };
+      setSchool(updatedSchool);
+
+      if (user?.schoolId) {
+        // Update local database immediately
+        await db.schools.put({ ...updatedSchool, id: user.schoolId });
+        
+        // Update cloud database immediately
+        await enqueueSync('upsert', 'report_schools', {
+          id: user.schoolId,
+          logo_url: publicUrl,
+          updated_at: new Date().toISOString()
+        }, user.schoolId);
+      }
+
       alert('School logo uploaded successfully!');
     } catch (err) {
       console.error('Logo processing error:', err);
