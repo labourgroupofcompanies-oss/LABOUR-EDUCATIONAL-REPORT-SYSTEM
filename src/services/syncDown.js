@@ -337,7 +337,7 @@ async function runAdminSync(user) {
             regNumber: rl.reg_number, fullName: rl.full_name, gender: rl.gender,
             currentClassId: rl.class_id, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id
           };
-          const fieldsChanged = hasChanged(local, remoteFields, ['regNumber', 'fullName', 'gender', 'currentClassId', 'photoUrl']);
+          const fieldsChanged = hasChanged(local, remoteFields, ['regNumber', 'fullName', 'gender', 'currentClassId', 'photoUrl', 'supabaseId', 'synced']);
           const photoUrlChanged = navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl;
 
           if (fieldsChanged || photoUrlChanged) {
@@ -443,22 +443,35 @@ async function runAdminSync(user) {
 
     if (!error && payData) {
       const existing = await db.payments.where('schoolId').equals(schoolId).toArray();
-      const existingIds = new Set(existing.map(p => p.supabaseId));
       const remoteIds = new Set(payData.map(p => p.id));
 
       // Remove stale payments
       for (const e of existing) {
         if (e.supabaseId && !remoteIds.has(e.supabaseId)) await db.payments.delete(e.id);
       }
-      // Add new payments
+      // Add or update payments (matching unsynced local payments to avoid duplicates)
       for (const p of payData) {
-        if (!existingIds.has(p.id)) {
+        let local = existing.find(e => e.supabaseId === p.id);
+        if (!local) {
+          // Match unsynced local payment by details
+          local = existing.find(e => 
+            !e.supabaseId &&
+            e.learnerId === p.learner_id &&
+            Number(e.amount) === Number(p.amount) &&
+            e.paymentDate === p.payment_date &&
+            e.reference === p.reference
+          );
+        }
+
+        if (!local) {
           await db.payments.add({
             schoolId: p.school_id, learnerId: p.learner_id, academicYear: p.academic_year,
             term: p.term, amount: p.amount, paymentDate: p.payment_date,
             paymentMethod: p.payment_method, reference: p.reference,
             supabaseId: p.id, synced: true
           });
+        } else if (!local.supabaseId || !local.synced) {
+          await db.payments.update(local.id, { supabaseId: p.id, synced: true });
         }
       }
     }
@@ -614,7 +627,8 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
         } else if (hasChanged(existing, entry, [
           'attendancePresent', 'attendanceTotal', 'conduct', 'attitude',
           'teacherRemark', 'headteacherRemark', 'promotedTo', 'feesOwed',
-          'nextTermBill', 'isReleased', 'classAverage', 'classRank'
+          'nextTermBill', 'isReleased', 'classAverage', 'classRank',
+          'supabaseId', 'synced'
         ])) {
           await db.reportSummaries.update(existing.id, entry);
         }
