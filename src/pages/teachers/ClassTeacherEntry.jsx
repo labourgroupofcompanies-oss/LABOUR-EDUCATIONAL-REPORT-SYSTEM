@@ -171,34 +171,39 @@ const ClassTeacherEntry = () => {
 
     try {
       const savedId = await db.reportSummaries.put(record);
-      const cloud = {
-        school_id: user.schoolId,
-        learner_id: resolvedLearnerId,
-        class_id: Number(selectedClass),
-        academic_year: academicYear,
-        term: selectedTerm,
-        attendance_present: Number(form.attendancePresent) || 0,
-        attendance_total:   Number(form.attendanceTotal)   || 0,
-        conduct: form.conduct,
-        attitude: form.attitude,
-        teacher_remark: form.teacherRemark,
-        // Keep existing headteacher/admin fields
-        headteacher_remark: activeSummary?.headteacherRemark || '',
-        promoted_to: form.promotedTo,
-        next_term_begins: activeSummary?.nextTermBegins || '',
-        fees_owed: activeSummary?.feesOwed || '',
-        next_term_bill: activeSummary?.nextTermBill || '',
-        class_average: activeSummary?.classAverage || activeSummary?.class_average || null,
-        class_rank: activeSummary?.classRank || activeSummary?.class_rank || null,
-        total_graded: activeSummary?.totalGraded || activeSummary?.total_graded || null,
-        updated_at: new Date().toISOString(),
-      };
 
-      // Enqueue cloud sync (works offline — drains when back online)
-      if (activeSummary?.supabaseId) {
-        await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
-      } else {
-        await enqueueSync('insert', 'report_summaries', cloud);
+      // Enqueue cloud sync (works offline — drains when back online) only if student has valid UUID
+      const isUuid = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+      
+      if (isUuid(activeLearner?.supabaseId)) {
+        const cloud = {
+          school_id: user.schoolId,
+          learner_id: activeLearner.supabaseId,
+          class_id: Number(selectedClass),
+          academic_year: academicYear,
+          term: selectedTerm,
+          attendance_present: Number(form.attendancePresent) || 0,
+          attendance_total:   Number(form.attendanceTotal)   || 0,
+          conduct: form.conduct,
+          attitude: form.attitude,
+          teacher_remark: form.teacherRemark,
+          // Keep existing headteacher/admin fields
+          headteacher_remark: activeSummary?.headteacherRemark || '',
+          promoted_to: form.promotedTo,
+          next_term_begins: activeSummary?.nextTermBegins || '',
+          fees_owed: activeSummary?.feesOwed || '',
+          next_term_bill: activeSummary?.nextTermBill || '',
+          class_average: activeSummary?.classAverage || activeSummary?.class_average || null,
+          class_rank: activeSummary?.classRank || activeSummary?.class_rank || null,
+          total_graded: activeSummary?.totalGraded || activeSummary?.total_graded || null,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (isUuid(activeSummary?.supabaseId)) {
+          await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
+        } else {
+          await enqueueSync('insert', 'report_summaries', cloud);
+        }
       }
 
       // Mark synced:true only if we are online and the outbox can drain immediately,

@@ -437,6 +437,11 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
           }
         }
 
+        if (opError && (opError.code === '22P02' || String(opError.message || opError).toLowerCase().includes('invalid input syntax for type uuid'))) {
+          console.warn(`[SyncEngine] ⚠️ Invalid UUID syntax in outbox item for ${item.table} (local numeric ID used instead of UUID). Discarding invalid outbox item:`, item.payload);
+          opError = null; // Discard invalid outbox item cleanly
+        }
+
         if (opError) {
           throw new Error(opError.message || 'Supabase operation failed');
         }

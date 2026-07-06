@@ -4,6 +4,9 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { enqueueSync } from '../../services/syncEngine';
+
+const isUUID = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
 
 const Promotions = () => {
   const { user } = useAuth();
@@ -14,44 +17,37 @@ const Promotions = () => {
   const [selectedTerm, setSelectedTerm] = useState('Term 3'); // Usually promotions happen in Term 3
   const [isExecuting, setIsExecuting] = useState(false);
 
-  // Live Queries
-  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
-  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
-  const schoolInfo = useLiveQuery(
-    () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
-  );
-  
-  // We need to fetch report summaries from Supabase directly to ensure we have the latest
-  // Or we can use local db.reportSummaries and sync. Let's use local first, but we might want to fetch cloud.
-  const localSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
+  // Live DB Queries
+  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const schoolInfo = useLiveQuery(() => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]);
+  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
 
-  // Set default Academic Year from school settings
+  // Set default academic year from school info
   useEffect(() => {
-    if (schoolInfo?.currentAcademicYear && !academicYear) {
+    if (schoolInfo?.currentAcademicYear) {
       setAcademicYear(schoolInfo.currentAcademicYear);
     }
-  }, [schoolInfo, academicYear]);
+  }, [schoolInfo]);
 
-  // Derived Data
+  // Filter summaries for selected class, year, term
   const classSummaries = useMemo(() => {
-    if (!localSummaries || !selectedClass || !academicYear || !selectedTerm) return [];
-    
-    return localSummaries.filter(s => 
-      Number(s.classId) === Number(selectedClass) &&
-      s.academicYear === academicYear &&
-      s.term === selectedTerm &&
-      s.promotedTo // Only include those where teacher has made a recommendation
+    if (!selectedClass || !academicYear || !selectedTerm || !reportSummaries) return [];
+    return reportSummaries.filter(s => 
+      String(s.classId) === String(selectedClass) && 
+      s.academicYear === academicYear && 
+      s.term === selectedTerm
     );
-  }, [localSummaries, selectedClass, academicYear, selectedTerm]);
+  }, [selectedClass, academicYear, selectedTerm, reportSummaries]);
 
   const getClass = id => classes?.find(c => c.id === Number(id))?.name || 'Unknown Class';
   const getLearnerName = id => {
-    const l = learners?.find(l => l.id === id || l.supabaseId === id || String(l.id) === String(id));
-    return l?.fullName || 'Unknown Learner';
+    const l = learners?.find(l => l.id === Number(id) || l.supabaseId === id || String(l.id) === String(id));
+    return l ? l.fullName : 'Unknown Learner';
   };
   const getLearnerReg = id => {
-    const l = learners?.find(l => l.id === id || l.supabaseId === id || String(l.id) === String(id));
-    return l?.regNumber || 'N/A';
+    const l = learners?.find(l => l.id === Number(id) || l.supabaseId === id || String(l.id) === String(id));
+    return l ? l.regNumber : 'N/A';
   };
 
   const pendingCount = classSummaries.filter(s => s.promotionStatus !== 'approved').length;
@@ -59,12 +55,13 @@ const Promotions = () => {
 
   const handleExecutePromotions = async () => {
     if (!selectedClass || !academicYear || !selectedTerm) {
-      alert("Please select a Class, Academic Year, and Term.");
+      alert("Please select Class, Academic Year, and Term to execute promotions.");
       return;
     }
 
+    const pendingCount = classSummaries.filter(s => s.promotionStatus !== 'approved').length;
     if (pendingCount === 0) {
-      alert("No pending promotions to execute for this class.");
+      alert("All learners in this class have already been promoted.");
       return;
     }
 
@@ -74,79 +71,94 @@ const Promotions = () => {
 
     setIsExecuting(true);
     try {
-      if (!navigator.onLine) {
-        alert("You must be online to execute promotions.");
-        setIsExecuting(false);
-        return;
-      }
-
-      // Call Supabase RPC
-      const { error } = await supabase.rpc('execute_class_promotions', {
-        p_school_id: user.schoolId,
-        p_class_id: Number(selectedClass),
-        p_academic_year: academicYear,
-        p_term: selectedTerm
-      });
-
-      if (error) {
-        console.error("Supabase RPC Error:", error);
-        alert(`Failed to execute promotions: ${error.message}`);
-      } else {
-        // Successfully executed on server.
-        // Now sync the local database so UI updates immediately
+      const summariesToUpdate = classSummaries.filter(s => s.promotionStatus !== 'approved');
+      
+      for (const summary of summariesToUpdate) {
+        const l = learners.find(l => l.id === summary.learnerId || l.supabaseId === summary.learnerId || String(l.id) === String(summary.learnerId));
         
-        const summariesToUpdate = classSummaries.filter(s => s.promotionStatus !== 'approved');
-        
-        for (const summary of summariesToUpdate) {
-          const l = learners.find(l => l.id === summary.learnerId || l.supabaseId === summary.learnerId || String(l.id) === String(summary.learnerId));
-          
-          if (l) {
-            if (summary.promotedTo === 'Alumni') {
-              await db.learners.update(l.id, { status: 'Alumni' });
-            } else {
-              const newClassId = Number(summary.promotedTo);
-              if (!isNaN(newClassId)) {
-                await db.learners.update(l.id, { currentClassId: newClassId });
+        if (l) {
+          if (summary.promotedTo === 'Alumni') {
+            await db.learners.update(l.id, { status: 'Alumni', synced: false });
+            if (isUUID(l.supabaseId)) {
+              await enqueueSync('update', 'report_learners', {
+                filter: { id: l.supabaseId },
+                data: { status: 'Alumni' }
+              }, user.schoolId);
+            } else if (l.regNumber) {
+              await enqueueSync('update', 'report_learners', {
+                filter: { reg_number: l.regNumber, school_id: user.schoolId },
+                data: { status: 'Alumni' }
+              }, user.schoolId);
+            }
+          } else {
+            const newClassId = Number(summary.promotedTo);
+            if (!isNaN(newClassId)) {
+              await db.learners.update(l.id, { currentClassId: newClassId, synced: false });
+              if (isUUID(l.supabaseId)) {
+                await enqueueSync('update', 'report_learners', {
+                  filter: { id: l.supabaseId },
+                  data: { class_id: newClassId }
+                }, user.schoolId);
+              } else if (l.regNumber) {
+                await enqueueSync('update', 'report_learners', {
+                  filter: { reg_number: l.regNumber, school_id: user.schoolId },
+                  data: { class_id: newClassId }
+                }, user.schoolId);
               }
             }
           }
-          
-          // Mark summary as approved locally
-          if (summary.id) {
-            await db.reportSummaries.update(summary.id, { promotionStatus: 'approved' });
+        }
+        
+        // Mark summary as approved locally and queue outbox sync
+        if (summary.id) {
+          await db.reportSummaries.update(summary.id, { promotionStatus: 'approved' });
+          if (isUUID(summary.supabaseId)) {
+            await enqueueSync('update', 'report_summaries', {
+              filter: { id: summary.supabaseId },
+              data: { promotion_status: 'approved' }
+            }, user.schoolId);
           }
         }
-
-        alert("Promotions executed successfully!");
       }
+
+      // If online, also attempt the server RPC trigger
+      if (navigator.onLine) {
+        try {
+          await supabase.rpc('execute_class_promotions', {
+            p_school_id: user.schoolId,
+            p_class_id: Number(selectedClass),
+            p_academic_year: academicYear,
+            p_term: selectedTerm
+          });
+        } catch (rpcErr) {
+          console.warn('[Promotions] Server RPC warning (queued via outbox instead):', rpcErr);
+        }
+      }
+
+      alert("Promotions executed successfully!");
 
     } catch (err) {
       console.error(err);
-      alert("An unexpected error occurred while executing promotions.");
+      alert("An unexpected error occurred while executing promotions: " + err.message);
     } finally {
       setIsExecuting(false);
     }
   };
 
   const handleUpdatePromotedTo = async (summary, newValue) => {
-    if (!navigator.onLine) {
-      alert("You must be online to change a promotion recommendation.");
-      return;
-    }
     try {
-      // We must have a supabaseId to update the cloud record directly
-      // If it doesn't have one, it means the report hasn't synced yet.
-      const cloudId = summary.supabaseId || summary.id;
-      
-      const { error } = await supabase
-        .from('report_summaries')
-        .update({ promoted_to: newValue })
-        .eq('id', cloudId);
-
-      if (error) throw error;
-
       // Update local cache to reflect immediately
-      await db.reportSummaries.update(summary.id, { promotedTo: newValue });
+      if (summary.id) {
+        await db.reportSummaries.update(summary.id, { promotedTo: newValue });
+      }
+
+      // Queue outbox sync for cloud update (works online & offline) only if valid UUID exists
+      if (isUUID(summary.supabaseId)) {
+        await enqueueSync('update', 'report_summaries', {
+          filter: { id: summary.supabaseId },
+          data: { promoted_to: newValue }
+        }, user.schoolId);
+      }
     } catch (err) {
       console.error(err);
       alert("Failed to update recommendation: " + err.message);

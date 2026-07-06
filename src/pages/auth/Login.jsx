@@ -10,8 +10,20 @@ const Login = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const navigate = useNavigate();
   const { login, user } = useAuth();
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // Redirect if already logged in
   useEffect(() => {
@@ -430,8 +442,12 @@ const Login = () => {
           <div style={{ width: '70px', height: '70px', background: 'white', borderRadius: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(0, 0, 0, 0.15)', overflow: 'hidden', padding: '4px' }}>
             <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
-          <h1 style={{ fontSize: '1.75rem', marginBottom: '0.5rem' }}>Labour Edu</h1>
-          <p style={{ color: 'var(--text-muted)' }}>Report Management System</p>
+          <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Labour Edu</h1>
+          <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Report Management System</p>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600, background: isOnline ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.15)', color: isOnline ? '#10b981' : '#f59e0b', border: `1px solid ${isOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)'}` }}>
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isOnline ? '#10b981' : '#f59e0b', boxShadow: isOnline ? '0 0 8px #10b981' : '0 0 8px #f59e0b' }}></span>
+            {isOnline ? 'Cloud Online' : 'Offline Mode Active'}
+          </div>
         </div>
 
         {error && (

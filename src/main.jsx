@@ -235,6 +235,30 @@ window.confirm = (message) => {
   });
 };
 
+// Global button click micro-interaction & processing animation processor
+if (typeof window !== 'undefined') {
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button, .btn');
+    if (btn && !btn.disabled && !btn.classList.contains('sidebar-link') && !btn.classList.contains('custom-alert-close')) {
+      const icon = btn.querySelector('i.fas, i.far, i.fa-solid, i.fa');
+      btn.classList.add('btn-processing');
+
+      if (icon && !icon.classList.contains('fa-spin')) {
+        const originalClasses = icon.className;
+        icon.className = 'fas fa-circle-notch fa-spin';
+        setTimeout(() => {
+          btn.classList.remove('btn-processing');
+          icon.className = originalClasses;
+        }, 650);
+      } else {
+        setTimeout(() => {
+          btn.classList.remove('btn-processing');
+        }, 650);
+      }
+    }
+  }, true);
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />

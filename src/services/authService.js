@@ -3,104 +3,201 @@ import { supabase } from '../lib/supabase';
 import { downloadImageAsBlob } from '../utils/imageUtils';
 
 // ─── Auth Service ────────────────────────────────────────────────────────────
+// ─── Native Web Crypto SHA-256 Hashing Helpers ──────────────────────────────
+export async function generateSalt() {
+  const array = new Uint8Array(16);
+  window.crypto.getRandomValues(array);
+  return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function hashUserPassword(password, salt = 'labour_edu_salt_2026') {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`${password}:${salt}`);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// ─── Background Staff Pre-Cache Helper ──────────────────────────────────────
+async function cacheSchoolStaffProfiles(schoolId) {
+  if (!navigator.onLine || !schoolId) return;
+  try {
+    const { data: profiles, error } = await supabase
+      .from('report_profiles')
+      .select('*')
+      .eq('school_id', schoolId);
+
+    if (!error && profiles) {
+      for (const p of profiles) {
+        const existing = await db.profiles.get(p.id);
+        const mapped = {
+          id: p.id,
+          schoolId: p.school_id,
+          fullName: p.full_name,
+          role: p.role,
+          staffId: p.staff_id,
+          email: p.email,
+          passwordHash: existing?.passwordHash || null,
+          passwordSalt: existing?.passwordSalt || null,
+          lastLogin: existing?.lastLogin || null
+        };
+        await db.profiles.put(mapped);
+      }
+      console.log(`[AuthService] Automatically cached ${profiles.length} staff account(s) for school: ${schoolId}`);
+    }
+  } catch (err) {
+    console.warn('[AuthService] Background staff pre-caching skipped/failed:', err);
+  }
+}
+
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+// ─── Auth Service ────────────────────────────────────────────────────────────
 export const authService = {
   async login(email, password) {
+    const cleanedEmail = (email || '').trim().toLowerCase();
+    if (!cleanedEmail || !password) {
+      throw new Error('Please enter both email and password.');
+    }
+
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
     if (!supabaseUrl || supabaseUrl.includes('your-project')) {
       throw new Error('Supabase is not configured. Please check your .env file.');
     }
 
-    // ── Step 1: Authenticate with Supabase (always remote) ──────────────────
-    // This is separated from profile fetch so we never show "invalid credentials"
-    // when the actual problem is a profile lookup failure (e.g. cleared storage).
     let authData = null;
     let authError = null;
+    let attemptedOnline = false;
 
-    try {
-      const result = await supabase.auth.signInWithPassword({ email, password });
-      authData = result.data;
-      authError = result.error;
-    } catch (networkErr) {
-      // Network completely unreachable — fall through to offline cache
-      authError = networkErr;
+    // ── Step 1: Attempt Supabase Online Auth (with 5-second timeout failover) ──────
+    if (navigator.onLine) {
+      attemptedOnline = true;
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Network timeout (weak connection)')), 5000)
+        );
+        const signInPromise = supabase.auth.signInWithPassword({ email: cleanedEmail, password });
+        const result = await Promise.race([signInPromise, timeoutPromise]);
+        authData = result.data;
+        authError = result.error;
+      } catch (networkErr) {
+        console.warn('[Auth] Supabase auth timed out or network failed. Switching to offline auth:', networkErr.message);
+        authError = networkErr;
+      }
     }
 
-    // ── Step 2: If auth succeeded, fetch the profile from Supabase ──────────
+    // ── Step 2: If Online Auth Succeeded, Process & Store Password Hash ──────
     if (authData?.user && !authError) {
       try {
+        const existingLocal = await db.profiles.get(authData.user.id);
+        const salt = existingLocal?.passwordSalt || await generateSalt();
+        const passwordHash = await hashUserPassword(password, salt);
+
         const { data: profile, error: profileError } = await supabase
           .from('report_profiles')
           .select('*')
           .eq('id', authData.user.id)
           .maybeSingle();
 
+        let profileToSave;
         if (profile && !profileError) {
-          // Happy path: map Supabase snake_case → camelCase and cache locally
-          const profileToSave = {
+          profileToSave = {
             id: profile.id,
             email: profile.email,
             fullName: profile.full_name,
             role: profile.role,
             schoolId: profile.school_id,
             staffId: profile.staff_id,
+            passwordHash,
+            passwordSalt: salt,
             lastLogin: new Date().toISOString()
           };
-          await db.profiles.put(profileToSave);
-          return { profile: profileToSave };
+        } else {
+          console.warn('[Auth] Profile query failed, building fallback from auth metadata:', profileError?.message);
+          const meta = authData.user.user_metadata || {};
+          const appMeta = authData.user.app_metadata || {};
+
+          profileToSave = {
+            id: authData.user.id,
+            email: authData.user.email,
+            fullName: meta.full_name || meta.fullName || appMeta.full_name || cleanedEmail,
+            role: meta.role || appMeta.role || 'super_admin',
+            schoolId: meta.school_id || appMeta.school_id || null,
+            staffId: meta.staff_id || appMeta.staff_id || null,
+            passwordHash,
+            passwordSalt: salt,
+            lastLogin: new Date().toISOString()
+          };
         }
 
-        // Profile query failed (likely RLS / cleared JWT metadata).
-        // Auth credentials are VALID — build a fallback profile from auth metadata.
-        console.warn('[Auth] Profile query failed, falling back to auth metadata:', profileError?.message);
-        const meta = authData.user.user_metadata || {};
-        const appMeta = authData.user.app_metadata || {};
+        // Cache profile with password hash locally for offline login
+        await db.profiles.put(profileToSave);
 
-        const fallbackProfile = {
-          id: authData.user.id,
-          email: authData.user.email,
-          fullName: meta.full_name || meta.fullName || appMeta.full_name || email,
-          role: meta.role || appMeta.role || 'super_admin',
-          schoolId: meta.school_id || appMeta.school_id || null,
-          staffId: meta.staff_id || appMeta.staff_id || null,
-          lastLogin: new Date().toISOString()
-        };
+        // Pre-cache all staff members for this school automatically
+        if (profileToSave.schoolId) {
+          cacheSchoolStaffProfiles(profileToSave.schoolId);
+        }
 
-        // Cache the fallback so subsequent loads work offline
-        await db.profiles.put(fallbackProfile);
-        return { profile: fallbackProfile };
+        return { profile: profileToSave };
 
       } catch (profileFetchErr) {
-        // Profile fetch threw (e.g. network dropped after auth).
-        // Auth succeeded — still return a minimal profile from metadata.
-        console.warn('[Auth] Profile fetch threw, using metadata fallback:', profileFetchErr.message);
+        console.warn('[Auth] Profile processing error, using fallback:', profileFetchErr.message);
+        const existingLocal = await db.profiles.get(authData.user.id);
+        const salt = existingLocal?.passwordSalt || await generateSalt();
+        const passwordHash = await hashUserPassword(password, salt);
         const meta = authData.user.user_metadata || {};
-        const appMeta = authData.user.app_metadata || {};
 
         const fallbackProfile = {
           id: authData.user.id,
           email: authData.user.email,
-          fullName: meta.full_name || meta.fullName || appMeta.full_name || email,
-          role: meta.role || appMeta.role || 'super_admin',
-          schoolId: meta.school_id || appMeta.school_id || null,
-          staffId: meta.staff_id || appMeta.staff_id || null,
+          fullName: meta.full_name || meta.fullName || cleanedEmail,
+          role: meta.role || 'super_admin',
+          schoolId: meta.school_id || null,
+          staffId: meta.staff_id || null,
+          passwordHash,
+          passwordSalt: salt,
           lastLogin: new Date().toISOString()
         };
 
         await db.profiles.put(fallbackProfile);
+        if (fallbackProfile.schoolId) {
+          cacheSchoolStaffProfiles(fallbackProfile.schoolId);
+        }
         return { profile: fallbackProfile };
       }
     }
 
-    // ── Step 3: Offline / auth-failed fallback — try local Dexie cache ──────
-    // Only reached if auth itself failed (wrong password, network down, etc.)
-    const cached = await db.profiles.where('email').equals(email).first();
-    if (cached) return { profile: cached, isOffline: true };
+    // ── Step 3: Explicit Credentials Failure when Online ────────────────────
+    if (attemptedOnline && authError && authError.message?.toLowerCase().includes('invalid login credentials')) {
+      throw new Error('Incorrect email or password. Please try again.');
+    }
 
-    // Nothing worked — only NOW do we say "invalid credentials"
+    // ── Step 4: Offline / Network Error Failover — Verify against Local Hash ────
+    const cached = await db.profiles
+      .filter(p => p.email && p.email.toLowerCase().trim() === cleanedEmail)
+      .first();
+
+    if (cached) {
+      if (cached.passwordHash) {
+        const inputHash = await hashUserPassword(password, cached.passwordSalt || 'labour_edu_salt_2026');
+        if (inputHash === cached.passwordHash) {
+          return { profile: cached, isOffline: true };
+        } else {
+          throw new Error('Incorrect password (offline mode).');
+        }
+      } else {
+        // Cached user before password hash feature was introduced
+        console.warn('[Auth] Offline login using legacy cached profile (no password hash recorded yet).');
+        return { profile: cached, isOffline: true };
+      }
+    }
+
+    // ── Step 5: Account Not Found Locally ──────────────────────────────────
     throw new Error(
-      authError?.message?.includes('Invalid login credentials')
-        ? 'Incorrect email or password. Please try again.'
-        : (authError?.message || 'Login failed. Please check your internet connection and try again.')
+      attemptedOnline
+        ? (authError?.message || 'Login failed. Please check your network connection and try again.')
+        : 'No cached account found on this device. Please connect to the internet to log in for the first time.'
     );
   },
 
@@ -108,18 +205,36 @@ export const authService = {
   async logout() {
     try {
       await supabase.auth.signOut();
-    } catch (_) { /* ignore if supabase not configured */ }
-    localStorage.removeItem('labour_edu_session');
+    } catch (_) { /* ignore if offline */ }
+    this.clearSession();
   },
 
   async getCurrentUser() {
-    const session = JSON.parse(localStorage.getItem('labour_edu_session') || 'null');
-    if (!session) return null;
-    return await db.profiles.get(session.id);
+    const sessionStr = localStorage.getItem('labour_edu_session');
+    if (!sessionStr) return null;
+    try {
+      const session = JSON.parse(sessionStr);
+      if (!session || !session.id) return null;
+
+      // 30-day session expiration check
+      if (session.timestamp && (Date.now() - session.timestamp > THIRTY_DAYS_MS)) {
+        console.warn('[AuthService] Local session expired after 30 days. Clearing session.');
+        this.clearSession();
+        return null;
+      }
+
+      return await db.profiles.get(session.id);
+    } catch (err) {
+      console.error('[AuthService] Error getting current user:', err);
+      return null;
+    }
   },
 
   saveSession(profile) {
-    localStorage.setItem('labour_edu_session', JSON.stringify({ id: profile.id }));
+    localStorage.setItem('labour_edu_session', JSON.stringify({
+      id: profile.id,
+      timestamp: Date.now()
+    }));
   },
 
   clearSession() {

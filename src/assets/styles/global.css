@@ -304,21 +304,27 @@ img, svg { max-width: 100%; display: block; }
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
   color: rgba(255,255,255,0.7);
   text-decoration: none;
-  transition: var(--transition);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-weight: 500;
-  font-size: 0.875rem;
+  font-size: 0.85rem;
 }
-.sidebar-link:hover { background: rgba(255,255,255,0.07); color: white; }
+.sidebar-link:hover { 
+  background: rgba(255,255,255,0.08); 
+  color: white; 
+  transform: translateX(3px);
+}
 .sidebar-link.active {
   background: var(--accent);
   color: white;
-  box-shadow: 0 4px 12px rgba(13,148,136,0.25);
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(13,148,136,0.35);
 }
-.sidebar-link i { width: 20px; text-align: center; font-size: 1rem; }
+.sidebar-link i { width: 20px; text-align: center; font-size: 0.95rem; opacity: 0.85; }
+.sidebar-link.active i { opacity: 1; }
 
 /* ─── Cards ──────────────────────────────────────────────────────────────── */
 .card {
@@ -354,6 +360,41 @@ img, svg { max-width: 100%; display: block; }
 .btn-accent:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .btn-danger { background: rgba(239,68,68,0.1); color: var(--error); }
 .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.2); }
+
+/* ─── Button Click & Processing Animations ───────────────────────────────── */
+.btn:active:not(:disabled), button:active:not(:disabled) {
+  transform: scale(0.96) translateY(0) !important;
+  box-shadow: none !important;
+}
+
+@keyframes btnPulseShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.btn-processing {
+  position: relative !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  opacity: 0.88 !important;
+}
+
+.btn-processing::after {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    rgba(255, 255, 255, 0) 100%
+  ) !important;
+  background-size: 200% 100% !important;
+  animation: btnPulseShimmer 0.7s infinite linear !important;
+}
 
 /* ─── Forms ──────────────────────────────────────────────────────────────── */
 .form-group { margin-bottom: 1.25rem; }

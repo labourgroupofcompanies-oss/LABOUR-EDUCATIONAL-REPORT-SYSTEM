@@ -186,41 +186,47 @@ async function runAdminSync(user) {
     }
   } catch (err) { console.error('[SyncDown] Class-subject mappings sync failed:', err); }
 
-  // ── 4a. Teacher Profiles ─────────────────────────────────────────────────────
+  // ── 4a. Staff & Teacher Profiles (Full Pre-Cache for Offline Login) ────────
   try {
-    const { data: teachersData, error } = await supabase
-      .from('report_profiles').select('*').eq('school_id', schoolId).ilike('role', 'teacher');
+    const { data: staffData, error } = await supabase
+      .from('report_profiles').select('*').eq('school_id', schoolId);
 
-    if (!error && teachersData) {
-      const remoteIds = new Set(teachersData.map(p => p.id));
-      const localTeachers = await db.profiles
+    if (!error && staffData) {
+      const remoteIds = new Set(staffData.map(p => p.id));
+      const localStaff = await db.profiles
         .where('schoolId').equals(schoolId)
-        .and(p => p.role?.toLowerCase().trim() === 'teacher')
         .toArray();
 
-      // Remove local teachers no longer in remote (guard pending outbox inserts)
-      for (const lt of localTeachers) {
-        if (!remoteIds.has(lt.id)) {
+      // Remove local profiles no longer in remote (guard pending outbox inserts)
+      for (const ls of localStaff) {
+        if (!remoteIds.has(ls.id)) {
           const hasPendingInsert = await db.outbox
-            .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(lt.id))
+            .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(ls.id))
             .first();
-          if (!hasPendingInsert) await db.profiles.delete(lt.id);
+          if (!hasPendingInsert) await db.profiles.delete(ls.id);
         }
       }
 
-      // Upsert with smart diff
-      for (const p of teachersData) {
+      // Upsert with smart diff, preserving offline authentication password hashes
+      for (const p of staffData) {
         const local = await db.profiles.get(p.id);
         const mapped = {
-          id: p.id, schoolId: p.school_id, fullName: p.full_name,
-          role: p.role, staffId: p.staff_id, email: p.email
+          id: p.id,
+          schoolId: p.school_id,
+          fullName: p.full_name,
+          role: p.role,
+          staffId: p.staff_id,
+          email: p.email,
+          passwordHash: local?.passwordHash || null,
+          passwordSalt: local?.passwordSalt || null,
+          lastLogin: local?.lastLogin || null
         };
         if (!local || hasChanged(local, mapped, ['fullName', 'role', 'staffId', 'email'])) {
           await db.profiles.put(mapped);
         }
       }
     }
-  } catch (err) { console.error('[SyncDown] Teacher profiles sync failed:', err); }
+  } catch (err) { console.error('[SyncDown] Staff profiles sync failed:', err); }
 
   // ── 4b. Teacher Assignments ──────────────────────────────────────────────────
   try {

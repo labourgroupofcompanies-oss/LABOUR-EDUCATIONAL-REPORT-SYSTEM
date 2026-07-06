@@ -312,17 +312,12 @@ export const useSchoolSetup = () => {
   const deleteClass = async (id) => {
     if (!await window.confirm('Are you sure you want to delete this class? All learners, scores, assignments, and assigned subjects will be permanently deleted.')) return;
     try {
-      if (!navigator.onLine) {
-        alert('You are offline. Deleting a class requires an active internet connection to safely clean up all database relations and scores.');
-        return;
-      }
+      // Queue cloud delete via outbox (works online & offline)
+      await enqueueSync('delete', 'report_classes', {
+        filter: { id: id }
+      }, user?.schoolId);
 
-      const { error } = await supabase.from('report_classes').delete().eq('id', id);
-      if (error) {
-        alert('Failed to delete class from cloud: ' + error.message);
-        return;
-      }
-
+      // Clean up local Dexie storage immediately
       await db.classes.delete(id);
       
       const relatedAssigns = await db.teacherAssignments.where('classId').equals(id).toArray();
@@ -343,16 +338,10 @@ export const useSchoolSetup = () => {
   const updateClassMode = async (id, newMode) => {
     try {
       await db.classes.update(id, { teachingMode: newMode });
-      
-      if (navigator.onLine) {
-        const { error } = await supabase
-          .from('report_classes')
-          .update({ teaching_mode: newMode })
-          .eq('id', id);
-        if (error) {
-          console.warn('Failed to update class teaching mode on Supabase:', error);
-        }
-      }
+      await enqueueSync('update', 'report_classes', {
+        filter: { id: id },
+        data: { teaching_mode: newMode }
+      }, user?.schoolId);
     } catch (err) {
       console.error('Failed to update class teaching mode:', err);
     }
@@ -361,16 +350,10 @@ export const useSchoolSetup = () => {
   const updateClassCategory = async (id, newCategory) => {
     try {
       await db.classes.update(id, { category: newCategory });
-      
-      if (navigator.onLine) {
-        const { error } = await supabase
-          .from('report_classes')
-          .update({ category: newCategory })
-          .eq('id', id);
-        if (error) {
-          console.warn('Failed to update class category on Supabase:', error);
-        }
-      }
+      await enqueueSync('update', 'report_classes', {
+        filter: { id: id },
+        data: { category: newCategory }
+      }, user?.schoolId);
     } catch (err) {
       console.error('Failed to update class category:', err);
     }
@@ -399,17 +382,12 @@ export const useSchoolSetup = () => {
   const deleteSubject = async (id) => {
     if (!await window.confirm('Are you sure you want to delete this subject? All scores, teacher assignments, and class-subject mappings associated with it will be permanently deleted.')) return;
     try {
-      if (!navigator.onLine) {
-        alert('You are offline. Deleting a subject requires an active internet connection to safely clean up all database relations and scores.');
-        return;
-      }
+      // Queue cloud delete via outbox (works online & offline)
+      await enqueueSync('delete', 'report_subjects', {
+        filter: { id: id }
+      }, user?.schoolId);
 
-      const { error } = await supabase.from('report_subjects').delete().eq('id', id);
-      if (error) {
-        alert('Failed to delete subject from cloud: ' + error.message);
-        return;
-      }
-
+      // Clean up local Dexie storage immediately
       await db.subjects.delete(id);
 
       const relatedAssigns = await db.teacherAssignments.where('subjectId').equals(id).toArray();
@@ -441,7 +419,7 @@ export const useSchoolSetup = () => {
         if (alreadyExists) return;
 
         // Instantly write to local database so the checkbox ticks immediately
-        const localId = await db.classSubjects.add({
+        await db.classSubjects.add({
           schoolId: user.schoolId,
           classId: classIdNum,
           subjectId: subjectIdNum,
@@ -449,33 +427,12 @@ export const useSchoolSetup = () => {
           supabaseId: null
         });
 
-        // Trigger Supabase sync in the background
-        if (navigator.onLine) {
-          (async () => {
-            try {
-              const { data, error } = await supabase
-                .from('report_class_subjects')
-                .insert([{
-                  school_id: user.schoolId,
-                  class_id: classIdNum,
-                  subject_id: subjectIdNum
-                }])
-                .select()
-                .single();
-
-              if (!error && data) {
-                await db.classSubjects.update(localId, {
-                  synced: true,
-                  supabaseId: data.id
-                });
-              } else if (error) {
-                console.warn('Failed to assign subject online in background:', error);
-              }
-            } catch (err) {
-              console.warn('Background subject assignment exception:', err);
-            }
-          })();
-        }
+        // Queue cloud insert via outbox (works online & offline)
+        await enqueueSync('insert', 'report_class_subjects', {
+          school_id: user.schoolId,
+          class_id: classIdNum,
+          subject_id: subjectIdNum
+        }, user.schoolId);
       } else {
         const existing = await db.classSubjects
           .where('classId').equals(classIdNum)
@@ -486,63 +443,18 @@ export const useSchoolSetup = () => {
           // Instantly delete from local db to untick the checkbox immediately
           await db.classSubjects.delete(existing.id);
           
-          if (existing.supabaseId) {
-            if (navigator.onLine) {
-              // Delete from Supabase in the background
-              (async () => {
-                try {
-                  const { error } = await supabase
-                    .from('report_class_subjects')
-                    .delete()
-                    .eq('id', existing.supabaseId);
-                  if (error) {
-                    console.warn('Failed to delete subject online in background:', error);
-                  }
-                } catch (err) {
-                  console.warn('Background subject deletion exception:', err);
-                }
-              })();
-            } else {
-              const queue = JSON.parse(localStorage.getItem('pending_deleted_class_subjects') || '[]');
-              queue.push(existing.supabaseId);
-              localStorage.setItem('pending_deleted_class_subjects', JSON.stringify(queue));
+          // Queue cloud delete via outbox (works online & offline)
+          await enqueueSync('delete', 'report_class_subjects', {
+            filter: {
+              school_id: user.schoolId,
+              class_id: classIdNum,
+              subject_id: subjectIdNum
             }
-          }
-        }
-
-        const existingAssign = allAssignments?.find(
-          a => a.classId === classIdNum && a.subjectId === subjectIdNum
-        );
-        if (existingAssign) {
-          // Instantly delete assignment from local db
-          await db.teacherAssignments.delete(existingAssign.id);
-          
-          if (existingAssign.supabaseId) {
-            if (navigator.onLine) {
-              // Delete teacher assignment from Supabase in the background
-              (async () => {
-                try {
-                  const { error } = await supabase
-                    .from('report_teacher_assignments')
-                    .delete()
-                    .eq('id', existingAssign.supabaseId);
-                  if (error) {
-                    console.warn('Failed to delete teacher assignment online in background:', error);
-                  }
-                } catch (err) {
-                  console.warn('Background teacher assignment deletion exception:', err);
-                }
-              })();
-            } else {
-              const queue = JSON.parse(localStorage.getItem('pending_deleted_assignments') || '[]');
-              queue.push(existingAssign.supabaseId);
-              localStorage.setItem('pending_deleted_assignments', JSON.stringify(queue));
-            }
-          }
+          }, user.schoolId);
         }
       }
     } catch (err) {
-      console.error('Failed to toggle class subject:', err);
+      console.error('Failed to toggle subject:', err);
     }
   };
 

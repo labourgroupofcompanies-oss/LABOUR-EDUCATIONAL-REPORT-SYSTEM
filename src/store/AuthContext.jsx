@@ -26,18 +26,14 @@ export const AuthProvider = ({ children }) => {
             (async () => {
               try {
                 const authUser = await ensureAuth();
-                if (!authUser) {
-                  console.warn('[AuthContext] Async session check failed – logging out.');
-                  authService.clearSession();
-                  setUser(null);
-                } else if (!currentUser.schoolId) {
+                if (authUser && !currentUser.schoolId) {
                   healProfileFromSupabase(currentUser, setUser);
                 }
               } catch (authErr) {
                 console.warn('[AuthContext] Supabase auth check failed in background:', authErr.message);
                 // Force logout ONLY if the token is explicitly invalid or expired
                 const errMsg = authErr.message?.toLowerCase() || '';
-                if (errMsg.includes('expired') || errMsg.includes('invalid') || errMsg.includes('jwt')) {
+                if (errMsg.includes('jwt expired') || errMsg.includes('token_expired')) {
                   authService.clearSession();
                   setUser(null);
                 }

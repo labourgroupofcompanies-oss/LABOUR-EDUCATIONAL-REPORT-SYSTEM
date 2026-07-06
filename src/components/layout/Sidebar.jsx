@@ -21,40 +21,78 @@ const Sidebar = ({ isOpen, onClose }) => {
     if (window.innerWidth <= 768) onClose();
   };
 
-  const navLinks = [
-    { to: '/', icon: 'fa-chart-line', label: 'Dashboard', adminOnly: false },
-    { to: '/learners', icon: 'fa-user-graduate', label: 'Learners', adminOnly: true },
-    { to: '/promotions', icon: 'fa-level-up-alt', label: 'Promotions', adminOnly: true },
-    { to: '/teachers', icon: 'fa-chalkboard-teacher', label: 'Teachers', adminOnly: true },
-    { to: '/setup', icon: 'fa-school', label: 'School Setup', adminOnly: true },
-    { to: '/settings', icon: 'fa-cogs', label: 'Settings', adminOnly: true },
-    { to: '/financials', icon: 'fa-file-invoice-dollar', label: 'Financials', adminOnly: true },
-    { to: '/messages', icon: 'fa-comments', label: 'Communication Center', adminOnly: true },
-    { to: '/scores', icon: 'fa-edit', label: 'Score Entry', adminOnly: false, teacherOnly: true },
-    { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Class Remarks', adminOnly: false, teacherOnly: true },
-    { to: '/reports', icon: 'fa-file-invoice', label: 'Reports', adminOnly: true },
+  // Categorized Nav Groups
+  const adminNavSections = [
+    {
+      title: 'Overview',
+      links: [
+        { to: '/', icon: 'fa-chart-pie', label: 'Dashboard' }
+      ]
+    },
+    {
+      title: 'Students & Academics',
+      links: [
+        { to: '/learners', icon: 'fa-user-graduate', label: 'Learners Directory' },
+        { to: '/promotions', icon: 'fa-level-up-alt', label: 'Class Promotions' },
+        { to: '/reports', icon: 'fa-file-invoice', label: 'Reports & Broadsheets' }
+      ]
+    },
+    {
+      title: 'Staff & Teaching',
+      links: [
+        { to: '/teachers', icon: 'fa-chalkboard-teacher', label: 'Teachers Directory' },
+        { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
+        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Class Remarks' }
+      ]
+    },
+    {
+      title: 'Management & Finance',
+      links: [
+        { to: '/messages', icon: 'fa-comments', label: 'Parent Messages' },
+        { to: '/financials', icon: 'fa-wallet', label: 'Financials & Fees' }
+      ]
+    },
+    {
+      title: 'System Setup',
+      links: [
+        { to: '/setup', icon: 'fa-school', label: 'School Setup' },
+        { to: '/settings', icon: 'fa-sliders-h', label: 'System Settings' }
+      ]
+    }
   ];
 
-  const visibleLinks = navLinks.filter(l => {
-    if (isAdmin && l.teacherOnly) return false;
-    if (!isAdmin && l.adminOnly) return false;
-    return true;
-  });
+  const teacherNavSections = [
+    {
+      title: 'Overview',
+      links: [
+        { to: '/', icon: 'fa-chart-pie', label: 'Dashboard' }
+      ]
+    },
+    {
+      title: 'Classroom & Marks',
+      links: [
+        { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
+        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Class Remarks' }
+      ]
+    }
+  ];
+
+  const navSections = isAdmin ? adminNavSections : teacherNavSections;
 
   const hasPending = pendingCount > 0;
   const hasFailed = failedCount > 0;
 
   return (
     <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
-      {/* Logo */}
-      <div style={{ padding: '1.5rem', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
+      {/* Logo Header */}
+      <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', minWidth: '40px', background: 'white', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+          <div style={{ width: '38px', height: '38px', minWidth: '38px', background: 'white', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', padding: '2px' }}>
             <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
           <div>
-            <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '1rem', color: 'white' }}>Labour Edu</div>
-            <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.45)', marginTop: '1px' }}>Report Management</div>
+            <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '1rem', color: 'white', letterSpacing: '0.02em' }}>Labour Edu</div>
+            <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '1px' }}>Report Management</div>
           </div>
         </div>
         <button
@@ -66,12 +104,10 @@ const Sidebar = ({ isOpen, onClose }) => {
         </button>
       </div>
 
-
-
       {/* Sync Status Bar */}
       {(hasPending || hasFailed || isSyncing) && (
         <div style={{
-          margin: '0.75rem 1rem 0',
+          margin: '0.75rem 1rem 0.25rem',
           padding: '0.6rem 0.75rem',
           borderRadius: '10px',
           background: hasFailed
@@ -112,29 +148,33 @@ const Sidebar = ({ isOpen, onClose }) => {
         </div>
       )}
 
-      {/* Nav Links */}
-      <nav style={{ flex: 1, padding: '1rem', overflowY: 'auto' }}>
-        <div style={{ padding: '0.5rem 1rem', marginBottom: '0.75rem' }}>
-          <span style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.35)' }}>
-            {isAdmin ? 'Admin Menu' : 'Teacher Menu'}
-          </span>
-        </div>
+      {/* Nav Groups */}
+      <nav style={{ flex: 1, padding: '0.75rem 1rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        {navSections.map((section, idx) => (
+          <div key={section.title || idx}>
+            <div style={{ padding: '0 0.5rem', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '0.65rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(255,255,255,0.4)' }}>
+                {section.title}
+              </span>
+            </div>
 
-        <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {visibleLinks.map(link => (
-            <li key={link.to}>
-              <NavLink
-                to={link.to}
-                end={link.to === '/'}
-                className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-                onClick={handleNavClick}
-              >
-                <i className={`fas ${link.icon}`}></i>
-                <span>{link.label}</span>
-              </NavLink>
-            </li>
-          ))}
-        </ul>
+            <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '3px', margin: 0, padding: 0 }}>
+              {section.links.map(link => (
+                <li key={link.to}>
+                  <NavLink
+                    to={link.to}
+                    end={link.to === '/'}
+                    className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+                    onClick={handleNavClick}
+                  >
+                    <i className={`fas ${link.icon}`}></i>
+                    <span>{link.label}</span>
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
       </nav>
 
       {/* User Profile Footer */}
