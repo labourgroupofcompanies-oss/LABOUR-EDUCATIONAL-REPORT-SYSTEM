@@ -223,11 +223,14 @@ const Settings = () => {
         // Update local database immediately
         await db.schools.put({ ...updatedSchool, id: user.schoolId });
         
-        // Update cloud database immediately
-        await enqueueSync('upsert', 'report_schools', {
-          id: user.schoolId,
-          logo_url: publicUrl,
-          updated_at: new Date().toISOString()
+        // Update cloud database immediately using 'update' instead of 'upsert'
+        // to avoid violating NOT NULL constraints on other fields.
+        await enqueueSync('update', 'report_schools', {
+          filter: { id: user.schoolId },
+          data: {
+            logo_url: publicUrl,
+            updated_at: new Date().toISOString()
+          }
         }, user.schoolId);
       }
 
