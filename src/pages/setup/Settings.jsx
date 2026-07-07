@@ -64,9 +64,9 @@ const Settings = () => {
     caModel: 'simple_mean',
     caBestNCount: '',
     caBreakdown: [
-      { id: 'exercises', label: 'Class Exercises', count: 4, maxScore: 10, enabled: true },
+      { id: 'exercises', label: 'Class Exercise', count: 4, maxScore: 10, enabled: true },
       { id: 'tests', label: 'Class Tests', count: 2, maxScore: 15, enabled: true },
-      { id: 'assignments', label: 'Assignments', count: 2, maxScore: 10, enabled: true },
+      { id: 'assignments', label: 'Group work', count: 2, maxScore: 10, enabled: true },
       { id: 'projects', label: 'Project Work', count: 1, maxScore: 10, enabled: true }
     ],
     gradingScale: []
@@ -153,9 +153,9 @@ const Settings = () => {
       const safeSettings = { ...globalSettings };
       if (!safeSettings.caBreakdown || safeSettings.caBreakdown.length === 0) {
         safeSettings.caBreakdown = [
-          { id: 'exercises', label: 'Class Exercises', count: 4, maxScore: 10, enabled: true },
+          { id: 'exercises', label: 'Class Exercise', count: 4, maxScore: 10, enabled: true },
           { id: 'tests', label: 'Class Tests', count: 2, maxScore: 15, enabled: true },
-          { id: 'assignments', label: 'Assignments', count: 2, maxScore: 10, enabled: true },
+          { id: 'assignments', label: 'Group work', count: 2, maxScore: 10, enabled: true },
           { id: 'projects', label: 'Project Work', count: 1, maxScore: 10, enabled: true }
         ];
       }
