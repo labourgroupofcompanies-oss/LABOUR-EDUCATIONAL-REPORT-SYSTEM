@@ -474,8 +474,37 @@ const LearnerList = () => {
               guardian_location: record.guardianLocation,
               updated_at: record.updatedAt
             }
-          });
+          }, user.schoolId);
           await db.learners.update(editingId, { synced: true });
+        } else {
+          // If the student was created offline and hasn't synced yet, find the pending insert in the outbox
+          const pendingInsert = await db.outbox
+            .filter(o => o.table === 'report_learners' && o.operation === 'insert' && o.payload.includes(record.regNumber))
+            .first();
+          if (pendingInsert) {
+            await db.outbox.update(pendingInsert.id, {
+              payload: JSON.stringify({
+                full_name: record.fullName,
+                reg_number: record.regNumber,
+                gender: record.gender,
+                class_id: record.currentClassId,
+                school_id: record.schoolId,
+                photo_url: photoUrlField,
+                guardian_name: record.guardianName,
+                guardian_relation: record.guardianRelation,
+                guardian_contact_1: record.guardianContact1,
+                guardian_contact_2: record.guardianContact2,
+                guardian_profession: record.guardianProfession,
+                guardian_location: record.guardianLocation,
+                created_at: JSON.parse(pendingInsert.payload).created_at || record.updatedAt
+              })
+            });
+            await db.learners.update(editingId, { synced: true });
+          } else {
+            // No pending insert in outbox, but no supabaseId either.
+            // Mark as unsynced so background sync will find the remote record and link them.
+            await db.learners.update(editingId, { synced: false });
+          }
         }
       } else {
         record.createdAt = new Date().toISOString();
@@ -494,7 +523,7 @@ const LearnerList = () => {
           guardian_profession: record.guardianProfession,
           guardian_location: record.guardianLocation,
           created_at: record.createdAt
-        });
+        }, user.schoolId);
         await db.learners.update(localId, { synced: true });
         savePrefix(String(form.regNumber));
         getNextRegNumber();
@@ -634,7 +663,7 @@ const LearnerList = () => {
         created_at: item.record.createdAt
       }));
 
-      await enqueueSync('insert', 'report_learners', cloudRows);
+      await enqueueSync('insert', 'report_learners', cloudRows, user.schoolId);
 
       await db.transaction('rw', db.learners, async () => {
         for (const item of localIds) {

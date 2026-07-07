@@ -120,8 +120,48 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
 
           case 'insert': {
             const rows = Array.isArray(payload) ? payload : [payload];
-            const { error } = await supabase.from(item.table).insert(rows);
+            let q = supabase.from(item.table).insert(rows);
+            // Select the inserted rows so we get the database-generated IDs/UUIDs
+            q = q.select();
+            const { data, error } = await q;
             opError = error;
+
+            if (!error && data) {
+              for (const row of data) {
+                try {
+                  if (item.table === 'report_learners') {
+                    const local = await db.learners
+                      .where('schoolId').equals(row.school_id)
+                      .filter(l => l.regNumber === row.reg_number)
+                      .first();
+                    if (local) {
+                      await db.learners.update(local.id, { supabaseId: row.id, synced: true });
+                      console.log(`[SyncEngine] Reconciled local learner "${local.fullName}" with remote UUID "${row.id}"`);
+                    }
+                  } else if (item.table === 'report_payments') {
+                    const local = await db.payments
+                      .where('schoolId').equals(row.school_id)
+                      .filter(p => p.learnerId === row.learner_id && Number(p.amount) === Number(row.amount) && p.reference === row.reference)
+                      .first();
+                    if (local) {
+                      await db.payments.update(local.id, { supabaseId: row.id, synced: true });
+                      console.log(`[SyncEngine] Reconciled local payment reference "${local.reference}" with remote ID "${row.id}"`);
+                    }
+                  } else if (item.table === 'report_announcements') {
+                    const local = await db.announcements
+                      .where('schoolId').equals(row.school_id)
+                      .filter(a => a.title === row.title)
+                      .first();
+                    if (local) {
+                      await db.announcements.update(local.id, { supabaseId: row.id, synced: true });
+                      console.log(`[SyncEngine] Reconciled local announcement "${local.title}" with remote ID "${row.id}"`);
+                    }
+                  }
+                } catch (bindErr) {
+                  console.warn(`[SyncEngine] Failed to bind local ID for table ${item.table}:`, bindErr);
+                }
+              }
+            }
             break;
           }
 

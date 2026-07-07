@@ -65,6 +65,8 @@ async function runAdminSync(user) {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (authUser && (!authUser.user_metadata?.school_id || authUser.user_metadata.school_id !== schoolId)) {
       await supabase.auth.updateUser({ data: { school_id: schoolId } });
+      await supabase.auth.refreshSession();
+      console.log('[SyncDown] Forced session refresh to apply school_id claim to JWT.');
     }
   } catch (_) { /* non-critical — skip silently */ }
 
