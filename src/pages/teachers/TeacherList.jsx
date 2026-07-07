@@ -250,6 +250,7 @@ const TeacherList = () => {
           if (authUser && (!authUser.user_metadata?.school_id || authUser.user_metadata.school_id !== user.schoolId)) {
             console.log('[TeacherList] Self-healing auth metadata with school_id...');
             await supabase.auth.updateUser({ data: { school_id: user.schoolId } });
+            await supabase.auth.refreshSession();
           }
         } catch (metaErr) {
           console.warn('[TeacherList] Auth metadata self-heal skipped:', metaErr);

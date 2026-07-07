@@ -200,12 +200,12 @@ const ClassTeacherEntry = () => {
           updated_at: new Date().toISOString(),
         };
 
-        if (isUuid(activeSummary?.supabaseId)) {
-          await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud });
-        } else {
-          await enqueueSync('insert', 'report_summaries', cloud);
-        }
-      }
+         if (isUuid(activeSummary?.supabaseId)) {
+          await enqueueSync('update', 'report_summaries', { filter: { id: activeSummary.supabaseId }, data: cloud }, user.schoolId);
+         } else {
+          await enqueueSync('insert', 'report_summaries', cloud, user.schoolId);
+         }
+       }
 
       // Mark synced:true only if we are online and the outbox can drain immediately,
       // otherwise leave as synced:false so the SyncEngine marks it after a successful drain.

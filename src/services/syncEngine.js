@@ -156,6 +156,42 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
                       await db.announcements.update(local.id, { supabaseId: row.id, synced: true });
                       console.log(`[SyncEngine] Reconciled local announcement "${local.title}" with remote ID "${row.id}"`);
                     }
+                  } else if (item.table === 'report_teacher_assignments') {
+                    const local = await db.teacherAssignments
+                      .where('schoolId').equals(row.school_id)
+                      .filter(a => a.teacherId === row.teacher_id && a.classId === row.class_id && a.subjectId === row.subject_id)
+                      .first();
+                    if (local) {
+                      await db.teacherAssignments.update(local.id, { supabaseId: row.id, synced: true });
+                      console.log(`[SyncEngine] Reconciled local teacher assignment with remote ID "${row.id}"`);
+                    }
+                  } else if (item.table === 'report_class_subjects') {
+                    const local = await db.classSubjects
+                      .where('schoolId').equals(row.school_id)
+                      .filter(cs => cs.classId === row.class_id && cs.subjectId === row.subject_id)
+                      .first();
+                    if (local) {
+                      await db.classSubjects.update(local.id, { supabaseId: row.id, synced: true });
+                      console.log(`[SyncEngine] Reconciled local class-subject mapping with remote ID "${row.id}"`);
+                    }
+                  } else if (item.table === 'report_summaries') {
+                    const local = await db.reportSummaries
+                      .where('schoolId').equals(row.school_id)
+                      .filter(s => s.learnerId === row.learner_id && s.academicYear === row.academic_year && s.term === row.term)
+                      .first();
+                    if (local) {
+                      await db.reportSummaries.update(local.id, { supabaseId: row.id, synced: true });
+                      console.log(`[SyncEngine] Reconciled local report summary with remote ID "${row.id}"`);
+                    }
+                  } else if (item.table === 'report_profiles') {
+                    const local = await db.profiles
+                      .where('schoolId').equals(row.school_id)
+                      .filter(p => p.email === row.email)
+                      .first();
+                    if (local) {
+                      await db.profiles.update(local.id, { synced: true });
+                      console.log(`[SyncEngine] Reconciled local profile with remote ID "${row.id}"`);
+                    }
                   }
                 } catch (bindErr) {
                   console.warn(`[SyncEngine] Failed to bind local ID for table ${item.table}:`, bindErr);
