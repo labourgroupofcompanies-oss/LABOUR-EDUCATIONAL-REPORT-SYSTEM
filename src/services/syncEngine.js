@@ -123,7 +123,21 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
             let q = supabase.from(item.table).insert(rows);
             // Select the inserted rows so we get the database-generated IDs/UUIDs
             q = q.select();
-            const { data, error } = await q;
+            let { data, error } = await q;
+
+            // Self-heal: If database hasn't run the migration yet, strip exclude_from_pdf and retry
+            if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
+              console.warn('[SyncEngine] database does not have exclude_from_pdf column. Stripping and retrying...');
+              const stripped = rows.map(r => {
+                const copy = { ...r };
+                delete copy.exclude_from_pdf;
+                return copy;
+              });
+              const retry = await supabase.from(item.table).insert(stripped).select();
+              data = retry.data;
+              error = retry.error;
+            }
+
             opError = error;
 
             if (!error && data) {
@@ -209,7 +223,23 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
                 q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
               });
             }
-            const { error } = await q;
+            let { error } = await q;
+
+            // Self-heal: If database hasn't run the migration yet, strip exclude_from_pdf and retry
+            if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
+              console.warn('[SyncEngine] database does not have exclude_from_pdf column. Stripping and retrying...');
+              const strippedData = { ...payload.data };
+              delete strippedData.exclude_from_pdf;
+              let retryQ = supabase.from(item.table).update(strippedData);
+              if (payload.filter) {
+                Object.entries(payload.filter).forEach(([k, v]) => {
+                  retryQ = Array.isArray(v) ? retryQ.in(k, v) : retryQ.eq(k, v);
+                });
+              }
+              const retry = await retryQ;
+              error = retry.error;
+            }
+
             opError = error;
             break;
           }
