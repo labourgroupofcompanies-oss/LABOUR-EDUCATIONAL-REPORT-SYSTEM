@@ -68,6 +68,33 @@ async function runAdminSync(user) {
     }
   } catch (_) { /* non-critical — skip silently */ }
 
+  // 0b. Sync School Info in background
+  try {
+    const { data: remoteSchool, error: schoolErr } = await supabase
+      .from('report_schools')
+      .select('*')
+      .eq('id', schoolId)
+      .maybeSingle();
+
+    if (remoteSchool && !schoolErr) {
+      const existing = await db.schools.get(schoolId);
+      const mapped = {
+        id: schoolId, name: remoteSchool.name || '', location: remoteSchool.location || '',
+        district: remoteSchool.district || '', region: remoteSchool.region || '',
+        circuit: remoteSchool.circuit || '', motto: remoteSchool.motto || '',
+        logoUrl: remoteSchool.logo_url || '',
+        currentAcademicYear: remoteSchool.current_academic_year || '',
+        currentTerm: remoteSchool.current_term || 'Term 1',
+        vacationDate: remoteSchool.vacation_date || '',
+        nextTermBegins: remoteSchool.next_term_begins || '',
+        phone: remoteSchool.phone || '', email: remoteSchool.email || ''
+      };
+      if (!existing || hasChanged(existing, mapped, ['name', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'district', 'region', 'circuit', 'phone', 'email'])) {
+        await db.schools.put(mapped);
+      }
+    }
+  } catch (err) { console.error('[SyncDown] School info sync failed:', err); }
+
   // ── 1. Classes ──────────────────────────────────────────────────────────────
   try {
     const { data: remoteClasses, error } = await supabase
@@ -356,10 +383,23 @@ async function runAdminSync(user) {
     }
   } catch (err) { console.error('[SyncDown] Learners sync failed:', err); }
 
-  // ── 6. Scores ────────────────────────────────────────────────────────────────
+  // ── 6. Scores (Automated Data Pruning & Archiving) ───────────────────────────
   try {
-    const { data: cloudScores, error } = await supabase
-      .from('report_scores').select('*').eq('school_id', schoolId);
+    const school = await db.schools.get(schoolId);
+    const currentYear = school?.currentAcademicYear;
+    let allowedYears = [];
+    let query = supabase.from('report_scores').select('*').eq('school_id', schoolId);
+    
+    if (currentYear) {
+      allowedYears.push(currentYear);
+      const parts = currentYear.split('/');
+      if (parts.length === 2) {
+        allowedYears.push(`${parseInt(parts[0]) - 1}/${parseInt(parts[1]) - 1}`);
+      }
+      query = query.in('academic_year', allowedYears);
+    }
+
+    const { data: cloudScores, error } = await query;
 
     if (cloudScores && !error) {
       for (const cs of cloudScores) {
@@ -387,8 +427,90 @@ async function runAdminSync(user) {
           await db.scores.update(existing.id, entry);
         }
       }
+
+      // Prune local scores older than allowed years
+      if (currentYear && allowedYears.length > 0) {
+        await db.scores
+          .where('schoolId').equals(schoolId)
+          .filter(s => !allowedYears.includes(s.academicYear))
+          .delete();
+        console.log(`[SyncDown] Pruned local scores older than:`, allowedYears);
+      }
     }
   } catch (err) { console.error('[SyncDown] Scores sync failed:', err); }
+
+  // ── 6b. Report Summaries (Automated Data Pruning & Archiving) ────────────────
+  try {
+    const school = await db.schools.get(schoolId);
+    const currentYear = school?.currentAcademicYear;
+    let allowedYears = [];
+    let query = supabase.from('report_summaries').select('*').eq('school_id', schoolId);
+    
+    if (currentYear) {
+      allowedYears.push(currentYear);
+      const parts = currentYear.split('/');
+      if (parts.length === 2) {
+        allowedYears.push(`${parseInt(parts[0]) - 1}/${parseInt(parts[1]) - 1}`);
+      }
+      query = query.in('academic_year', allowedYears);
+    }
+
+    const { data: cloudSummaries, error } = await query;
+
+    if (cloudSummaries && !error) {
+      for (const rs of cloudSummaries) {
+        const existing = await db.reportSummaries
+          .where('learnerId').equals(rs.learner_id)
+          .filter(s => s.academicYear === rs.academic_year && s.term === rs.term)
+          .first();
+
+        const entry = {
+          schoolId: rs.school_id,
+          learnerId: rs.learner_id,
+          classId: rs.class_id,
+          academicYear: rs.academic_year,
+          term: rs.term,
+          attendancePresent: rs.attendance_present,
+          attendanceTotal: rs.attendance_total,
+          conduct: rs.conduct,
+          attitude: rs.attitude,
+          teacherRemark: rs.teacher_remark,
+          headteacherRemark: rs.headteacher_remark,
+          promotedTo: rs.promoted_to,
+          nextTermBegins: rs.next_term_begins,
+          feesOwed: rs.fees_owed,
+          nextTermBill: rs.next_term_bill,
+          isReleased: rs.is_released || false,
+          classAverage: rs.class_average ?? null,
+          classRank: rs.class_rank ?? null,
+          totalGraded: rs.total_graded ?? 0,
+          promotionStatus: rs.promotion_status || 'pending',
+          synced: true,
+          supabaseId: rs.id
+        };
+
+        if (!existing) {
+          await db.reportSummaries.add(entry);
+        } else if (hasChanged(existing, entry, [
+          'attendancePresent', 'attendanceTotal', 'conduct', 'attitude',
+          'teacherRemark', 'headteacherRemark', 'promotedTo', 'feesOwed',
+          'nextTermBill', 'isReleased', 'classAverage', 'classRank',
+          'promotionStatus', 'supabaseId', 'synced'
+        ])) {
+          await db.reportSummaries.update(existing.id, entry);
+        }
+      }
+
+      // Prune local summaries older than allowed years
+      if (currentYear && allowedYears.length > 0) {
+        await db.reportSummaries
+          .where('schoolId').equals(schoolId)
+          .filter(s => !allowedYears.includes(s.academicYear))
+          .delete();
+        console.log(`[SyncDown] Pruned local report summaries older than:`, allowedYears);
+      }
+    }
+  } catch (err) { console.error('[SyncDown] Report summaries sync failed:', err); }
 
   // ── 7. Global Settings ───────────────────────────────────────────────────────
   try {

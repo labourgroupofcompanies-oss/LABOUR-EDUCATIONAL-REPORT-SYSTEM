@@ -93,12 +93,14 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
     const statusSummary = allItems.reduce((acc, i) => { acc[i.status] = (acc[i.status] || 0) + 1; return acc; }, {});
     console.log('[SyncEngine] Outbox state:', statusSummary, '| Total:', allItems.length);
 
-    const pending = await db.outbox
+    const now = new Date().toISOString();
+    const pending = (await db.outbox
       .where('status').equals('pending')
-      .toArray();
+      .toArray())
+      .filter(item => !item.nextAttemptAt || item.nextAttemptAt <= now);
 
     if (pending.length === 0) {
-      console.log('[SyncEngine] No pending items — drain complete.');
+      console.log('[SyncEngine] No pending items due for retry — drain complete.');
       _isSyncing = false;
       return;
     }
@@ -483,12 +485,18 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
       } catch (err) {
         const retries = (item.retryCount || 0) + 1;
         const newStatus = retries >= MAX_RETRIES ? 'failed' : 'pending';
+        
+        // Exponential backoff: 2^retryCount * 2000 milliseconds (e.g. 2s, 4s, 8s, 16s, 32s)
+        const delayMs = Math.pow(2, retries) * 2000;
+        const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+
         await db.outbox.update(item.id, {
           status: newStatus,
           retryCount: retries,
-          errorMessage: err.message
+          errorMessage: err.message,
+          nextAttemptAt: newStatus === 'pending' ? nextAttemptAt : null
         });
-        console.warn(`[SyncEngine] ⚠️ Item ${item.id} failed (attempt ${retries}):`, err.message);
+        console.warn(`[SyncEngine] ⚠️ Item ${item.id} failed (attempt ${retries}), retrying in ${delayMs / 1000}s:`, err.message);
       }
     }
   } catch (err) {
@@ -503,7 +511,7 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
 export const retryFailed = async () => {
   await db.outbox
     .where('status').equals('failed')
-    .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+    .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
   await drainOutbox(true);
 };
 
@@ -513,7 +521,7 @@ export const forceDrain = async () => {
   console.log('[SyncEngine] 🔄 Force drain requested — resetting all stuck/failed items...');
   await db.outbox
     .where('status').anyOf(['failed', 'processing'])
-    .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+    .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
   await drainOutbox(true);
 };
 
@@ -522,7 +530,7 @@ export const forceDrain = async () => {
 export const resetStuckItems = async () => {
   await db.outbox
     .where('status').equals('processing')
-    .modify({ status: 'pending' });
+    .modify({ status: 'pending', nextAttemptAt: null });
 };
 
 // ─── Register the online listener (module-level, fires once) ─────────────────
@@ -533,14 +541,11 @@ if (typeof window !== 'undefined') {
     // Also reset failed items so they get another chance when coming back online
     await db.outbox
       .where('status').equals('failed')
-      .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+      .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
     drainOutbox();
   });
 
   // Listen for ALL relevant auth events to automatically trigger outbox drain.
-  // IMPORTANT: 'INITIAL_SESSION' fires when the app reloads with an existing session
-  // (the user is already logged in). Without this, reloading the app never drains
-  // the outbox because no SIGNED_IN event fires for pre-existing sessions.
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
       if (!session) return; // INITIAL_SESSION fires with null when logged out — skip
@@ -548,10 +553,10 @@ if (typeof window !== 'undefined') {
       try {
         await db.outbox
           .where('status').equals('failed')
-          .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+          .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
         await db.outbox
           .where('status').equals('processing')
-          .modify({ status: 'pending' });
+          .modify({ status: 'pending', nextAttemptAt: null });
       } catch (err) {
         console.warn('[SyncEngine] Failed to reset outbox items:', err);
       }
@@ -568,7 +573,7 @@ if (typeof window !== 'undefined') {
         console.log(`[SyncEngine] Periodic retry: ${failedCount} failed, ${pendingCount} pending item(s)...`);
         await db.outbox
           .where('status').equals('failed')
-          .modify({ status: 'pending', retryCount: 0, errorMessage: null });
+          .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
         drainOutbox();
       }
     }

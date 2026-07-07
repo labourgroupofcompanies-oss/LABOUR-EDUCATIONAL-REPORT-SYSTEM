@@ -51,6 +51,7 @@ const ScoreEntry = () => {
     }
   }, [querySubject]);
   const [scores, setScores] = useState({}); // { learnerId: { caScores: [], examScore } }
+  const [isDirty, setIsDirty] = useState(false);
   const { user } = useAuth();
 
   const [selectedTerm, setSelectedTerm] = useState('Term 1');
@@ -81,11 +82,12 @@ const ScoreEntry = () => {
 
   // Sync current school settings for term/year defaults
   useEffect(() => {
+    if (isDirty) return; // Protect unsaved score inputs from default updates
     if (schoolInfo) {
       if (schoolInfo.currentAcademicYear) setSelectedAcademicYear(schoolInfo.currentAcademicYear);
       if (schoolInfo.currentTerm)         setSelectedTerm(schoolInfo.currentTerm);
     }
-  }, [schoolInfo]);
+  }, [schoolInfo, isDirty]);
 
   // ── Seeding/Self-Healing on Load ────────────────────────────────────────────
   // NOTE: We always load from Dexie. Remote fetch is skipped silently when offline.
@@ -354,6 +356,8 @@ const ScoreEntry = () => {
 
   // Load existing scores if any
   useEffect(() => {
+    if (isDirty) return; // Protect unsaved inputs from being overwritten by reloads
+
     const loadScores = async () => {
       if (selectedClass && selectedSubject && selectedAcademicYear && selectedTerm) {
         // 1. First, try to pull latest from cloud if online
@@ -445,7 +449,7 @@ const ScoreEntry = () => {
       }
     };
     loadScores();
-  }, [selectedClass, selectedSubject, selectedAcademicYear, selectedTerm, user]);
+  }, [selectedClass, selectedSubject, selectedAcademicYear, selectedTerm, user?.schoolId, isDirty]);
 
   const syncUnsyncedScores = useCallback(async () => {
     if (!navigator.onLine || !user?.schoolId) return;
@@ -567,6 +571,7 @@ const ScoreEntry = () => {
       }
     }
 
+    setIsDirty(true);
     setScores(prev => {
       const existing = (supabaseId && prev[supabaseId]) || (localId && prev[localId]) || {};
       const currentCa = existing.caScores ? [...existing.caScores] : [];
@@ -592,6 +597,7 @@ const ScoreEntry = () => {
       }
     }
 
+    setIsDirty(true);
     setScores(prev => {
       const existing = (supabaseId && prev[supabaseId]) || (localId && prev[localId]) || {};
       const key = supabaseId || localId;
@@ -661,6 +667,7 @@ const ScoreEntry = () => {
       }
     }
 
+    setIsDirty(false);
     alert('Scores saved offline in local database successfully!');
 
     // Trigger background sync immediately if online
@@ -821,21 +828,54 @@ const ScoreEntry = () => {
         <div className="card" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
             <label className="form-label">Select Class</label>
-            <select className="form-input" value={selectedClass} onChange={(e) => setSelectedClass(e.target.value)}>
+            <select 
+              className="form-input" 
+              value={selectedClass} 
+              onChange={(e) => {
+                const val = e.target.value;
+                if (isDirty && !window.confirm('You have unsaved changes. Changing class will discard them. Do you want to proceed?')) {
+                  return;
+                }
+                setSelectedClass(val);
+                setIsDirty(false);
+              }}
+            >
               <option value="">-- Choose Class --</option>
               {classes?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
             <label className="form-label">Select Subject</label>
-            <select className="form-input" value={selectedSubject} onChange={(e) => setSelectedSubject(e.target.value)}>
+            <select 
+              className="form-input" 
+              value={selectedSubject} 
+              onChange={(e) => {
+                const val = e.target.value;
+                if (isDirty && !window.confirm('You have unsaved changes. Changing subject will discard them. Do you want to proceed?')) {
+                  return;
+                }
+                setSelectedSubject(val);
+                setIsDirty(false);
+              }}
+            >
               <option value="">-- Choose Subject --</option>
               {subjects?.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
             <label className="form-label">Term</label>
-            <select className="form-input" value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)}>
+            <select 
+              className="form-input" 
+              value={selectedTerm} 
+              onChange={(e) => {
+                const val = e.target.value;
+                if (isDirty && !window.confirm('You have unsaved changes. Changing term will discard them. Do you want to proceed?')) {
+                  return;
+                }
+                setSelectedTerm(val);
+                setIsDirty(false);
+              }}
+            >
               <option value="Term 1">Term 1</option>
               <option value="Term 2">Term 2</option>
               <option value="Term 3">Term 3</option>
@@ -848,7 +888,14 @@ const ScoreEntry = () => {
               className="form-input" 
               placeholder="e.g. 2025/2026"
               value={selectedAcademicYear} 
-              onChange={(e) => setSelectedAcademicYear(e.target.value)} 
+              onChange={(e) => {
+                const val = e.target.value;
+                if (isDirty && !window.confirm('You have unsaved changes. Changing academic year will discard them. Do you want to proceed?')) {
+                  return;
+                }
+                setSelectedAcademicYear(val);
+                setIsDirty(false);
+              }} 
             />
           </div>
           <button className="btn btn-primary" onClick={handleSave} disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving} style={{ flex: '0 0 auto' }}>
