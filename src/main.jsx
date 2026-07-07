@@ -259,6 +259,17 @@ if (typeof window !== 'undefined') {
   }, true);
 }
 
+// Request persistent storage to protect IndexedDB from eviction on browser restart
+if (typeof window !== 'undefined' && navigator.storage && navigator.storage.persist) {
+  navigator.storage.persist().then(granted => {
+    if (granted) {
+      console.log('[Storage] Persistent storage granted by the browser.');
+    } else {
+      console.warn('[Storage] Persistent storage not granted.');
+    }
+  });
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />

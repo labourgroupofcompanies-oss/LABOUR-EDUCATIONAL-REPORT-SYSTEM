@@ -339,12 +339,14 @@ async function runAdminSync(user) {
           };
           const fieldsChanged = hasChanged(local, remoteFields, ['regNumber', 'fullName', 'gender', 'currentClassId', 'photoUrl', 'supabaseId', 'synced']);
           const photoUrlChanged = navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl;
-
           if (fieldsChanged || photoUrlChanged) {
             let photoBlobCache = local.photo instanceof Blob ? local.photo : null;
             if (photoUrlChanged) {
-              photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+              const downloaded = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+              photoBlobCache = downloaded || (local.photo instanceof Blob ? local.photo : null);
             } else if (!rl.photo_url) {
+              photoBlobCache = null;
+            } else {
               photoBlobCache = local.photo instanceof Blob ? local.photo : null;
             }
             await db.learners.update(local.id, { ...remoteFields, photo: photoBlobCache });
