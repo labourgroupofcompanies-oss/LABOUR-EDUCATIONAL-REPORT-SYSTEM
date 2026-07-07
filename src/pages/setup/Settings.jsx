@@ -103,15 +103,48 @@ const Settings = () => {
         const settingsData = settingsList?.[0];
 
         if (settingsData && !settingsError) {
+          let rawBreakdown = settingsData.ca_breakdown || [];
+          let needsUpdate = false;
+
+          // Migrate: strip exercises and rename assignments to Group work
+          const cleanBreakdown = rawBreakdown.filter(item => {
+            if (item.id === 'exercises') {
+              needsUpdate = true;
+              return false;
+            }
+            return true;
+          }).map(item => {
+            if (item.id === 'assignments' && item.label !== 'Group work') {
+              needsUpdate = true;
+              return { ...item, label: 'Group work' };
+            }
+            return item;
+          });
+
           await db.settings.put({
             id: 'global',
             caWeight: settingsData.ca_weight,
             examWeight: settingsData.exam_weight,
             caModel: settingsData.ca_model,
             caBestNCount: settingsData.ca_best_n || '',
-            caBreakdown: settingsData.ca_breakdown || [],
+            caBreakdown: cleanBreakdown,
             gradingScale: settingsData.grading_scale || []
           });
+
+          if (needsUpdate) {
+            console.log('[Settings] Syncing migrated CA Breakdown to Supabase...');
+            await enqueueSync('upsert', 'report_settings', {
+              id: user.schoolId,
+              school_id: user.schoolId,
+              ca_weight: settingsData.ca_weight,
+              exam_weight: settingsData.exam_weight,
+              ca_model: settingsData.ca_model,
+              ca_best_n: settingsData.ca_best_n || null,
+              ca_breakdown: cleanBreakdown,
+              grading_scale: settingsData.grading_scale || [],
+              updated_at: new Date().toISOString()
+            }, user.schoolId);
+          }
         }
 
         // 2. Hydrate school motto, logo, dates
@@ -150,14 +183,38 @@ const Settings = () => {
   useEffect(() => {
     if (globalSettings) {
       const safeSettings = { ...globalSettings };
+      let needsLocalUpdate = false;
+
       if (!safeSettings.caBreakdown || safeSettings.caBreakdown.length === 0) {
         safeSettings.caBreakdown = [
           { id: 'tests', label: 'Class Tests', count: 2, maxScore: 15, enabled: true },
           { id: 'assignments', label: 'Group work', count: 2, maxScore: 10, enabled: true },
           { id: 'projects', label: 'Project Work', count: 1, maxScore: 10, enabled: true }
         ];
+        needsLocalUpdate = true;
+      } else {
+        // Migrate existing local breakdown
+        const initialLen = safeSettings.caBreakdown.length;
+        safeSettings.caBreakdown = safeSettings.caBreakdown.filter(item => {
+          if (item.id === 'exercises') {
+            needsLocalUpdate = true;
+            return false;
+          }
+          return true;
+        }).map(item => {
+          if (item.id === 'assignments' && item.label !== 'Group work') {
+            needsLocalUpdate = true;
+            return { ...item, label: 'Group work' };
+          }
+          return item;
+        });
       }
+
       setSettings(safeSettings);
+
+      if (needsLocalUpdate) {
+        db.settings.put(safeSettings);
+      }
     }
   }, [globalSettings]);
 
