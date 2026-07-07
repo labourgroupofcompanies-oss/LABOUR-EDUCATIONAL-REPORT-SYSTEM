@@ -236,9 +236,18 @@ async function runAdminSync(user) {
         }
       }
 
-      // Upsert with smart diff, preserving offline authentication password hashes
+      // Upsert with smart diff, preserving offline authentication password hashes and caching signatures
       for (const p of staffData) {
         const local = await db.profiles.get(p.id);
+        const signatureUrlChanged = navigator.onLine && p.signature_url && p.signature_url !== local?.signatureUrl;
+        let signatureBlob = local?.signature instanceof Blob ? local.signature : null;
+        if (signatureUrlChanged) {
+          const downloaded = await downloadImageAsBlob(p.signature_url).catch(() => null);
+          signatureBlob = downloaded || signatureBlob;
+        } else if (!p.signature_url) {
+          signatureBlob = null;
+        }
+
         const mapped = {
           id: p.id,
           schoolId: p.school_id,
@@ -246,11 +255,13 @@ async function runAdminSync(user) {
           role: p.role,
           staffId: p.staff_id,
           email: p.email,
+          signatureUrl: p.signature_url || null,
+          signature: signatureBlob,
           passwordHash: local?.passwordHash || null,
           passwordSalt: local?.passwordSalt || null,
           lastLogin: local?.lastLogin || null
         };
-        if (!local || hasChanged(local, mapped, ['fullName', 'role', 'staffId', 'email'])) {
+        if (!local || hasChanged(local, mapped, ['fullName', 'role', 'staffId', 'email', 'signatureUrl']) || signatureUrlChanged) {
           await db.profiles.put(mapped);
         }
       }

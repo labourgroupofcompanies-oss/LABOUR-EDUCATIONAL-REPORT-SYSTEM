@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Layout from '../../components/layout/Layout';
 import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
@@ -332,6 +332,206 @@ const Settings = () => {
     alert('All school settings saved and synchronized successfully!');
   };
 
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [signaturePreview, setSignaturePreview] = useState(null);
+
+  // Load signature on mount
+  useEffect(() => {
+    if (user?.id) {
+      db.profiles.get(user.id).then(p => {
+        if (p) {
+          if (p.signature instanceof Blob) {
+            setSignaturePreview(URL.createObjectURL(p.signature));
+          } else if (p.signatureUrl) {
+            setSignaturePreview(p.signatureUrl);
+          }
+        }
+      });
+    }
+  }, [user]);
+
+  const getCanvasCoordinates = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  };
+
+  const getTouchCoordinates = (e, canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    const touch = e.touches[0];
+    return {
+      x: touch.clientX - rect.left,
+      y: touch.clientY - rect.top
+    };
+  };
+
+  const startDrawing = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const coords = getCanvasCoordinates(e, canvas);
+    ctx.beginPath();
+    ctx.moveTo(coords.x, coords.y);
+    setIsDrawing(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const coords = getCanvasCoordinates(e, canvas);
+    ctx.lineTo(coords.x, coords.y);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  };
+
+  const startDrawingTouch = (e) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const coords = getTouchCoordinates(e, canvas);
+    ctx.beginPath();
+    ctx.moveTo(coords.x, coords.y);
+    setIsDrawing(true);
+  };
+
+  const drawTouch = (e) => {
+    e.preventDefault();
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const coords = getTouchCoordinates(e, canvas);
+    ctx.lineTo(coords.x, coords.y);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const saveCanvasSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      await uploadAndSaveSignature(blob);
+    }, 'image/png');
+  };
+
+  const handleSignatureUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const compressed = await compressImageToBlob(file, 400, 150, 0.9);
+      await uploadAndSaveSignature(compressed);
+    } catch (err) {
+      console.warn('Signature compression failed, saving original:', err);
+      await uploadAndSaveSignature(file);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const uploadAndSaveSignature = async (blob) => {
+    try {
+      // 1. Update locally in Dexie
+      await db.profiles.update(user.id, {
+        signature: blob,
+        synced: false
+      });
+
+      // Update UI preview
+      setSignaturePreview(URL.createObjectURL(blob));
+
+      // 2. If online: upload to Supabase Storage and update profile
+      if (navigator.onLine) {
+        const path = `signatures/${user.id}.png`;
+        const { error: uploadErr } = await supabase.storage
+          .from('learner-photos')
+          .upload(path, blob, { upsert: true, contentType: 'image/png' });
+
+        if (!uploadErr) {
+          const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
+          const publicUrl = data.publicUrl;
+
+          // Update in IndexedDB
+          await db.profiles.update(user.id, {
+            signatureUrl: publicUrl,
+            synced: true
+          });
+
+          // Sync metadata to report_profiles table
+          await enqueueSync('update', 'report_profiles', {
+            filter: { id: user.id },
+            data: {
+              signature_url: publicUrl,
+              updated_at: new Date().toISOString()
+            }
+          }, user.schoolId);
+
+          console.log('[Settings] Signature synced successfully. URL:', publicUrl);
+        } else {
+          console.warn('[Settings] Signature storage upload failed, queued in outbox:', uploadErr);
+        }
+      }
+
+      alert('Signature saved successfully!');
+      clearCanvas();
+    } catch (err) {
+      console.error('Failed to save signature:', err);
+      alert('Failed to save signature: ' + err.message);
+    }
+  };
+
+  const deleteSignature = async () => {
+    if (!window.confirm('Are you sure you want to delete your signature?')) return;
+    try {
+      await db.profiles.update(user.id, {
+        signature: null,
+        signatureUrl: null,
+        synced: false
+      });
+      setSignaturePreview(null);
+
+      if (navigator.onLine) {
+        await enqueueSync('update', 'report_profiles', {
+          filter: { id: user.id },
+          data: {
+            signature_url: null,
+            updated_at: new Date().toISOString()
+          }
+        }, user.schoolId);
+
+        await supabase.storage.from('learner-photos').remove([`signatures/${user.id}.png`]).catch(() => null);
+      }
+
+      alert('Signature deleted successfully.');
+    } catch (err) {
+      console.error('Failed to delete signature:', err);
+      alert('Failed to delete signature: ' + err.message);
+    }
+  };
+
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     if (!profileName.trim()) {
@@ -476,6 +676,78 @@ const Settings = () => {
                 {isSavingProfile ? <i className="fas fa-spinner fa-spin"></i> : null}
                 <span>Save Profile Details</span>
               </button>
+            </div>
+          </div>
+
+          {/* Signature Settings Card */}
+          <div className="card" style={{ marginBottom: '2rem' }}>
+            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-file-signature" style={{ color: 'var(--accent)' }}></i>
+              My Signature
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
+              Add your signature to be printed on your learners' report cards. You can draw it directly on the canvas below or upload a scanned image.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem', alignItems: 'start' }}>
+              {/* Draw pad */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>Draw Signature:</span>
+                <div style={{ position: 'relative', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <canvas 
+                    ref={canvasRef} 
+                    width="350" 
+                    height="130" 
+                    style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'crosshair', touchAction: 'none' }}
+                    onMouseDown={startDrawing}
+                    onMouseMove={draw}
+                    onMouseUp={stopDrawing}
+                    onMouseLeave={stopDrawing}
+                    onTouchStart={startDrawingTouch}
+                    onTouchMove={drawTouch}
+                    onTouchEnd={stopDrawing}
+                  />
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '12px', width: '100%', justifyContent: 'space-between' }}>
+                    <button type="button" className="btn btn-outline" onClick={clearCanvas} style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', background: 'none', border: '1px solid var(--border)', color: 'var(--text)' }}>
+                      <i className="fas fa-eraser"></i> Clear Pad
+                    </button>
+                    <button type="button" className="btn btn-accent" onClick={saveCanvasSignature} style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', color: 'white', background: 'var(--accent)', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+                      <i className="fas fa-check"></i> Save Drawing
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Upload & Preview */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {/* Upload */}
+                <div>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '8px' }}>Or Upload Scanned Image:</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="form-input" 
+                    onChange={handleSignatureUpload}
+                    style={{ padding: '0.4rem', fontSize: '0.82rem' }}
+                  />
+                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
+                    Supported formats: PNG, JPG, JPEG (transparent background recommended).
+                  </span>
+                </div>
+
+                {/* Preview */}
+                {signaturePreview && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>Current Signature Preview:</span>
+                    <div style={{ padding: '8px 12px', background: 'white', border: '1px solid var(--border)', borderRadius: '8px', display: 'inline-flex', width: 'fit-content' }}>
+                      <img src={signaturePreview} alt="Signature Preview" style={{ maxHeight: '60px', maxWidth: '180px', objectFit: 'contain' }} />
+                    </div>
+                    <button type="button" className="btn btn-outline" onClick={deleteSignature} style={{ border: '1px solid #ef4444', color: '#ef4444', fontSize: '0.75rem', width: 'fit-content', padding: '0.35rem 0.75rem', background: 'none', cursor: 'pointer', borderRadius: '6px' }}>
+                      <i className="fas fa-trash-alt"></i> Delete Signature
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

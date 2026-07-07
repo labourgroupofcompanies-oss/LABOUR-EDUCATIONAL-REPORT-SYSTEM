@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS public.report_profiles (
   role          TEXT NOT NULL CHECK (role IN ('super_admin', 'teacher')),
   staff_id      TEXT,
   email         TEXT,
+  signature_url TEXT,
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 

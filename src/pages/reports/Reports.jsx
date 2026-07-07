@@ -903,6 +903,39 @@ const Reports = () => {
     () => schoolId ? db.payments.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
   );
+  const advisorProfile = useLiveQuery(
+    async () => {
+      if (!user?.id) return null;
+      return await db.profiles.get(user.id);
+    },
+    [user]
+  );
+  const headteacherProfile = useLiveQuery(
+    async () => {
+      if (!schoolId) return null;
+      return await db.profiles
+        .where('schoolId').equals(schoolId)
+        .filter(p => p.role === 'super_admin')
+        .first();
+    },
+    [schoolId]
+  );
+
+  const advisorSigSrc = useMemo(() => {
+    if (!advisorProfile) return null;
+    if (advisorProfile.signature instanceof Blob) {
+      return URL.createObjectURL(advisorProfile.signature);
+    }
+    return advisorProfile.signatureUrl || advisorProfile.signature_url || null;
+  }, [advisorProfile]);
+
+  const headteacherSigSrc = useMemo(() => {
+    if (!headteacherProfile) return null;
+    if (headteacherProfile.signature instanceof Blob) {
+      return URL.createObjectURL(headteacherProfile.signature);
+    }
+    return headteacherProfile.signatureUrl || headteacherProfile.signature_url || null;
+  }, [headteacherProfile]);
   const globalSettings     = useLiveQuery(() => db.settings.get('global'), []);
   const schoolInfo         = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
@@ -1959,9 +1992,24 @@ const Reports = () => {
 
         {/* Signatures */}
         <div className="rc-sig-strip">
-          <div className="rc-sig-block"><div className="rc-sig-line" />Class Advisor's Signature</div>
-          <div className="rc-sig-block"><div className="rc-sig-line" />School Stamp &amp; Date</div>
-          <div className="rc-sig-block"><div className="rc-sig-line" />Headteacher's Signature</div>
+          <div className="rc-sig-block" style={{ position: 'relative' }}>
+            {advisorSigSrc && (
+              <img src={advisorSigSrc} alt="Advisor Signature" style={{ position: 'absolute', bottom: '18px', maxHeight: '42px', maxWidth: '100px', objectFit: 'contain' }} />
+            )}
+            <div className="rc-sig-line" />
+            Class Advisor's Signature
+          </div>
+          <div className="rc-sig-block">
+            <div className="rc-sig-line" />
+            School Stamp &amp; Date
+          </div>
+          <div className="rc-sig-block" style={{ position: 'relative' }}>
+            {headteacherSigSrc && (
+              <img src={headteacherSigSrc} alt="Headteacher Signature" style={{ position: 'absolute', bottom: '18px', maxHeight: '42px', maxWidth: '100px', objectFit: 'contain' }} />
+            )}
+            <div className="rc-sig-line" />
+            Headteacher's Signature
+          </div>
         </div>
       </div>
     );
