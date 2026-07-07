@@ -438,15 +438,68 @@ const Settings = () => {
     }, 'image/png');
   };
 
+  const extractSignatureFromImage = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          ctx.drawImage(img, 0, 0);
+
+          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imgData.data;
+
+          // Loop through pixels and make bright background transparent
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
+
+            if (brightness > 200) {
+              data[i+3] = 0; // Make background transparent
+            } else {
+              // Enhance ink contrast: force to pure black
+              data[i] = 0;
+              data[i+1] = 0;
+              data[i+2] = 0;
+              data[i+3] = Math.min(255, data[i+3] * 1.25);
+            }
+          }
+
+          ctx.putImageData(imgData, 0, 0);
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob);
+            else reject(new Error('Failed to convert canvas to blob'));
+          }, 'image/png');
+        };
+        img.onerror = () => reject(new Error('Failed to load signature image'));
+        img.src = event.target.result;
+      };
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  };
+
   const handleSignatureUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const compressed = await compressImageToBlob(file, 400, 150, 0.9);
+      const processedBlob = await extractSignatureFromImage(file);
+      const compressed = await compressImageToBlob(processedBlob, 400, 150, 0.9);
       await uploadAndSaveSignature(compressed);
     } catch (err) {
-      console.warn('Signature compression failed, saving original:', err);
-      await uploadAndSaveSignature(file);
+      console.warn('Signature processing failed, fallback to original:', err);
+      try {
+        const compressed = await compressImageToBlob(file, 400, 150, 0.9);
+        await uploadAndSaveSignature(compressed);
+      } catch (fallbackErr) {
+        await uploadAndSaveSignature(file);
+      }
     } finally {
       e.target.value = '';
     }
