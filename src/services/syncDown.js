@@ -357,16 +357,18 @@ async function runAdminSync(user) {
           await db.learners.add({
             schoolId: rl.school_id, regNumber: rl.reg_number, fullName: rl.full_name,
             gender: rl.gender, currentClassId: rl.class_id,
-            photo: photoBlobCache, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id
+            photo: photoBlobCache, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id,
+            excludeFromPdf: rl.exclude_from_pdf || false
           });
 
         } else {
           // Existing learner — smart diff; re-download photo only if URL changed
           const remoteFields = {
             regNumber: rl.reg_number, fullName: rl.full_name, gender: rl.gender,
-            currentClassId: rl.class_id, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id
+            currentClassId: rl.class_id, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id,
+            excludeFromPdf: rl.exclude_from_pdf || false
           };
-          const fieldsChanged = hasChanged(local, remoteFields, ['regNumber', 'fullName', 'gender', 'currentClassId', 'photoUrl', 'supabaseId', 'synced']);
+          const fieldsChanged = hasChanged(local, remoteFields, ['regNumber', 'fullName', 'gender', 'currentClassId', 'photoUrl', 'supabaseId', 'synced', 'excludeFromPdf']);
           const photoUrlChanged = navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl;
           if (fieldsChanged || photoUrlChanged) {
             let photoBlobCache = local.photo instanceof Blob ? local.photo : null;

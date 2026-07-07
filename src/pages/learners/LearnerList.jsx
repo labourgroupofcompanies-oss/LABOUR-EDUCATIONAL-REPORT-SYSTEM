@@ -142,6 +142,7 @@ const LearnerList = () => {
     regNumber: peekNextRegNumber(), 
     gender: 'Male', 
     currentClassId: '',
+    excludeFromPdf: false,
     guardianName: '',
     guardianRelation: '',
     guardianContact1: '',
@@ -354,6 +355,7 @@ const LearnerList = () => {
       regNumber: peekNextRegNumber(),
       gender: 'Male',
       currentClassId: '',
+      excludeFromPdf: false,
       guardianName: '',
       guardianRelation: '',
       guardianContact1: '',
@@ -373,6 +375,7 @@ const LearnerList = () => {
       regNumber: l.regNumber,
       gender: l.gender,
       currentClassId: String(l.currentClassId),
+      excludeFromPdf: !!l.excludeFromPdf,
       guardianName: l.guardianName || '',
       guardianRelation: l.guardianRelation || '',
       guardianContact1: l.guardianContact1 || '',
@@ -444,6 +447,7 @@ const LearnerList = () => {
         currentClassId: Number(form.currentClassId),
         photo: photoField,
         photoUrl: photoUrlField,
+        excludeFromPdf: !!form.excludeFromPdf,
         guardianName: form.guardianName,
         guardianRelation: form.guardianRelation,
         guardianContact1: form.guardianContact1,
@@ -466,6 +470,7 @@ const LearnerList = () => {
               gender: record.gender,
               class_id: record.currentClassId,
               photo_url: photoUrlField,
+              exclude_from_pdf: record.excludeFromPdf,
               guardian_name: record.guardianName,
               guardian_relation: record.guardianRelation,
               guardian_contact_1: record.guardianContact1,
@@ -490,6 +495,7 @@ const LearnerList = () => {
                 class_id: record.currentClassId,
                 school_id: record.schoolId,
                 photo_url: photoUrlField,
+                exclude_from_pdf: record.excludeFromPdf,
                 guardian_name: record.guardianName,
                 guardian_relation: record.guardianRelation,
                 guardian_contact_1: record.guardianContact1,
@@ -516,6 +522,7 @@ const LearnerList = () => {
           class_id: record.currentClassId,
           school_id: record.schoolId,
           photo_url: remotePhotoUrl,
+          exclude_from_pdf: record.excludeFromPdf,
           guardian_name: record.guardianName,
           guardian_relation: record.guardianRelation,
           guardian_contact_1: record.guardianContact1,
@@ -1676,6 +1683,34 @@ const LearnerList = () => {
                   </div>
                 </div>
                 
+                {/* ── Parent Portal Access Preference ── */}
+                <div style={{
+                  background: 'var(--accent-light)',
+                  border: '1px solid rgba(13,148,136,0.15)',
+                  borderRadius: '12px',
+                  padding: '0.85rem 1rem',
+                  marginBottom: '1.25rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px'
+                }}>
+                  <input
+                    type="checkbox"
+                    id="excludeFromPdf"
+                    checked={form.excludeFromPdf}
+                    onChange={e => setForm({ ...form, excludeFromPdf: e.target.checked })}
+                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent)' }}
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <label htmlFor="excludeFromPdf" style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)', cursor: 'pointer' }}>
+                      Parent Portal Access Enabled
+                    </label>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      If checked, this student will be excluded from bulk printed PDF report cards.
+                    </span>
+                  </div>
+                </div>
+
                 {/* ── Guardian Details Section ── */}
                 <h3 style={{ fontSize: '0.85rem', color: '#0d9488', textTransform: 'uppercase', letterSpacing: '.06em', margin: '1.75rem 0 1rem', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem', fontWeight: 700 }}>
                   <i className="fas fa-users" style={{ fontSize: '0.95rem' }}></i> Guardian Information

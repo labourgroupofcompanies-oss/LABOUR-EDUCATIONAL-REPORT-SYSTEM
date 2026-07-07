@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS public.report_learners (
   guardian_profession TEXT,
   guardian_location   TEXT,
   synced              BOOLEAN DEFAULT TRUE,
+  exclude_from_pdf    BOOLEAN DEFAULT FALSE,
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   updated_at          TIMESTAMPTZ DEFAULT NOW()
 );

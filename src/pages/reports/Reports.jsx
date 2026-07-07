@@ -914,6 +914,7 @@ const Reports = () => {
   const [academicYear,  setAcademicYear]  = useState('');
   const [generateMode,  setGenerateMode]  = useState('all'); // 'all' | 'individual'
   const [selectedIndividualId, setSelectedIndividualId] = useState('');
+  const [excludePortalAccess, setExcludePortalAccess] = useState(true);
 
   const localScores = useLiveQuery(
     () => schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : [],
@@ -1253,8 +1254,11 @@ const Reports = () => {
       const found = classLearners.find(l => l.id === Number(selectedIndividualId));
       return found ? [found] : [];
     }
+    if (excludePortalAccess) {
+      return classLearners.filter(l => !l.excludeFromPdf);
+    }
     return classLearners;
-  }, [generateMode, classLearners, selectedIndividualId]);
+  }, [generateMode, classLearners, selectedIndividualId, excludePortalAccess]);
 
   // Active learner in preview (defaults to first)
   useEffect(() => {
@@ -2108,6 +2112,22 @@ const Reports = () => {
                     </div>
                   )}
                 </div>
+
+                {/* Exclude Portal checkbox */}
+                {generateMode === 'all' && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '1rem 0', fontSize: '0.82rem', color: 'var(--text)' }}>
+                    <input
+                      type="checkbox"
+                      id="excludePortal"
+                      checked={excludePortalAccess}
+                      onChange={e => setExcludePortalAccess(e.target.checked)}
+                      style={{ cursor: 'pointer', width: '16px', height: '16px', accentColor: 'var(--accent)' }}
+                    />
+                    <label htmlFor="excludePortal" style={{ cursor: 'pointer', fontWeight: 500 }}>
+                      Exclude students with Parent Portal enabled from PDF printouts
+                    </label>
+                  </div>
+                )}
 
                 {/* Preview button */}
                 <button
