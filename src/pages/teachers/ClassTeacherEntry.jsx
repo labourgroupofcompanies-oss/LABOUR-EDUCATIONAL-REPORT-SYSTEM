@@ -47,6 +47,13 @@ const ClassTeacherEntry = () => {
     setPendingSyncCount(count);
   }, [outboxItems]);
 
+  const formatDateSafe = (dateStr) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
   const [form, setForm] = useState({
     attendancePresent: '',
     attendanceTotal: '',
@@ -346,10 +353,10 @@ const ClassTeacherEntry = () => {
             </div>
             <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
               {schoolInfo.vacationDate && (
-                <span><strong>Vacation Date:</strong> {new Date(schoolInfo.vacationDate).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                <span><strong>Vacation Date:</strong> {formatDateSafe(schoolInfo.vacationDate)}</span>
               )}
               {schoolInfo.nextTermBegins && (
-                <span><strong>Next Term Begins:</strong> {new Date(schoolInfo.nextTermBegins).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                <span><strong>Next Term Begins:</strong> {formatDateSafe(schoolInfo.nextTermBegins)}</span>
               )}
             </div>
           </div>

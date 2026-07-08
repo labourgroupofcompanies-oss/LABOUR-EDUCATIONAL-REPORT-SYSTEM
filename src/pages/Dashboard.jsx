@@ -76,6 +76,13 @@ const Dashboard = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'super_admin';
 
+  const formatDateSafe = (dateStr) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' });
+  };
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [annTitle, setAnnTitle] = useState('');
   const [annContent, setAnnContent] = useState('');
@@ -643,7 +650,7 @@ const Dashboard = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '0.6rem' }}>
                           <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>Vacation Date:</span>
                           <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text)' }}>
-                            {new Date(currentSchool.vacationDate).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                            {formatDateSafe(currentSchool.vacationDate)}
                           </span>
                         </div>
                       )}
@@ -651,7 +658,7 @@ const Dashboard = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>Next Term Begins:</span>
                           <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0d9488' }}>
-                            {new Date(currentSchool.nextTermBegins).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                            {formatDateSafe(currentSchool.nextTermBegins)}
                           </span>
                         </div>
                       )}
