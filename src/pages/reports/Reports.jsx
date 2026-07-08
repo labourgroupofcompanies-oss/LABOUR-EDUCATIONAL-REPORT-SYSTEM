@@ -905,10 +905,15 @@ const Reports = () => {
   );
   const advisorProfile = useLiveQuery(
     async () => {
-      if (!user?.id) return null;
-      return await db.profiles.get(user.id);
+      if (!schoolId || !selectedClass) return null;
+      const assignment = await db.teacherAssignments
+        .where('schoolId').equals(schoolId)
+        .filter(a => a.classId === Number(selectedClass) && a.subjectId === null)
+        .first();
+      if (!assignment) return null;
+      return await db.profiles.get(assignment.teacherId);
     },
-    [user]
+    [schoolId, selectedClass, teacherAssignments]
   );
   const headteacherProfile = useLiveQuery(
     async () => {
