@@ -631,6 +631,34 @@ const Dashboard = () => {
 
               {/* Sidebar Quick Console */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                {/* Academic Calendar dates card */}
+                {currentSchool && (currentSchool.vacationDate || currentSchool.nextTermBegins) && (
+                  <div className="card">
+                    <h3 style={{ marginBottom: '1.25rem', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)' }}>
+                      <i className="fas fa-calendar-alt" style={{ color: 'var(--accent)' }}></i>
+                      Academic Calendar
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                      {currentSchool.vacationDate && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '0.6rem' }}>
+                          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>Vacation Date:</span>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text)' }}>
+                            {new Date(currentSchool.vacationDate).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          </span>
+                        </div>
+                      )}
+                      {currentSchool.nextTermBegins && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>Next Term Begins:</span>
+                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0d9488' }}>
+                            {new Date(currentSchool.nextTermBegins).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Console card */}
                 <div className="card">
                   <h3 style={{ marginBottom: '1.25rem', fontSize: '1.05rem', fontWeight: 800 }}>Portal Dashboard Quick Links</h3>

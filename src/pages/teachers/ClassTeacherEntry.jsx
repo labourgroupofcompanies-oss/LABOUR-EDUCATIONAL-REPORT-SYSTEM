@@ -324,6 +324,37 @@ const ClassTeacherEntry = () => {
           </div>
         </div>
 
+        {schoolInfo && (schoolInfo.vacationDate || schoolInfo.nextTermBegins) && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            borderRadius: '12px',
+            padding: '0.85rem 1.25rem',
+            marginBottom: '1.5rem',
+            boxShadow: 'var(--shadow-sm)',
+            fontSize: '0.85rem',
+            color: 'var(--text)',
+            gap: '1rem',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-calendar-alt" style={{ color: 'var(--accent)', fontSize: '1rem' }} />
+              <span style={{ fontWeight: 600 }}>Official School Dates:</span>
+            </div>
+            <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+              {schoolInfo.vacationDate && (
+                <span><strong>Vacation Date:</strong> {new Date(schoolInfo.vacationDate).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+              )}
+              {schoolInfo.nextTermBegins && (
+                <span><strong>Next Term Begins:</strong> {new Date(schoolInfo.nextTermBegins).toLocaleDateString('en-GH', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+              )}
+            </div>
+          </div>
+        )}
+
         {selectedClass && classLearners.length > 0 && (
           <div className="learners-grid">
             {classLearners.map(l => {
