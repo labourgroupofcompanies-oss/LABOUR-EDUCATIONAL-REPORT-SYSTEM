@@ -874,6 +874,14 @@ const Reports = () => {
 
   // Live queries — all scoped to current school to prevent cross-school data loading
   const schoolId = user?.schoolId;
+
+  // ── Configuration state ───────────────────────────────────────────────────
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedTerm,  setSelectedTerm]  = useState('Term 1');
+  const [academicYear,  setAcademicYear]  = useState('');
+  const [generateMode,  setGenerateMode]  = useState('all'); // 'all' | 'individual'
+  const [selectedIndividualId, setSelectedIndividualId] = useState('');
+  const [excludePortalAccess, setExcludePortalAccess] = useState(true);
   const classes            = useLiveQuery(
     () => schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
@@ -946,13 +954,7 @@ const Reports = () => {
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
 
-  // ── Configuration state ───────────────────────────────────────────────────
-  const [selectedClass, setSelectedClass] = useState('');
-  const [selectedTerm,  setSelectedTerm]  = useState('Term 1');
-  const [academicYear,  setAcademicYear]  = useState('');
-  const [generateMode,  setGenerateMode]  = useState('all'); // 'all' | 'individual'
-  const [selectedIndividualId, setSelectedIndividualId] = useState('');
-  const [excludePortalAccess, setExcludePortalAccess] = useState(true);
+
 
   const localScores = useLiveQuery(
     () => schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : [],
