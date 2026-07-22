@@ -14,6 +14,7 @@ import ScoreEntry from './pages/scores/ScoreEntry';
 import Reports from './pages/reports/Reports';
 import ClassTeacherEntry from './pages/teachers/ClassTeacherEntry';
 import Financials from './pages/financials/Financials';
+import ScoreDiagnostic from './pages/setup/ScoreDiagnostic';
 import Promotions from './pages/learners/Promotions';
 import NotFound from './pages/NotFound';
 import ReloadPrompt from './components/common/ReloadPrompt';
@@ -127,6 +128,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <ScoreEntry />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/score-diagnostic" 
+              element={
+                <ProtectedRoute role="super_admin">
+                  <ScoreDiagnostic />
                 </ProtectedRoute>
               } 
             />

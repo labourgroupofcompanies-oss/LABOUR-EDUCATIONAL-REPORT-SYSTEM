@@ -428,26 +428,37 @@ async function runAdminSync(user) {
 
         const entry = {
           learnerId: cs.learner_id, classId: cs.class_id, subjectId: cs.subject_id,
-          caScores: cs.ca_scores || [], examScore: cs.exam_score || '',
+          caScores: cs.ca_scores || [], examScore: cs.exam_score !== null ? cs.exam_score : '',
           classScore: cs.class_score || 0, totalScore: cs.total_score || 0,
           grade: cs.grade || '', remark: cs.remark || '',
           isSubmitted: cs.is_submitted || false, termId: null,
           term: cs.term || '', academicYear: cs.academic_year || '',
-          schoolId: cs.school_id, updatedAt: cs.updated_at
+          schoolId: cs.school_id, updatedAt: cs.updated_at,
+          synced: true // Mark as synced since this came from the cloud
         };
 
         if (!existing) {
           await db.scores.add(entry);
         } else if (hasChanged(existing, entry, ['examScore', 'classScore', 'totalScore', 'grade', 'remark', 'isSubmitted', 'updatedAt', 'caScores'])) {
-          await db.scores.update(existing.id, entry);
+          // Only update if cloud is newer and no pending local edits in the outbox
+          const hasPendingOutbox = await db.outbox
+            .filter(o => o.table === 'report_scores' && (o.status === 'pending' || o.status === 'processing') &&
+              o.payload.includes(cs.learner_id) && o.payload.includes(String(cs.class_id)) &&
+              o.payload.includes(String(cs.subject_id)))
+            .first();
+          if (!hasPendingOutbox) {
+            await db.scores.update(existing.id, entry);
+          }
         }
       }
 
       // Prune local scores older than allowed years
-      if (currentYear && allowedYears.length > 0) {
+      // SAFETY: Only prune if we have a valid currentYear AND allowedYears is populated,
+      // and never delete scores that haven't been synced to the cloud yet.
+      if (currentYear && currentYear.trim() !== '' && allowedYears.length > 0) {
         await db.scores
           .where('schoolId').equals(schoolId)
-          .filter(s => !allowedYears.includes(s.academicYear))
+          .filter(s => !allowedYears.includes(s.academicYear) && s.synced !== false)
           .delete();
         console.log(`[SyncDown] Pruned local scores older than:`, allowedYears);
       }
@@ -517,10 +528,12 @@ async function runAdminSync(user) {
       }
 
       // Prune local summaries older than allowed years
-      if (currentYear && allowedYears.length > 0) {
+      // SAFETY: Only prune if we have a valid currentYear AND allowedYears is populated,
+      // and never delete summaries that haven't been synced to the cloud yet.
+      if (currentYear && currentYear.trim() !== '' && allowedYears.length > 0) {
         await db.reportSummaries
           .where('schoolId').equals(schoolId)
-          .filter(s => !allowedYears.includes(s.academicYear))
+          .filter(s => !allowedYears.includes(s.academicYear) && s.synced !== false)
           .delete();
         console.log(`[SyncDown] Pruned local report summaries older than:`, allowedYears);
       }

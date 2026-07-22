@@ -354,13 +354,17 @@ const ScoreEntry = () => {
     [selectedClass, selectedAcademicYear, selectedTerm]
   );
 
-  // Load existing scores if any
+  // Load existing scores from local Dexie, with a cloud refresh guard.
+  // We fetch from cloud first to ensure teachers on fresh devices see the latest data.
+  // IMPORTANT GUARD: We never overwrite a local score that has synced:false — those are
+  // unsaved edits that haven't reached Supabase yet. Overwriting them with stale cloud data
+  // was the root cause of blank exam scores (race condition after save).
   useEffect(() => {
     if (isDirty) return; // Protect unsaved inputs from being overwritten by reloads
 
     const loadScores = async () => {
       if (selectedClass && selectedSubject && selectedAcademicYear && selectedTerm) {
-        // 1. First, try to pull latest from cloud if online
+        // 1. Pull latest from cloud (ensures fresh device / first load sees real data)
         if (navigator.onLine && user?.schoolId) {
           try {
             const { data: cloudScores, error } = await supabase
@@ -373,64 +377,68 @@ const ScoreEntry = () => {
               .eq('term', selectedTerm);
 
             if (cloudScores && !error) {
-              // Merge cloud scores into local Dexie to ensure local is up-to-date
               for (const cs of cloudScores) {
                 const existing = await db.scores
                   .where('learnerId').equals(cs.learner_id)
                   .filter(s => s.classId === cs.class_id && s.subjectId === cs.subject_id && s.term === cs.term && s.academicYear === cs.academic_year)
                   .first();
-                
+
                 const entry = {
-                  learnerId: cs.learner_id,
-                  classId: cs.class_id,
-                  subjectId: cs.subject_id,
-                  caScores: cs.ca_scores || [],
-                  examScore: cs.exam_score || '',
-                  classScore: cs.class_score || 0,
-                  totalScore: cs.total_score || 0,
-                  grade: cs.grade || '',
-                  remark: cs.remark || '',
-                  isSubmitted: cs.is_submitted || false,
-                  termId: null,
-                  term: cs.term || '',
+                  learnerId:    cs.learner_id,
+                  classId:      cs.class_id,
+                  subjectId:    cs.subject_id,
+                  caScores:     cs.ca_scores || [],
+                  // Use nullish coalescing: preserves 0 scores, only replaces null/undefined with ''
+                  examScore:    cs.exam_score ?? '',
+                  classScore:   cs.class_score ?? 0,
+                  totalScore:   cs.total_score ?? 0,
+                  grade:        cs.grade || '',
+                  remark:       cs.remark || '',
+                  isSubmitted:  cs.is_submitted || false,
+                  termId:       null,
+                  term:         cs.term || '',
                   academicYear: cs.academic_year || '',
-                  updatedAt: cs.updated_at
+                  updatedAt:    cs.updated_at,
+                  synced:       true, // This record came from the cloud — it is synced
                 };
 
                 if (existing) {
-                  // Only update if cloud is newer (simple check)
-                  await db.scores.update(existing.id, entry);
+                  // CRITICAL: Only update from cloud if the local record has no pending edits.
+                  // If synced:false, the teacher has saved changes not yet in Supabase —
+                  // overwriting would silently discard their exam/CA scores.
+                  if (existing.synced !== false) {
+                    await db.scores.update(existing.id, entry);
+                  }
                 } else {
+                  // No local record exists — safe to add cloud version directly
                   await db.scores.add(entry);
                 }
               }
             }
           } catch (err) {
-            console.error('Failed to sync scores from cloud:', err);
+            console.error('[ScoreEntry] Cloud fetch failed (will use local Dexie):', err);
           }
         }
 
-        // 2. Load from Dexie to display
+        // 2. Load from Dexie to display (always the source of truth for the UI)
         const existing = await db.scores
           .where('classId').equals(Number(selectedClass))
           .filter(s => s.subjectId === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
           .toArray();
-        
-        // Fetch all learners to resolve local ID mappings to supabaseId (UUID) (including promoted/graduated ones)
+
+        // Fetch all learners to resolve local ID → supabaseId (UUID) mappings
         const localLearners = await db.learners.toArray();
-        
+
         const scoreMap = {};
         for (const s of existing) {
           let resolvedLearnerId = s.learnerId;
-          
-          // Self-healing: if s.learnerId is not a UUID, check if that student now has a supabaseId
+
+          // Self-healing: if learnerId is not a UUID, try to resolve it via supabaseId
           const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
           if (!isUuid) {
             const matchedLearner = localLearners.find(l => String(l.id) === String(s.learnerId));
             if (matchedLearner && matchedLearner.supabaseId) {
               resolvedLearnerId = matchedLearner.supabaseId;
-              
-              // Automatically migrate local score to the correct UUID mapping in Dexie
               try {
                 await db.scores.update(s.id, { learnerId: resolvedLearnerId });
                 console.log(`[Score Sync] Self-healed score for learner ${matchedLearner.fullName}: migrated ID from ${s.learnerId} to ${resolvedLearnerId}`);
@@ -439,10 +447,11 @@ const ScoreEntry = () => {
               }
             }
           }
-          
-          scoreMap[resolvedLearnerId] = { 
-            caScores: s.caScores || [], 
-            examScore: s.examScore || '' 
+
+          scoreMap[resolvedLearnerId] = {
+            caScores: s.caScores || [],
+            // Use ?? '' so exam score 0 is shown as 0, not converted to '' (which uploads as null)
+            examScore: s.examScore ?? '',
           };
         }
         setScores(scoreMap);
@@ -454,95 +463,109 @@ const ScoreEntry = () => {
   const syncUnsyncedScores = useCallback(async () => {
     if (!navigator.onLine || !user?.schoolId) return;
     try {
-      // Fetch all unsynced scores locally
+      // 1. Find groups that have unsynced scores — these need to be uploaded
       const unsynced = await db.scores.filter(s => !s.synced).toArray();
       if (unsynced.length === 0) return;
 
       console.log(`[Score Sync] Found ${unsynced.length} unsynced score(s). Resolving mappings...`);
-      
-      // Group scores by class, subject, term, academic year to perform efficient batch deletes & inserts
-      const groups = {};
-      
+
+      // Collect the unique group keys that need syncing
+      const groupKeysToSync = new Set();
       for (const s of unsynced) {
-        // Resolve student UUID if it was stored as local ID
-        let resolvedLearnerId = s.learnerId;
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
-        
         if (!isUuid) {
           const matchedLearner = await db.learners.get(Number(s.learnerId));
           if (matchedLearner && matchedLearner.supabaseId) {
-            resolvedLearnerId = matchedLearner.supabaseId;
-            // Update local score record with the UUID
-            await db.scores.update(s.id, { learnerId: resolvedLearnerId });
+            await db.scores.update(s.id, { learnerId: matchedLearner.supabaseId });
           } else {
-            // Cannot sync score yet if the learner has no UUID (not synced yet)
-            console.log(`[Score Sync] Learner ${s.learnerId} not synced yet. Skipping score sync for now.`);
+            console.log(`[Score Sync] Learner ${s.learnerId} not synced yet. Skipping.`);
             continue;
           }
         }
-
-        const groupKey = `${s.classId}_${s.subjectId}_${s.term}_${s.academicYear}`;
-        if (!groups[groupKey]) {
-          groups[groupKey] = {
-            classId: s.classId,
-            subjectId: s.subjectId,
-            term: s.term,
-            academicYear: s.academicYear,
-            scores: []
-          };
-        }
-        
-        groups[groupKey].scores.push({
-          id: s.id, // local Dexie ID to mark as synced later
-          payload: {
-            school_id: user.schoolId,
-            learner_id: resolvedLearnerId,
-            class_id: s.classId,
-            subject_id: s.subjectId,
-            ca_scores: s.caScores || [],
-            exam_score: s.examScore !== '' && s.examScore !== undefined && s.examScore !== null ? Number(s.examScore) : null,
-            class_score: Number(s.classScore) || 0,
-            total_score: Number(s.totalScore) || null,
-            grade: s.grade || null,
-            remark: s.remark || null,
-            is_submitted: s.isSubmitted || false,
-            academic_year: s.academicYear,
-            term: s.term,
-            updated_at: s.updatedAt || new Date().toISOString()
-          }
-        });
+        groupKeysToSync.add(`${s.classId}_${s.subjectId}_${s.term}_${s.academicYear}`);
       }
 
-      for (const group of Object.values(groups)) {
-        if (group.scores.length === 0) continue;
+      // 2. For each group, upload ALL local scores (synced + unsynced).
+      // This is critical: the delete_insert operation wipes ALL rows for the group from Supabase
+      // before re-inserting. If we only uploaded unsynced rows, we'd permanently delete the
+      // synced scores from Supabase (scores entered by teachers on other devices).
+      for (const groupKey of groupKeysToSync) {
+        const [classIdStr, subjectIdStr, term, academicYear] = groupKey.split('_');
+        const classId   = Number(classIdStr);
+        const subjectId = Number(subjectIdStr);
 
-        console.log(`[Score Sync] Enqueuing ${group.scores.length} scores for Class ${group.classId}, Subject ${group.subjectId}...`);
-        
-        const cloudRows = group.scores.map(item => item.payload);
-        
+        // Get ALL scores for this group (both synced and unsynced)
+        const allGroupScores = await db.scores
+          .where('classId').equals(classId)
+          .filter(s => s.subjectId === subjectId && s.term === term && s.academicYear === academicYear)
+          .toArray();
+
+        if (allGroupScores.length === 0) continue;
+
+        const insertData = [];
+        for (const s of allGroupScores) {
+          // Resolve UUID
+          let resolvedLearnerId = s.learnerId;
+          const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
+          if (!isUuid) {
+            const matchedLearner = await db.learners.get(Number(s.learnerId));
+            if (!matchedLearner?.supabaseId) continue; // skip if UUID not available
+            resolvedLearnerId = matchedLearner.supabaseId;
+          }
+
+          // exam_score: only send null if the value is truly absent (empty string, null, undefined)
+          // Use strict check — do NOT treat 0 as absent (a student can legitimately score 0)
+          const examVal = s.examScore;
+          const examScore = (examVal !== '' && examVal !== null && examVal !== undefined)
+            ? Number(examVal)
+            : null;
+
+          // total_score: preserve 0 (student scored zero) — do NOT use || null which converts 0 to null
+          const totalScore = (s.totalScore !== null && s.totalScore !== undefined && s.totalScore !== '')
+            ? Number(s.totalScore)
+            : null;
+
+          insertData.push({
+            school_id:    user.schoolId,
+            learner_id:   resolvedLearnerId,
+            class_id:     classId,
+            subject_id:   subjectId,
+            ca_scores:    s.caScores || [],
+            exam_score:   examScore,
+            class_score:  Number(s.classScore) || 0,
+            total_score:  totalScore,
+            grade:        s.grade || null,
+            remark:       s.remark || null,
+            is_submitted: s.isSubmitted || false,
+            academic_year: academicYear,
+            term,
+            updated_at:   s.updatedAt || new Date().toISOString()
+          });
+        }
+
+        if (insertData.length === 0) continue;
+
+        console.log(`[Score Sync] Enqueuing ${insertData.length} scores (all local) for Class ${classId}, Subject ${subjectId}...`);
+
         await enqueueSync(
           'delete_insert',
           'report_scores',
           {
             deleteFilter: {
-              school_id: user.schoolId,
-              class_id: Number(group.classId),
-              subject_id: Number(group.subjectId),
-              term: group.term,
-              academic_year: group.academicYear
+              school_id:    user.schoolId,
+              class_id:     classId,
+              subject_id:   subjectId,
+              term,
+              academic_year: academicYear,
             },
-            insertData: cloudRows
+            insertData
           },
           user.schoolId
         );
 
-        // Mark all these scores as synced locally
-        await db.transaction('rw', db.scores, async () => {
-          for (const item of group.scores) {
-            await db.scores.update(item.id, { synced: true, lastSyncedAt: new Date().toISOString() });
-          }
-        });
+        console.log(`[Score Sync] Enqueued ${insertData.length} scores for Class ${classId}, Subject ${subjectId}. Waiting for outbox to confirm sync.`);
       }
+
       console.log('[Score Sync] Finished enqueuing unsynced scores!');
     } catch (err) {
       console.error('[Score Sync] Error during score sync:', err);

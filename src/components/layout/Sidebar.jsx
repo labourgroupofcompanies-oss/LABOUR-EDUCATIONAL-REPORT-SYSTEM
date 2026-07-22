@@ -34,7 +34,8 @@ const Sidebar = ({ isOpen, onClose }) => {
       links: [
         { to: '/learners', icon: 'fa-user-graduate', label: 'Learners Directory' },
         { to: '/promotions', icon: 'fa-level-up-alt', label: 'Class Promotions' },
-        { to: '/reports', icon: 'fa-file-invoice', label: 'Reports & Broadsheets' }
+        { to: '/reports', icon: 'fa-file-invoice', label: 'Reports & Broadsheets' },
+        { to: '/score-diagnostic', icon: 'fa-stethoscope', label: 'Score Sync Diagnostic' }
       ]
     },
     {

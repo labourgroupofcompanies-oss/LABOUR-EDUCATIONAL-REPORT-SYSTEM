@@ -420,6 +420,7 @@ const Dashboard = () => {
                   {[
                     { icon: 'fa-user-plus', label: 'Register Learner', sub: 'Add a new learner to the system', link: '/learners', color: '#0d9488' },
                     { icon: 'fa-chalkboard-user', label: 'Assign Teacher', sub: 'Set subject & class assignments', link: '/setup', color: '#059669' },
+                    { icon: 'fa-stethoscope', label: 'Score Sync Diagnostic', sub: 'Check which teacher scores reached the cloud', link: '/score-diagnostic', color: '#f97316' },
                     { icon: 'fa-cog', label: 'School Settings', sub: 'Configure CA weightage and grading scale', link: '/settings', color: '#0f766e' },
                     { icon: 'fa-share-nodes', label: copied ? 'Link Copied!' : 'Share Portal Link', sub: 'Copy WhatsApp invitation text for parents', onClick: handleShareInvite, color: '#0ea5e9' }
                   ].map((action) => {

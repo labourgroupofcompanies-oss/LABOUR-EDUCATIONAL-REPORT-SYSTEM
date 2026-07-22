@@ -961,42 +961,91 @@ const Reports = () => {
     [schoolId]
   );
   const [cloudScores, setCloudScores] = useState([]);
+  const [cloudScoresLoading, setCloudScoresLoading] = useState(false);
+
+  // Reset cloud scores immediately when selection changes to prevent stale data from
+  // a previous class/term/year bleeding into the new selection's report cards.
+  useEffect(() => {
+    setCloudScores([]);
+  }, [selectedClass, academicYear, selectedTerm]);
 
   // Fetch directly from cloud to ensure Reports always use the latest teacher inputs
   useEffect(() => {
     if (!navigator.onLine || !user?.schoolId || !selectedClass || !academicYear || !selectedTerm) return;
+    let cancelled = false;
+    setCloudScoresLoading(true);
     (async () => {
-      const { data } = await supabase
-        .from('report_scores')
-        .select('*')
-        .eq('school_id', user.schoolId)
-        .eq('class_id', Number(selectedClass))
-        .eq('academic_year', academicYear)
-        .eq('term', selectedTerm);
-      
-      if (data) {
-        const formatted = data.map(cs => ({
-          learnerId: cs.learner_id,
-          classId: cs.class_id,
-          subjectId: cs.subject_id,
-          caScores: cs.ca_scores || [],
-          examScore: cs.exam_score !== null ? cs.exam_score : '',
-          classScore: cs.class_score || 0,
-          totalScore: cs.total_score || 0,
-          grade: cs.grade || '',
-          remark: cs.remark || '',
-          termId: cs.term_id || null,
-          term: cs.term || '',
-          academicYear: cs.academic_year || '',
-          updatedAt: cs.updated_at
-        }));
-        setCloudScores(formatted);
+      try {
+        const { data } = await supabase
+          .from('report_scores')
+          .select('*')
+          .eq('school_id', user.schoolId)
+          .eq('class_id', Number(selectedClass))
+          .eq('academic_year', academicYear)
+          .eq('term', selectedTerm);
+        
+        if (cancelled) return; // Selection changed while fetching — discard stale result
+
+        if (data) {
+          const formatted = data.map(cs => ({
+            learnerId: cs.learner_id,
+            classId: cs.class_id,
+            subjectId: cs.subject_id,
+            caScores: cs.ca_scores || [],
+            examScore: cs.exam_score !== null ? cs.exam_score : '',
+            classScore: cs.class_score || 0,
+            totalScore: cs.total_score || 0,
+            grade: cs.grade || '',
+            remark: cs.remark || '',
+            termId: cs.term_id || null,
+            term: cs.term || '',
+            academicYear: cs.academic_year || '',
+            updatedAt: cs.updated_at
+          }));
+          setCloudScores(formatted);
+
+          // Merge cloud scores into local Dexie so offline fallback stays in sync
+          for (const cs of data) {
+            try {
+              const existing = await db.scores
+                .where('learnerId').equals(cs.learner_id)
+                .filter(s => s.classId === cs.class_id && s.subjectId === cs.subject_id && s.term === cs.term && s.academicYear === cs.academic_year)
+                .first();
+              const entry = {
+                learnerId: cs.learner_id, classId: cs.class_id, subjectId: cs.subject_id,
+                caScores: cs.ca_scores || [], examScore: cs.exam_score !== null ? cs.exam_score : '',
+                classScore: cs.class_score || 0, totalScore: cs.total_score || 0,
+                grade: cs.grade || '', remark: cs.remark || '', isSubmitted: cs.is_submitted || false,
+                termId: null, term: cs.term || '', academicYear: cs.academic_year || '',
+                schoolId: cs.school_id, updatedAt: cs.updated_at, synced: true
+              };
+              if (!existing) {
+                await db.scores.add(entry);
+              } else if (existing.updatedAt !== cs.updated_at || existing.totalScore !== cs.total_score) {
+                await db.scores.update(existing.id, entry);
+              }
+            } catch (_) { /* non-critical: local cache update failed, cloud data still shown */ }
+          }
+        }
+      } catch (err) {
+        console.error('[Reports] Cloud scores fetch failed:', err);
+      } finally {
+        if (!cancelled) setCloudScoresLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [user, selectedClass, academicYear, selectedTerm]);
 
-  // Use cloud scores if available, fallback to local Dexie for offline support
-  const scores = cloudScores.length > 0 ? cloudScores : (localScores || []);
+  // Merge strategy: cloud scores take priority over local for the selected class/term/year.
+  // For other classes/terms, we still rely on localScores so all data is always available.
+  const scores = React.useMemo(() => {
+    const local = localScores || [];
+    if (cloudScores.length === 0) return local;
+    // Build a set of cloud score keys so we can replace matching local ones
+    const cloudKeys = new Set(cloudScores.map(s => `${s.learnerId}|${s.classId}|${s.subjectId}|${s.term}|${s.academicYear}`));
+    const filteredLocal = local.filter(s => !cloudKeys.has(`${s.learnerId}|${s.classId}|${s.subjectId}|${s.term}|${s.academicYear}`));
+    return [...filteredLocal, ...cloudScores];
+  }, [cloudScores, localScores]);
 
   // ── View state: 'config' | 'preview' ─────────────────────────────────────
   const [view, setView] = useState('config');
@@ -1058,56 +1107,9 @@ const Reports = () => {
     })();
   }, [user]);
 
-  // Cloud sync scores for selected class
-  useEffect(() => {
-    if (!navigator.onLine || !user?.schoolId || !selectedClass || !academicYear || !selectedTerm) return;
-    (async () => {
-      try {
-        const { data: cloudScores, error } = await supabase
-          .from('report_scores')
-          .select('*')
-          .eq('school_id', user.schoolId)
-          .eq('class_id', Number(selectedClass))
-          .eq('academic_year', academicYear)
-          .eq('term', selectedTerm);
-        
-        if (cloudScores && !error) {
-          for (const cs of cloudScores) {
-            const existing = await db.scores
-              .where('learnerId').equals(cs.learner_id)
-              .filter(s => s.classId === cs.class_id && s.subjectId === cs.subject_id && s.term === cs.term && s.academicYear === cs.academic_year)
-              .first();
-            
-            const entry = {
-              learnerId: cs.learner_id,
-              classId: cs.class_id,
-              subjectId: cs.subject_id,
-              caScores: cs.ca_scores || [],
-              examScore: cs.exam_score || '',
-              classScore: cs.class_score || 0,
-              totalScore: cs.total_score || 0,
-              grade: cs.grade || '',
-              remark: cs.remark || '',
-              isSubmitted: cs.is_submitted || false,
-              termId: null,
-              term: cs.term || '',
-              academicYear: cs.academic_year || '',
-              updatedAt: cs.updated_at
-            };
-
-            if (existing) {
-              // Basic check to update only if necessary or just overwrite to stay in sync
-              if (existing.updatedAt !== cs.updated_at || existing.totalScore !== cs.total_score) {
-                await db.scores.update(existing.id, entry);
-              }
-            } else {
-              await db.scores.add(entry);
-            }
-          }
-        }
-      } catch (err) { console.error('Cloud sync scores error:', err); }
-    })();
-  }, [user, selectedClass, academicYear, selectedTerm]);
+  // NOTE: Cloud score syncing into Dexie is now handled by the main cloudScores
+  // useEffect above (which also merges into local Dexie). This avoids duplicate
+  // fetches and race conditions from two concurrent cloud score fetches.
 
   // Background unsynced report summaries synchronizer & self-healing mapping
   const syncUnsyncedReportSummaries = React.useCallback(async () => {
