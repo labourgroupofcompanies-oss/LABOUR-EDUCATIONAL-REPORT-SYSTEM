@@ -4,6 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
 import authService from '../../services/authService';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
+import LogoPreloader from '../../components/common/LogoPreloader';
 
 const ParentFeesView = () => {
   const { learnerId } = useParams();
@@ -27,6 +28,16 @@ const ParentFeesView = () => {
       learner = await db.learners.where('learnerId').equals(learnerId).first();
     }
     if (!learner) return { notFound: true };
+
+    // Fix #7: Validate the learner belongs to the logged-in parent
+    if (parent?.phone_number) {
+      const cleanParent = parent.phone_number.replace(/[\s\-\+\(\)]/g, '').slice(-9);
+      const c1 = (learner.guardianContact1 || '').replace(/[\s\-\+\(\)]/g, '').slice(-9);
+      const c2 = (learner.guardianContact2 || '').replace(/[\s\-\+\(\)]/g, '').slice(-9);
+      if (c1 !== cleanParent && c2 !== cleanParent) {
+        return { unauthorized: true };
+      }
+    }
 
     // 2. Load school metadata, classes, and report summaries in parallel
     const schoolId = learner.schoolId;
@@ -113,12 +124,16 @@ const ParentFeesView = () => {
   }, [activeSummary, activeTermPayments]);
 
   if (!viewData) {
+    return <LogoPreloader fullScreen={true} size="lg" />;
+  }
+
+  if (viewData?.unauthorized) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
-        <div>
-          <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#3b82f6' }}></i>
-          <p>Loading ledger details...</p>
-        </div>
+      <div style={{ padding: '3rem', textAlign: 'center' }}>
+        <i className="fas fa-shield-alt" style={{ fontSize: '3rem', color: '#ef4444', marginBottom: '1rem', display: 'block' }}></i>
+        <h2>Not Authorized</h2>
+        <p style={{ color: '#64748b' }}>You do not have permission to view this learner's fee records.</p>
+        <button className="btn" onClick={() => navigate('/parent/dashboard')} style={{ marginTop: '1rem', padding: '0.6rem 1.5rem', background: '#09090b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Back to Dashboard</button>
       </div>
     );
   }
@@ -408,35 +423,40 @@ const ParentFeesView = () => {
                     <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Date</th>
                     <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Amount Paid</th>
                     <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Payment Method</th>
-                    <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Reference</th>
+                    <th style={{ padding: '0.5rem 1rem', fontWeight: 700 }}>Receipt No</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {activeTermPayments.map((p, idx) => (
-                    <tr key={p.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
-                        {new Date(p.paymentDate).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#059669' }}>
-                        GH¢ {(parseFloat(p.amount) || 0).toFixed(2)}
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#0f172a', fontWeight: 600 }}>
-                        <span style={{ 
-                          display: 'inline-block', 
-                          padding: '0.15rem 0.5rem', 
-                          borderRadius: '6px', 
-                          fontSize: '0.75rem',
-                          background: p.paymentMethod === 'Cash' ? '#fef3c7' : p.paymentMethod === 'Mobile Money' ? '#e0f2fe' : '#dcfce7',
-                          color: p.paymentMethod === 'Cash' ? '#92400e' : p.paymentMethod === 'Mobile Money' ? '#0369a1' : '#15803d'
-                        }}>
-                          {p.paymentMethod}
-                        </span>
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem', color: '#64748b', fontFamily: 'monospace' }}>
-                        {p.reference || '—'}
-                      </td>
-                    </tr>
-                  ))}
+                  {activeTermPayments.map((p, idx) => {
+                    const rNo = p.receipt_number || p.receiptNumber || p.reference || 'RCP-2026';
+                    return (
+                      <tr key={p.id || idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '0.75rem 1rem', color: '#475569' }}>
+                          {new Date(p.paymentDate || p.created_at || Date.now()).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', fontWeight: 700, color: '#059669' }}>
+                          GH¢ {(parseFloat(p.amount) || 0).toFixed(2)}
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', color: '#0f172a', fontWeight: 600 }}>
+                          <span style={{ 
+                            display: 'inline-block', 
+                            padding: '0.15rem 0.5rem', 
+                            borderRadius: '6px', 
+                            fontSize: '0.75rem',
+                            background: p.paymentMethod === 'Cash' ? '#fef3c7' : p.paymentMethod === 'Mobile Money' ? '#e0f2fe' : '#dcfce7',
+                            color: p.paymentMethod === 'Cash' ? '#92400e' : p.paymentMethod === 'Mobile Money' ? '#0369a1' : '#15803d'
+                          }}>
+                            {p.paymentMethod || p.payment_method || 'Cash'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '0.75rem 1rem', color: '#2563eb', fontFamily: 'monospace', fontWeight: 700 }}>
+                          <a href={`/verify-receipt/${encodeURIComponent(rNo)}`} target="_blank" rel="noopener noreferrer" style={{ color: '#2563eb', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <i className="fas fa-receipt" /> {rNo}
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

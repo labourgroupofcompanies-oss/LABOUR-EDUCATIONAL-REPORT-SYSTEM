@@ -1052,31 +1052,31 @@ const HeadTeacherMessages = () => {
             box-shadow: 0 2px 8px rgba(0,0,0,0.015);
           }
           .chat-msg-row.me .chat-msg-bubble {
-            background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+            background: #2563eb;
             color: #fff;
             border-bottom-right-radius: 4px;
-            box-shadow: 0 4px 18px rgba(13, 148, 136, 0.25);
+            box-shadow: 0 4px 18px rgba(37, 99, 235, 0.25);
           }
           .chat-msg-row.them .chat-msg-bubble {
-            background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+            background: #09090b;
             color: #e2e8f0;
             border-bottom-left-radius: 4px;
             border: 1px solid rgba(255,255,255,0.06);
           }
           .chat-msg-meta {
             font-size: 0.65rem;
-            color: #94a3b8;
+            color: #71717a;
             margin-top: 4px;
             font-weight: 500;
             display: flex;
             align-items: center;
             gap: 4px;
           }
-          .chat-msg-pending { color: #f59e0b; }
+          .chat-msg-pending { color: #F59E0B; }
 
           .chat-compose-area {
             padding: 1.25rem 1.5rem;
-            border-top: 1px solid #e2e8f0;
+            border-top: 1px solid #E4E4E7;
             background: #fff;
             flex-shrink: 0;
           }
@@ -1089,7 +1089,7 @@ const HeadTeacherMessages = () => {
             flex: 1;
             padding: 0.75rem 1rem;
             border-radius: 14px;
-            border: 1px solid #cbd5e1;
+            border: 1px solid #E4E4E7;
             font-family: inherit;
             font-size: 0.88rem;
             outline: none;
@@ -1100,11 +1100,11 @@ const HeadTeacherMessages = () => {
             transition: all 0.2s;
           }
           .chat-textbox:focus {
-            border-color: #0d9488;
-            box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.12);
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
           }
           .chat-send-btn {
-            background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+            background: #2563eb;
             border: none;
             color: #fff;
             width: 44px;
@@ -1115,7 +1115,7 @@ const HeadTeacherMessages = () => {
             justify-content: center;
             cursor: pointer;
             transition: all 0.22s;
-            box-shadow: 0 4px 16px rgba(13,148,136,0.25);
+            box-shadow: 0 4px 16px rgba(37, 99, 235, 0.25);
             flex-shrink: 0;
           }
           .chat-send-btn:hover:not(:disabled) {
@@ -1370,9 +1370,9 @@ const HeadTeacherMessages = () => {
             white-space: nowrap;
           }
           .log-badge-broadcast {
-            background: rgba(13, 148, 136, 0.1);
-            color: #0d9488;
-            border: 1px solid rgba(13, 148, 136, 0.15);
+            background: rgba(37, 99, 235, 0.1);
+            color: #2563eb;
+            border: 1px solid rgba(37, 99, 235, 0.15);
           }
           .log-badge-direct {
             background: rgba(59, 130, 246, 0.1);
@@ -1794,10 +1794,10 @@ const HeadTeacherMessages = () => {
                     <div className="chat-scrollbox">
                       {activeMessages.length === 0 ? (
                         <div className="landing-stage-empty" style={{ background: 'transparent' }}>
-                          <div className="landing-empty-art" style={{ width: '56px', height: '56px', fontSize: '1.5rem', background: 'rgba(13,148,136,0.06)', color: '#0d9488', borderColor: 'rgba(13,148,136,0.12)' }}>
+                          <div className="landing-empty-art" style={{ width: '56px', height: '56px', fontSize: '1.5rem', background: 'rgba(37, 99, 235, 0.08)', color: '#2563eb', borderColor: 'rgba(37, 99, 235, 0.15)' }}>
                             <i className="fas fa-paper-plane"></i>
                           </div>
-                          <h4 style={{ color: '#0f172a', fontWeight: 800, margin: '0 0 4px' }}>No messages yet</h4>
+                          <h4 style={{ color: '#09090b', fontWeight: 800, margin: '0 0 4px' }}>No messages yet</h4>
                           <p style={{ fontSize: '0.8rem' }}>Draft and send a text bubble to begin direct messaging with this guardian.</p>
                         </div>
                       ) : (

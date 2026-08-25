@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import MobileNavBar from './MobileNavBar';
+import PortalGuide from '../common/PortalGuide';
+import ImpersonationBanner from '../common/ImpersonationBanner';
 
 const Layout = ({ children, title }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -18,29 +21,38 @@ const Layout = ({ children, title }) => {
   const handleOverlayClick = () => setSidebarOpen(false);
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      {/* Mobile Overlay */}
-      <div
-        className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
-        onClick={handleOverlayClick}
-      />
-
-      {/* Sidebar */}
-      <Sidebar
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      {/* Main content */}
-      <div className="main-content">
-        <Header
-          title={title}
-          onMenuClick={() => setSidebarOpen(prev => !prev)}
+    <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
+      <ImpersonationBanner />
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        {/* Mobile Overlay */}
+        <div
+          className={`sidebar-overlay ${sidebarOpen ? 'open' : ''}`}
+          onClick={handleOverlayClick}
         />
-        <main className="page-content">
-          {children}
-        </main>
+
+        {/* Sidebar */}
+        <Sidebar
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+        />
+
+        {/* Main content */}
+        <div className="main-content">
+          <Header
+            title={title}
+            onMenuClick={() => setSidebarOpen(prev => !prev)}
+          />
+          <main className="page-content">
+            {children}
+          </main>
+        </div>
       </div>
+
+      {/* Role-Specific Sequential Spotlight Portal Guide */}
+      <PortalGuide />
+
+      {/* Mobile Native App Bottom Navigation Bar */}
+      <MobileNavBar />
     </div>
   );
 };

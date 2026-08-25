@@ -31,10 +31,10 @@ const ClassTeacherEntry = () => {
     };
   }, []);
 
-  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
-  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
-  const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
-  const teacherAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.filter(s => s.schoolId === user.schoolId).toArray() : [], [user?.schoolId]);
+  const classes = useLiveQuery(() => user?.schoolId ? db.classes.filter(c => String(c.schoolId) === String(user.schoolId) || String(c.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
+  const learners = useLiveQuery(() => user?.schoolId ? db.learners.filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
+  const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.filter(r => String(r.schoolId) === String(user.schoolId) || String(r.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
+  const teacherAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
   const schoolInfo = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
@@ -126,7 +126,56 @@ const ClassTeacherEntry = () => {
     );
   }, [activeLearnerId, activeLearner, reportSummaries, academicYear, selectedTerm]);
 
+/** Helper: Find next class in Ghanaian school progression sequence */
+const getNextClassForPromotion = (currentClassId, allClasses) => {
+  if (!currentClassId || !allClasses || allClasses.length === 0) return null;
+
+  const current = allClasses.find(c => String(c.id) === String(currentClassId));
+  if (!current) return null;
+
+  const hierarchyPatterns = [
+    /creche/i, /nursery 1/i, /nursery 2/i, /kg 1/i, /kg 2/i,
+    /basic 1/i, /basic 2/i, /basic 3/i, /basic 4/i, /basic 5/i, /basic 6/i,
+    /jhs 1/i, /jhs 2/i, /jhs 3/i, /shs 1/i, /shs 2/i, /shs 3/i
+  ];
+
+  const curName = current.name || '';
+  const hierarchyIndex = hierarchyPatterns.findIndex(pattern => pattern.test(curName));
+
+  if (hierarchyIndex !== -1 && hierarchyIndex < hierarchyPatterns.length - 1) {
+    const nextPattern = hierarchyPatterns[hierarchyIndex + 1];
+    const matchedNext = allClasses.find(c => nextPattern.test(c.name));
+    if (matchedNext) return matchedNext;
+  }
+
+  // Match by number (e.g. "Basic 5" -> 5 -> next 6)
+  const numMatch = curName.match(/\d+/);
+  if (numMatch) {
+    const currentNum = parseInt(numMatch[0], 10);
+    const nextNum = currentNum + 1;
+    const prefix = curName.replace(/\d+.*/, '').trim();
+    const matchedByNum = allClasses.find(c => {
+      const cNumMatch = c.name.match(/\d+/);
+      const cPrefix = c.name.replace(/\d+.*/, '').trim();
+      return cNumMatch && parseInt(cNumMatch[0], 10) === nextNum && (cPrefix.toLowerCase() === prefix.toLowerCase() || prefix === '');
+    });
+    if (matchedByNum) return matchedByNum;
+  }
+
+  // Fallback: next higher class in sorted array
+  const sorted = [...allClasses].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const curIdx = sorted.findIndex(c => String(c.id) === String(currentClassId));
+  if (curIdx !== -1 && curIdx < sorted.length - 1) {
+    return sorted[curIdx + 1];
+  }
+
+  return 'Alumni';
+};
+
   useEffect(() => {
+    const nextClassObj = getNextClassForPromotion(selectedClass, classes);
+    const autoDefaultNext = nextClassObj === 'Alumni' ? 'Alumni' : nextClassObj ? String(nextClassObj.id) : '';
+
     if (activeSummary) {
       setForm({
         attendancePresent: activeSummary.attendancePresent ?? '',
@@ -134,15 +183,16 @@ const ClassTeacherEntry = () => {
         conduct: activeSummary.conduct || '',
         attitude: activeSummary.attitude || '',
         teacherRemark: activeSummary.teacherRemark || '',
-        promotedTo: activeSummary.promotedTo || '',
+        promotedTo: activeSummary.promotedTo || autoDefaultNext,
       });
     } else {
       setForm({
         attendancePresent: '', attendanceTotal: '',
-        conduct: '', attitude: '', teacherRemark: '', promotedTo: '',
+        conduct: '', attitude: '', teacherRemark: '',
+        promotedTo: autoDefaultNext,
       });
     }
-  }, [activeSummary, activeLearnerId]);
+  }, [activeSummary, activeLearnerId, selectedClass, classes]);
 
   const handleSave = async (e) => {
     e?.preventDefault();
@@ -234,20 +284,6 @@ const ClassTeacherEntry = () => {
   return (
     <Layout title="Class Remarks & Attendance">
       <style>{`
-        .learners-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.25rem; }
-        .learner-card { background: #fff; border-radius: 20px; padding: 1.25rem; display: flex; flex-direction: column; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid rgba(226, 232, 240, 0.8); position: relative; overflow: hidden; cursor: pointer; }
-        .learner-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, #0d9488, #3b82f6); opacity: 0; transition: opacity 0.3s; }
-        .learner-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-color: rgba(13, 148, 136, 0.3); }
-        .learner-card:hover::before { opacity: 1; }
-        .lc-header { display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem; }
-        .lc-photo { width: 56px; height: 56px; border-radius: 16px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .lc-photo-placeholder { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .lc-name { font-weight: 700; color: #0f172a; font-size: 1.05rem; margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .lc-reg { font-size: 0.72rem; background: rgba(13, 148, 136, 0.1); color: #0d9488; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; display: inline-block; letter-spacing: 0.03em; }
-        .lc-status { margin-top: auto; font-size: 0.75rem; font-weight: 600; padding: 0.6rem; border-radius: 10px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
-        .status-filled { background: rgba(16, 185, 129, 0.1); color: #059669; }
-        .status-empty { background: rgba(245, 158, 11, 0.1); color: #d97706; }
-        
         .entry-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.6);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;overflow-y:auto;}
         .entry-modal{background:#fff;border-radius:20px;width:100%;max-width:580px;box-shadow:0 25px 60px rgba(0,0,0,0.2);animation:modalIn .25s cubic-bezier(.34,1.56,.64,1) both;margin:auto;}
         @keyframes modalIn{from{opacity:0;transform:scale(.94) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
@@ -262,13 +298,13 @@ const ClassTeacherEntry = () => {
         {!isOnline && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-            border: '1px solid #fcd34d', borderRadius: '12px',
+            background: '#FFFBEB',
+            border: '1px solid #FEF3C7', borderRadius: '12px',
             padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
             fontSize: '0.88rem', color: '#92400e', fontWeight: 600,
-            boxShadow: '0 2px 8px rgba(245,158,11,0.15)'
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
           }}>
-            <i className="fas fa-wifi-slash" style={{ fontSize: '1.1rem', color: '#d97706', flexShrink: 0 }}></i>
+            <i className="fas fa-wifi-slash" style={{ fontSize: '1.1rem', color: '#F59E0B', flexShrink: 0 }}></i>
             <div>
               <strong>You are offline.</strong> Remarks you save will be stored locally and synced automatically when you reconnect.
             </div>
@@ -277,13 +313,13 @@ const ClassTeacherEntry = () => {
         {isOnline && pendingSyncCount > 0 && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
-            border: '1px solid #93c5fd', borderRadius: '12px',
+            background: '#EFF6FF',
+            border: '1px solid #DBEAFE', borderRadius: '12px',
             padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
             fontSize: '0.88rem', color: '#1e40af', fontWeight: 600,
-            boxShadow: '0 2px 8px rgba(59,130,246,0.1)'
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
           }}>
-            <i className="fas fa-rotate fa-spin" style={{ fontSize: '1rem', color: '#3b82f6', flexShrink: 0 }}></i>
+            <i className="fas fa-rotate fa-spin" style={{ fontSize: '1rem', color: '#2563eb', flexShrink: 0 }}></i>
             <div>
               Syncing {pendingSyncCount} pending record{pendingSyncCount !== 1 ? 's' : ''} to the cloud…
             </div>
@@ -292,13 +328,13 @@ const ClassTeacherEntry = () => {
         {isOnline && pendingSyncCount === 0 && outboxItems !== undefined && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-            border: '1px solid #6ee7b7', borderRadius: '12px',
+            background: '#ECFDF5',
+            border: '1px solid #D1FAE5', borderRadius: '12px',
             padding: '0.65rem 1.25rem', marginBottom: '1.25rem',
             fontSize: '0.85rem', color: '#065f46', fontWeight: 600,
-            boxShadow: '0 2px 8px rgba(16,185,129,0.1)'
+            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
           }}>
-            <i className="fas fa-cloud-check" style={{ fontSize: '1rem', color: '#10b981', flexShrink: 0 }}></i>
+            <i className="fas fa-cloud-check" style={{ fontSize: '1rem', color: '#10B981', flexShrink: 0 }}></i>
             <div>All remarks synced to the cloud.</div>
           </div>
         )}
@@ -450,26 +486,106 @@ const ClassTeacherEntry = () => {
                     </div>
                   </div>
 
+                  {/* Conduct Field with 6 Options + Custom Entry */}
                   <div className="form-group">
-                    <label className="form-label">Conduct</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g., Excellent, Respectful, etc."
-                      value={form.conduct}
-                      onChange={e => setForm({...form, conduct: e.target.value})}
-                    />
+                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Conduct</span>
+                      <small style={{ color: 'var(--text-muted)', fontWeight: 'normal', fontSize: '0.72rem' }}>Pick preset or type custom text below</small>
+                    </label>
+                    
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <select
+                        className="form-input"
+                        style={{ fontSize: '0.82rem', padding: '0.4rem 0.65rem' }}
+                        value={['Exceptional & Respectful', 'Satisfactory & Well-Behaved', 'Obedient & Disciplined', 'Needs Self-Discipline', 'Disruptive in Class', 'Untidy & Irresponsible'].includes(form.conduct) ? form.conduct : 'custom'}
+                        onChange={e => {
+                          if (e.target.value !== 'custom') {
+                            setForm({ ...form, conduct: e.target.value });
+                          }
+                        }}
+                      >
+                        <option value="custom">✏️ Custom Entry (Type below or pick preset…)</option>
+                        <optgroup label="Good / Positive">
+                          <option value="Exceptional & Respectful">Satisfactory & Respectful (Good)</option>
+                          <option value="Satisfactory & Well-Behaved">Well-Behaved & Disciplined (Good)</option>
+                          <option value="Obedient & Disciplined">Obedient & Cooperative (Good)</option>
+                        </optgroup>
+                        <optgroup label="Needs Improvement / Bad">
+                          <option value="Needs Self-Discipline">Needs Self-Discipline (Needs Work)</option>
+                          <option value="Disruptive in Class">Disruptive in Class (Needs Work)</option>
+                          <option value="Untidy & Irresponsible">Untidy & Irresponsible (Needs Work)</option>
+                        </optgroup>
+                      </select>
+
+                      <input 
+                        type="text" 
+                        list="conduct-preset-list"
+                        className="form-input" 
+                        placeholder="Type custom conduct or select preset above…"
+                        value={form.conduct}
+                        onChange={e => setForm({...form, conduct: e.target.value})}
+                      />
+
+                      <datalist id="conduct-preset-list">
+                        <option value="Exceptional & Respectful" />
+                        <option value="Satisfactory & Well-Behaved" />
+                        <option value="Obedient & Disciplined" />
+                        <option value="Needs Self-Discipline" />
+                        <option value="Disruptive in Class" />
+                        <option value="Untidy & Irresponsible" />
+                      </datalist>
+                    </div>
                   </div>
 
+                  {/* Attitude Field with 6 Options + Custom Entry */}
                   <div className="form-group">
-                    <label className="form-label">Attitude</label>
-                    <input 
-                      type="text" 
-                      className="form-input" 
-                      placeholder="e.g., Attentive, Diligent, etc."
-                      value={form.attitude}
-                      onChange={e => setForm({...form, attitude: e.target.value})}
-                    />
+                    <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span>Attitude</span>
+                      <small style={{ color: 'var(--text-muted)', fontWeight: 'normal', fontSize: '0.72rem' }}>Pick preset or type custom text below</small>
+                    </label>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <select
+                        className="form-input"
+                        style={{ fontSize: '0.82rem', padding: '0.4rem 0.65rem' }}
+                        value={['Hardworking & Diligent', 'Attentive & Enthusiastic', 'Cooperative & Helpful', 'Passive & Lacks Focus', 'Careless & Reluctant', 'Uncooperative in Class'].includes(form.attitude) ? form.attitude : 'custom'}
+                        onChange={e => {
+                          if (e.target.value !== 'custom') {
+                            setForm({ ...form, attitude: e.target.value });
+                          }
+                        }}
+                      >
+                        <option value="custom">✏️ Custom Entry (Type below or pick preset…)</option>
+                        <optgroup label="Good / Positive">
+                          <option value="Hardworking & Diligent">Hardworking & Diligent (Good)</option>
+                          <option value="Attentive & Enthusiastic">Attentive & Enthusiastic (Good)</option>
+                          <option value="Cooperative & Helpful">Cooperative & Helpful (Good)</option>
+                        </optgroup>
+                        <optgroup label="Needs Improvement / Bad">
+                          <option value="Passive & Lacks Focus">Passive & Lacks Focus (Needs Work)</option>
+                          <option value="Careless & Reluctant">Careless & Reluctant (Needs Work)</option>
+                          <option value="Uncooperative in Class">Uncooperative in Class (Needs Work)</option>
+                        </optgroup>
+                      </select>
+
+                      <input 
+                        type="text" 
+                        list="attitude-preset-list"
+                        className="form-input" 
+                        placeholder="Type custom attitude or select preset above…"
+                        value={form.attitude}
+                        onChange={e => setForm({...form, attitude: e.target.value})}
+                      />
+
+                      <datalist id="attitude-preset-list">
+                        <option value="Hardworking & Diligent" />
+                        <option value="Attentive & Enthusiastic" />
+                        <option value="Cooperative & Helpful" />
+                        <option value="Passive & Lacks Focus" />
+                        <option value="Careless & Reluctant" />
+                        <option value="Uncooperative in Class" />
+                      </datalist>
+                    </div>
                   </div>
 
                   <div className="form-group">
@@ -483,23 +599,51 @@ const ClassTeacherEntry = () => {
                     ></textarea>
                   </div>
 
-                  {selectedTerm === 'Term 3' && (
-                    <div className="form-group">
-                      <label className="form-label">Promote To (End of Year Recommendation)</label>
-                      <select 
-                        className="form-input"
-                        value={form.promotedTo}
-                        onChange={e => setForm({...form, promotedTo: e.target.value})}
-                      >
-                        <option value="">-- No Recommendation / N/A --</option>
-                        {classes?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        <option value="Alumni">Graduate (Alumni)</option>
-                      </select>
-                      <small style={{ color: 'var(--text-muted)', fontSize: '0.7rem', display: 'block', marginTop: '4px' }}>
-                        Select the class this student should be promoted to, or Graduate if they are finishing.
-                      </small>
-                    </div>
-                  )}
+                  {selectedTerm === 'Term 3' && (() => {
+                    const nextClassObj = getNextClassForPromotion(selectedClass, classes);
+                    const currentClassObj = classes?.find(c => String(c.id) === String(selectedClass));
+                    const isNextAlumni = nextClassObj === 'Alumni';
+
+                    return (
+                      <div className="form-group">
+                        <label className="form-label">End of Year Promotion Recommendation</label>
+                        <select 
+                          className="form-input"
+                          value={form.promotedTo}
+                          onChange={e => setForm({...form, promotedTo: e.target.value})}
+                        >
+                          <option value="">-- Select Recommendation --</option>
+                          
+                          {/* 1. Immediate Next Class (Regular Promotion) */}
+                          {nextClassObj && !isNextAlumni && (
+                            <option value={nextClassObj.id}>
+                              Promoted to {nextClassObj.name}
+                            </option>
+                          )}
+
+                          {/* 2. Immediate Next Class (On Probation) */}
+                          {nextClassObj && !isNextAlumni && (
+                            <option value={`${nextClassObj.id}_probation`}>
+                              Promoted to {nextClassObj.name} (On Probation)
+                            </option>
+                          )}
+
+                          {/* 3. Repeat Current Class */}
+                          {currentClassObj && (
+                            <option value={currentClassObj.id}>
+                              Repeat {currentClassObj.name}
+                            </option>
+                          )}
+
+                          {/* 4. Graduation */}
+                          <option value="Alumni">Graduate (Alumni)</option>
+                        </select>
+                        <small style={{ color: 'var(--text-muted)', fontSize: '0.72rem', display: 'block', marginTop: '4px' }}>
+                          Target: {nextClassObj && !isNextAlumni ? `Next sequential class is ${nextClassObj.name}` : 'Final class (Graduation)'}.
+                        </small>
+                      </div>
+                    );
+                  })()}
 
                   <button type="submit" className="btn btn-primary" disabled={isSaving} style={{ width: '100%', marginTop: '1rem', padding: '0.85rem' }}>
                     {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}

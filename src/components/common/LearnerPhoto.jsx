@@ -66,6 +66,7 @@ const LearnerPhoto = ({ photo, alt = "", gender = "", className = "", style = {}
           background: bg,
           color: textColor,
           fontWeight: 700,
+          boxSizing: "border-box",
           ...style,
         }}
       >
@@ -74,12 +75,25 @@ const LearnerPhoto = ({ photo, alt = "", gender = "", className = "", style = {}
     );
   }
 
+  const imgStyle = {
+    objectFit: "cover",
+    objectPosition: "center top",
+    boxSizing: "border-box",
+    ...style,
+  };
+
+  // Only set default 100% width/height if no className AND no explicit inline size were provided
+  if (!className && !style.width && !style.height) {
+    imgStyle.width = "100%";
+    imgStyle.height = "100%";
+  }
+
   return (
     <img
       src={src}
       alt={alt || "Student Photo"}
       className={className}
-      style={style}
+      style={imgStyle}
     />
   );
 };

@@ -126,6 +126,35 @@ export const useSchoolSetup = () => {
                   await db.teacherAssignments.update(a.id, { subjectId: newId });
                 }
 
+                // Rewrite any pending outbox payloads that still reference the old subject ID
+                // so queued delete_insert→report_scores use the correct new subject_id
+                try {
+                  const allOutbox = await db.outbox.toArray();
+                  let rewriteCount = 0;
+                  const oldIdStr = String(oldId);
+                  const newIdStr = String(newId);
+                  for (const outboxItem of allOutbox) {
+                    if (outboxItem.payload && outboxItem.payload.includes(oldIdStr)) {
+                      const updatedPayload = outboxItem.payload.replaceAll(`"subject_id":${oldIdStr}`, `"subject_id":${newIdStr}`);
+                      if (updatedPayload !== outboxItem.payload) {
+                        await db.outbox.update(outboxItem.id, {
+                          payload: updatedPayload,
+                          status: 'pending',
+                          retryCount: 0,
+                          errorMessage: null,
+                          nextAttemptAt: null,
+                        });
+                        rewriteCount++;
+                      }
+                    }
+                  }
+                  if (rewriteCount > 0) {
+                    console.log(`[Setup Sync] ✅ Rewrote ${rewriteCount} outbox item(s) referencing old subject ID ${oldId} → ${newId}`);
+                  }
+                } catch (outboxErr) {
+                  console.warn('[Setup Sync] Failed to rewrite outbox payloads for subject ID remap:', outboxErr);
+                }
+
                 // Delete old duplicate name subject and insert new correct one
                 await db.subjects.delete(oldId);
                 await db.subjects.put({
@@ -434,14 +463,16 @@ export const useSchoolSetup = () => {
           subject_id: subjectIdNum
         }, user.schoolId);
       } else {
-        const existing = await db.classSubjects
+        const existingList = await db.classSubjects
           .where('classId').equals(classIdNum)
           .filter(cs => cs.subjectId === subjectIdNum)
-          .first();
+          .toArray();
         
-        if (existing) {
-          // Instantly delete from local db to untick the checkbox immediately
-          await db.classSubjects.delete(existing.id);
+        if (existingList.length > 0) {
+          // Delete all matching local records (clears any duplicates)
+          for (const item of existingList) {
+            await db.classSubjects.delete(item.id);
+          }
           
           // Queue cloud delete via outbox (works online & offline)
           await enqueueSync('delete', 'report_class_subjects', {
@@ -593,6 +624,92 @@ export const useSchoolSetup = () => {
     }
   };
 
+  const handleApplySubjectPreset = async (presetList) => {
+    if (!user?.schoolId || !Array.isArray(presetList)) return;
+    const existingNames = new Set((subjects || []).map(s => s.name.toLowerCase().trim()));
+    let count = 0;
+    for (const name of presetList) {
+      if (!existingNames.has(name.toLowerCase().trim())) {
+        await db.subjects.add({
+          schoolId: user.schoolId,
+          name: name,
+          createdAt: new Date().toISOString()
+        });
+        await enqueueSync('insert', 'report_subjects', {
+          school_id: user.schoolId,
+          name: name
+        }, user.schoolId);
+        count++;
+      }
+    }
+    return count;
+  };
+
+  const handleApplyClassPreset = async (classList) => {
+    if (!user?.schoolId || !Array.isArray(classList)) return;
+    const existingNames = new Set((classes || []).map(c => c.name.toLowerCase().trim()));
+    let count = 0;
+    for (const item of classList) {
+      if (!existingNames.has(item.name.toLowerCase().trim())) {
+        await db.classes.add({
+          schoolId: user.schoolId,
+          name: item.name,
+          teachingMode: item.teachingMode || 'class_teacher',
+          category: item.category || 'basic 1-3',
+          createdAt: new Date().toISOString()
+        });
+        await enqueueSync('insert', 'report_classes', {
+          school_id: user.schoolId,
+          name: item.name,
+          teaching_mode: item.teachingMode || 'class_teacher',
+          category: item.category || 'basic 1-3'
+        }, user.schoolId);
+        count++;
+      }
+    }
+    return count;
+  };
+
+  const handleCopyClassConfig = async (sourceClassId, targetClassId) => {
+    if (!sourceClassId || !targetClassId || !user?.schoolId) return;
+    const srcIdNum = Number(sourceClassId);
+    const tgtIdNum = Number(targetClassId);
+    if (srcIdNum === tgtIdNum) return;
+
+    try {
+      // 1. Copy Class Subjects
+      const sourceClassSubs = await db.classSubjects.where('classId').equals(srcIdNum).toArray();
+      const targetClassSubs = await db.classSubjects.where('classId').equals(tgtIdNum).toArray();
+      const targetSubIds = new Set(targetClassSubs.map(cs => cs.subjectId));
+
+      for (const cs of sourceClassSubs) {
+        if (!targetSubIds.has(cs.subjectId)) {
+          await db.classSubjects.add({
+            schoolId: user.schoolId,
+            classId: tgtIdNum,
+            subjectId: cs.subjectId,
+            synced: false,
+            supabaseId: null
+          });
+          await enqueueSync('insert', 'report_class_subjects', {
+            school_id: user.schoolId,
+            class_id: tgtIdNum,
+            subject_id: cs.subjectId
+          }, user.schoolId);
+        }
+      }
+
+      // 2. Copy Teacher Assignments
+      const sourceAssigns = await db.teacherAssignments.where('classId').equals(srcIdNum).toArray();
+      for (const a of sourceAssigns) {
+        await handleAssignTeacher(tgtIdNum, a.subjectId, a.teacherId);
+      }
+    } catch (err) {
+      console.error('Failed to copy class config:', err);
+      throw err;
+    }
+  };
+
   return {
     className,
     setClassName,
@@ -618,6 +735,9 @@ export const useSchoolSetup = () => {
     deleteSubject,
     handleToggleSubject,
     handleSelectAllSubjects,
-    handleAssignTeacher
+    handleAssignTeacher,
+    handleApplySubjectPreset,
+    handleApplyClassPreset,
+    handleCopyClassConfig
   };
 };

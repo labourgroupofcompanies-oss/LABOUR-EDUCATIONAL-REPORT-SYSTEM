@@ -8,6 +8,52 @@ import { enqueueSync } from '../../services/syncEngine';
 
 const isUUID = (val) => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
 
+/** Helper: Find next class in Ghanaian school progression sequence */
+const getNextClassForPromotion = (currentClassId, allClasses) => {
+  if (!currentClassId || !allClasses || allClasses.length === 0) return null;
+
+  const current = allClasses.find(c => String(c.id) === String(currentClassId));
+  if (!current) return null;
+
+  const hierarchyPatterns = [
+    /creche/i, /nursery 1/i, /nursery 2/i, /kg 1/i, /kg 2/i,
+    /basic 1/i, /basic 2/i, /basic 3/i, /basic 4/i, /basic 5/i, /basic 6/i,
+    /jhs 1/i, /jhs 2/i, /jhs 3/i, /shs 1/i, /shs 2/i, /shs 3/i
+  ];
+
+  const curName = current.name || '';
+  const hierarchyIndex = hierarchyPatterns.findIndex(pattern => pattern.test(curName));
+
+  if (hierarchyIndex !== -1 && hierarchyIndex < hierarchyPatterns.length - 1) {
+    const nextPattern = hierarchyPatterns[hierarchyIndex + 1];
+    const matchedNext = allClasses.find(c => nextPattern.test(c.name));
+    if (matchedNext) return matchedNext;
+  }
+
+  // Match by number (e.g. "Basic 5" -> 5 -> next 6)
+  const numMatch = curName.match(/\d+/);
+  if (numMatch) {
+    const currentNum = parseInt(numMatch[0], 10);
+    const nextNum = currentNum + 1;
+    const prefix = curName.replace(/\d+.*/, '').trim();
+    const matchedByNum = allClasses.find(c => {
+      const cNumMatch = c.name.match(/\d+/);
+      const cPrefix = c.name.replace(/\d+.*/, '').trim();
+      return cNumMatch && parseInt(cNumMatch[0], 10) === nextNum && (cPrefix.toLowerCase() === prefix.toLowerCase() || prefix === '');
+    });
+    if (matchedByNum) return matchedByNum;
+  }
+
+  // Fallback: next higher class in sorted array
+  const sorted = [...allClasses].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const curIdx = sorted.findIndex(c => String(c.id) === String(currentClassId));
+  if (curIdx !== -1 && curIdx < sorted.length - 1) {
+    return sorted[curIdx + 1];
+  }
+
+  return 'Alumni';
+};
+
 const Promotions = () => {
   const { user } = useAuth();
   
@@ -18,10 +64,10 @@ const Promotions = () => {
   const [isExecuting, setIsExecuting] = useState(false);
 
   // Live DB Queries
-  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const classes = useLiveQuery(() => user?.schoolId ? db.classes.filter(c => String(c.schoolId) === String(user.schoolId) || String(c.school_id || '') === String(user.schoolId)).toArray() : [], [user]);
   const schoolInfo = useLiveQuery(() => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]);
-  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
-  const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.where('schoolId').equals(user.schoolId).toArray() : [], [user]);
+  const learners = useLiveQuery(() => user?.schoolId ? db.learners.filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId)).toArray() : [], [user]);
+  const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.filter(r => String(r.schoolId) === String(user.schoolId) || String(r.school_id || '') === String(user.schoolId)).toArray() : [], [user]);
 
   // Set default academic year from school info
   useEffect(() => {
@@ -40,7 +86,15 @@ const Promotions = () => {
     );
   }, [selectedClass, academicYear, selectedTerm, reportSummaries]);
 
-  const getClass = id => classes?.find(c => c.id === Number(id))?.name || 'Unknown Class';
+  const getClass = id => {
+    if (!id) return 'Not Selected';
+    if (id === 'Alumni') return 'Graduate (Alumni)';
+    const str = String(id);
+    const isProbation = str.endsWith('_probation');
+    const cleanId = Number(str.replace('_probation', ''));
+    const className = classes?.find(c => Number(c.id) === cleanId)?.name || 'Unknown Class';
+    return isProbation ? `${className} (On Probation)` : className;
+  };
   const getLearnerName = id => {
     const l = learners?.find(l => l.id === Number(id) || l.supabaseId === id || String(l.id) === String(id));
     return l ? l.fullName : 'Unknown Learner';
@@ -91,7 +145,9 @@ const Promotions = () => {
               }, user.schoolId);
             }
           } else {
-            const newClassId = Number(summary.promotedTo);
+            const rawVal = String(summary.promotedTo || '');
+            const cleanVal = rawVal.replace('_probation', '');
+            const newClassId = Number(cleanVal);
             if (!isNaN(newClassId)) {
               await db.learners.update(l.id, { currentClassId: newClassId, synced: false });
               if (isUUID(l.supabaseId)) {
@@ -177,27 +233,27 @@ const Promotions = () => {
         .promo-table tbody tr:hover { background: #f8fafc; }
         
         .status-badge { padding: 0.35rem 0.75rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 0.3rem; }
-        .status-pending { background: rgba(245, 158, 11, 0.1); color: #d97706; }
-        .status-approved { background: rgba(16, 185, 129, 0.1); color: #059669; }
+        .status-pending { background: #FFFBEB; color: #F59E0B; border: 1px solid #FDE68A; }
+        .status-approved { background: #ECFDF5; color: #10B981; border: 1px solid #A7F3D0; }
         
         .promo-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem; }
-        .btn-execute { background: linear-gradient(135deg, #0d9488, #0f766e); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 10px; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2); }
-        .btn-execute:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(13, 148, 136, 0.3); }
+        .btn-execute { background: #09090b; color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 10px; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(9, 9, 11, 0.25); }
+        .btn-execute:hover:not(:disabled) { transform: translateY(-1px); background: #18181b; }
         .btn-execute:disabled { opacity: 0.6; cursor: not-allowed; transform: none; box-shadow: none; }
       `}</style>
 
       <div className="fade-in">
         <div className="promo-card">
-          <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem', color: 'var(--primary)' }}>Filter Criteria</h2>
+          <h2 style={{ margin: '0 0 1rem 0', fontSize: '1.25rem', color: '#09090b' }}>Filter Criteria</h2>
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>ACADEMIC YEAR</label>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717a' }}>ACADEMIC YEAR</label>
               <input type="text" className="form-input" value={academicYear} onChange={e => setAcademicYear(e.target.value)} placeholder="e.g. 2025/2026" />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>TERM (Usually Term 3)</label>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717a' }}>TERM (Usually Term 3)</label>
               <select className="form-input" value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)}>
                 <option value="Term 1">Term 1</option>
                 <option value="Term 2">Term 2</option>
@@ -206,7 +262,7 @@ const Promotions = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>SOURCE CLASS</label>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717a' }}>SOURCE CLASS</label>
               <select className="form-input" value={selectedClass} onChange={e => setSelectedClass(e.target.value)}>
                 <option value="">-- Select Class --</option>
                 {classes?.map(c => (
@@ -221,10 +277,10 @@ const Promotions = () => {
           <div className="promo-card">
             <div className="promo-header">
               <div>
-                <h3 style={{ margin: '0 0 0.25rem 0', color: 'var(--primary)', fontSize: '1.2rem' }}>
+                <h3 style={{ margin: '0 0 0.25rem 0', color: '#09090b', fontSize: '1.2rem' }}>
                   Promotions for {getClass(selectedClass)}
                 </h3>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '0.85rem', color: '#71717a' }}>
                   Found <strong>{classSummaries.length}</strong> recommendations ({pendingCount} pending, {approvedCount} approved)
                 </div>
               </div>
@@ -237,7 +293,7 @@ const Promotions = () => {
                 {isExecuting ? (
                   <><i className="fas fa-spinner fa-spin"></i> Executing...</>
                 ) : (
-                  <><i className="fas fa-check-double"></i> Approve & Execute {pendingCount} Promotions</>
+                  <><i className="fas fa-check-double"></i> Approve &amp; Execute {pendingCount} Promotions</>
                 )}
               </button>
             </div>
@@ -256,7 +312,7 @@ const Promotions = () => {
                 <tbody>
                   {classSummaries.length === 0 ? (
                     <tr>
-                      <td colSpan="4" style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-muted)' }}>
+                      <td colSpan="5" style={{ textAlign: 'center', padding: '3rem 1rem', color: '#71717a' }}>
                         <i className="fas fa-inbox" style={{ fontSize: '2rem', marginBottom: '1rem', display: 'block', opacity: 0.5 }}></i>
                         No teacher recommendations found for this class in {selectedTerm} {academicYear}.<br/>
                         <span style={{ fontSize: '0.75rem', marginTop: '0.5rem', display: 'inline-block' }}>Teachers must fill out the 'Promoted To' field on the report cards.</span>
@@ -265,37 +321,61 @@ const Promotions = () => {
                   ) : (
                     classSummaries.map((summary, idx) => (
                       <tr key={summary.id || idx}>
-                        <td style={{ fontWeight: 600 }}>{getLearnerName(summary.learnerId)}</td>
+                        <td style={{ fontWeight: 600, color: '#18181b' }}>{getLearnerName(summary.learnerId)}</td>
                         <td>{getLearnerReg(summary.learnerId)}</td>
                         <td>
                           {summary.promotedTo === 'Alumni' ? (
-                            <span style={{ color: '#0d9488', fontWeight: 700 }}><i className="fas fa-graduation-cap"></i> Graduate (Alumni)</span>
+                            <span style={{ color: '#2563eb', fontWeight: 700 }}><i className="fas fa-graduation-cap"></i> Graduate (Alumni)</span>
                           ) : (
                             <span style={{ fontWeight: 600 }}>
-                              {String(summary.promotedTo) === String(selectedClass) && <span style={{ color: '#d97706', marginRight: '4px' }}><i className="fas fa-redo"></i> Repeat:</span>}
+                              {String(summary.promotedTo) === String(selectedClass) && <span style={{ color: '#F59E0B', marginRight: '4px' }}><i className="fas fa-redo"></i> Repeat:</span>}
+                              {String(summary.promotedTo).endsWith('_probation') && <span style={{ color: '#F59E0B', marginRight: '4px' }}><i className="fas fa-exclamation-triangle"></i> Probation:</span>}
                               {getClass(summary.promotedTo)}
                             </span>
                           )}
                         </td>
                         <td>
                           {summary.promotionStatus === 'approved' ? (
-                            <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Locked (Executed)</span>
-                          ) : (
-                            <select 
-                              className="form-input" 
-                              style={{ padding: '0.3rem', fontSize: '0.75rem', height: 'auto', minWidth: '130px', borderColor: String(summary.promotedTo) === String(selectedClass) ? '#f59e0b' : 'var(--border)' }}
-                              value={summary.promotedTo || ''}
-                              onChange={(e) => handleUpdatePromotedTo(summary, e.target.value)}
-                            >
-                              <option value={selectedClass}>↻ Repeat ({getClass(selectedClass)})</option>
-                              <optgroup label="Promote To">
-                                {classes?.filter(c => String(c.id) !== String(selectedClass)).map(c => (
-                                  <option key={c.id} value={c.id}>{c.name}</option>
-                                ))}
-                                <option value="Alumni">🎓 Graduate (Alumni)</option>
-                              </optgroup>
-                            </select>
-                          )}
+                            <span style={{ color: '#71717a', fontSize: '0.75rem' }}>Locked (Executed)</span>
+                          ) : (() => {
+                              const nextClassObj = getNextClassForPromotion(selectedClass, classes);
+                              const currentClassObj = classes?.find(c => String(c.id) === String(selectedClass));
+                              const otherClasses = classes?.filter(c => String(c.id) !== String(selectedClass) && (!nextClassObj || String(c.id) !== String(nextClassObj.id)));
+
+                              return (
+                                <select 
+                                  className="form-input" 
+                                  style={{ padding: '0.3rem', fontSize: '0.75rem', height: 'auto', minWidth: '160px', borderColor: String(summary.promotedTo).endsWith('_probation') ? '#F59E0B' : String(summary.promotedTo) === String(selectedClass) ? '#F59E0B' : '#E4E4E7' }}
+                                  value={summary.promotedTo || ''}
+                                  onChange={(e) => handleUpdatePromotedTo(summary, e.target.value)}
+                                >
+                                  {nextClassObj && nextClassObj !== 'Alumni' && (
+                                    <optgroup label="Immediate Next Class">
+                                      <option value={nextClassObj.id}>Promote to {nextClassObj.name}</option>
+                                      <option value={`${nextClassObj.id}_probation`}>Promote to {nextClassObj.name} (On Probation)</option>
+                                    </optgroup>
+                                  )}
+
+                                  {currentClassObj && (
+                                    <optgroup label="Repeat / Retain">
+                                      <option value={currentClassObj.id}>Repeat {currentClassObj.name}</option>
+                                    </optgroup>
+                                  )}
+
+                                  <optgroup label="Graduation">
+                                    <option value="Alumni">Graduate (Alumni)</option>
+                                  </optgroup>
+
+                                  {otherClasses && otherClasses.length > 0 && (
+                                    <optgroup label="Other Classes (Manual Override)">
+                                      {otherClasses.map(c => (
+                                        <option key={`other_${c.id}`} value={c.id}>Transfer to {c.name}</option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                </select>
+                              );
+                            })()}
                         </td>
                         <td>
                           {summary.promotionStatus === 'approved' ? (
@@ -315,8 +395,8 @@ const Promotions = () => {
               </table>
             </div>
             
-            <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '0.5rem', background: '#f8fafc', padding: '0.75rem', borderRadius: '8px' }}>
-              <i className="fas fa-info-circle" style={{ color: '#0d9488', marginTop: '2px' }}></i>
+            <div style={{ marginTop: '1rem', fontSize: '0.75rem', color: '#71717a', display: 'flex', gap: '0.5rem', background: '#FAFAFA', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E4E4E7' }}>
+              <i className="fas fa-info-circle" style={{ color: '#2563eb', marginTop: '2px' }}></i>
               <div>
                 <strong>How it works:</strong> Executing promotions will move students to their newly assigned classes and mark the summary as approved. Graduated students will be marked as "Alumni" and will no longer appear in active class rosters.
               </div>

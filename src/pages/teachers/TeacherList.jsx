@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
 import { enqueueSync } from '../../services/syncEngine';
 import { ensureAuth } from '../../lib/authUtils';
+import recycleBinService from '../../services/recycleBinService';
 
 const getNextStaffId = (teachersList) => {
   if (!teachersList || teachersList.length === 0) return 'TCH-001';
@@ -44,6 +45,8 @@ const TeacherList = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState(null);
+  const [newlyRegisteredTeacher, setNewlyRegisteredTeacher] = useState(null);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   
   const [newTeacher, setNewTeacher] = useState({
     fullName: '',
@@ -223,10 +226,13 @@ const TeacherList = () => {
     syncDeletedAssignments();
   }, [user]);
 
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleRegister = async (e) => {
     e.preventDefault();
-    if (!user?.schoolId) return;
+    if (isSaving || !user?.schoolId) return;
 
+    setIsSaving(true);
     const teacherId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
     const record = {
@@ -242,8 +248,6 @@ const TeacherList = () => {
 
     try {
       // Self-heal: ensure the auth user's JWT metadata contains school_id.
-      // This is required by the RLS INSERT policy on report_profiles.
-      // If missing, Supabase will reject the insert with a policy violation.
       if (navigator.onLine) {
         try {
           const authUser = await ensureAuth();
@@ -273,18 +277,40 @@ const TeacherList = () => {
       }, user.schoolId);
 
       setIsModalOpen(false);
+      setNewlyRegisteredTeacher({
+        fullName: newTeacher.fullName,
+        staffId: newTeacher.staffId,
+        email: newTeacher.email
+      });
       setNewTeacher({ fullName: '', staffId: '', email: '', role: 'teacher' });
-      alert('Teacher registered successfully! They can now claim their portal and create their secure login credentials.');
     } catch (err) {
       console.error('Failed to register teacher:', err);
       alert(err.message || 'Failed to register teacher. Please check if the email address is already in use.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
 
   const handleDeleteTeacher = async (id) => {
-    if (!await window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
+    if (!window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
     try {
+      const teacherObj = await db.profiles.get(id);
+      const relatedAssigns = allAssignments?.filter(a => a.teacherId === id) || [];
+
+      // Save to Recycle Bin
+      await recycleBinService.moveToRecycleBin({
+        schoolId: user.schoolId,
+        entityType: 'teacher',
+        entityId: id,
+        entityName: teacherObj?.fullName || 'Teacher',
+        dataPayload: {
+          profile: teacherObj,
+          assignments: relatedAssigns
+        },
+        user
+      });
+
       // Enqueue sync for delete
       await enqueueSync('delete', 'report_profiles', {
         filter: { id: id }
@@ -294,7 +320,6 @@ const TeacherList = () => {
       await db.profiles.delete(id);
       
       // Cascade delete local assignments
-      const relatedAssigns = allAssignments?.filter(a => a.teacherId === id) || [];
       for (const a of relatedAssigns) {
         await db.teacherAssignments.delete(a.id);
       }
@@ -391,14 +416,40 @@ const TeacherList = () => {
   return (
     <Layout title="Teacher Management">
       <div className="fade-in">
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '2rem' }}>
-          <button className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+        {/* Teacher Onboarding & Email Activation Hint Banner */}
+        <div style={{
+          background: '#EFF6FF',
+          border: '1.5px solid #BFDBFE',
+          borderRadius: '14px',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#2563eb', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
+              <i className="fas fa-envelope-open-text"></i>
+            </div>
+            <div>
+              <div style={{ fontWeight: 800, color: '#1e40af', fontSize: '0.92rem' }}>
+                How Teachers Claim Their Accounts
+              </div>
+              <div style={{ color: '#3b82f6', fontSize: '0.8rem', marginTop: '2px' }}>
+                Teachers use their <strong>Registered Email</strong> to activate their account. Click the green <strong>"Invite"</strong> button on any teacher to send their WhatsApp activation link.
+              </div>
+            </div>
+          </div>
+
+          <button className="btn btn-primary" onClick={() => setIsModalOpen(true)} style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', fontWeight: 800, fontSize: '0.88rem' }}>
             <i className="fas fa-plus"></i>
             <span>Register Teacher</span>
           </button>
         </div>
 
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card" data-tour="teachers-roster" style={{ padding: 0, overflow: 'hidden' }}>
           <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '500px' }}>
               <thead style={{ background: 'var(--background)', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
@@ -414,22 +465,33 @@ const TeacherList = () => {
                   const teacherAssignCount = allAssignments?.filter(a => a.teacherId === teacher.id).length || 0;
                   return (
                     <tr key={teacher.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '1rem 1.5rem', fontWeight: 600 }}>{teacher.staffId}</td>
+                      <td style={{ padding: '1rem 1.5rem', fontWeight: 600, fontFamily: 'monospace' }}>{teacher.staffId || '—'}</td>
                       <td style={{ padding: '1rem 1.5rem' }}>
                         <div style={{ fontWeight: 600 }}>{teacher.fullName}</div>
-                        {teacherAssignCount > 0 && (
-                          <span style={{ fontSize: '0.7rem', color: 'var(--accent)', background: 'var(--accent-light)', padding: '0.1rem 0.4rem', borderRadius: '4px', marginTop: '4px', display: 'inline-block' }}>
-                            {teacherAssignCount} {teacherAssignCount === 1 ? 'assignment' : 'assignments'}
-                          </span>
-                        )}
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {teacherAssignCount === 0 ? (
+                            <span style={{ color: '#ef4444' }}>No classes assigned</span>
+                          ) : (
+                            <span>{teacherAssignCount} assignment{teacherAssignCount > 1 ? 's' : ''}</span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ padding: '1rem 1.5rem' }} className="hide-mobile">{teacher.email}</td>
-                      <td style={{ padding: '1rem 1.5rem', display: 'flex', gap: '10px' }}>
-                        <button className="btn" style={{ padding: '0.4rem 0.8rem', background: 'var(--accent-light)', border: '1px solid rgba(13, 148, 136, 0.2)', cursor: 'pointer' }} onClick={() => handleOpenAssignModal(teacher)}>
-                          <i className="fas fa-link" style={{ color: 'var(--accent)', marginRight: '5px' }}></i>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--accent)' }}>Assign</span>
+                      <td style={{ padding: '1rem 1.5rem', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <button 
+                          className="btn" 
+                          style={{ padding: '0.4rem 0.8rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', cursor: 'pointer' }}
+                          title="Share Email & WhatsApp Activation Link"
+                          onClick={() => setNewlyRegisteredTeacher(teacher)}
+                        >
+                          <i className="fab fa-whatsapp" style={{ color: '#16A34A', marginRight: '5px' }}></i>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#15803D' }}>Invite</span>
                         </button>
-                        <button className="btn btn-danger" style={{ padding: '0.4rem' }} onClick={() => handleDeleteTeacher(teacher.id)}>
+                        <button className="btn" style={{ padding: '0.4rem 0.8rem', background: '#EFF6FF', border: '1px solid #DBEAFE', borderRadius: '8px', cursor: 'pointer' }} onClick={() => handleOpenAssignModal(teacher)}>
+                          <i className="fas fa-link" style={{ color: '#2563eb', marginRight: '5px' }}></i>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb' }}>Assign</span>
+                        </button>
+                        <button className="btn btn-danger" style={{ padding: '0.4rem 0.6rem', borderRadius: '8px' }} onClick={() => handleDeleteTeacher(teacher.id)}>
                           <i className="fas fa-trash"></i>
                         </button>
                       </td>
@@ -487,9 +549,103 @@ const TeacherList = () => {
                 </div>
                 <div className="modal-actions" style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
                   <button type="button" className="btn" style={{ flex: 1, background: 'var(--background)', border: '1px solid var(--border)' }} onClick={() => setIsModalOpen(false)}>Cancel</button>
-                  <button type="submit" className="btn btn-primary" style={{ flex: 1 }}>Register</button>
+                  <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ flex: 1 }}>
+                    {isSaving ? <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }} /> : null}
+                    {isSaving ? 'Registering...' : 'Register'}
+                  </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal for Teacher Registration Success & Quick Invite */}
+        {newlyRegisteredTeacher && (
+          <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setNewlyRegisteredTeacher(null)}>
+            <div className="modal-box fade-in" style={{ maxWidth: '460px', textAlign: 'center', padding: '2rem 1.5rem', borderRadius: '20px' }}>
+              <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#F0FDF4', color: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', margin: '0 auto 1rem', border: '1px solid #BBF7D0' }}>
+                <i className="fas fa-envelope-open-text"></i>
+              </div>
+              <h3 style={{ margin: '0 0 6px', color: '#09090b', fontSize: '1.25rem', fontWeight: 800 }}>Teacher Portal Access</h3>
+              <p style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', color: '#71717a' }}>
+                Send an invitation to <strong>{newlyRegisteredTeacher.fullName}</strong> so they can claim their portal using their email and enter scores.
+              </p>
+
+              {/* Email & Staff ID Credentials Box */}
+              <div style={{ background: '#F8FAFC', border: '2px dashed #CBD5E1', borderRadius: '14px', padding: '1.1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Registered Email (For Account Activation)</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#2563eb', marginTop: '2px', wordBreak: 'break-all' }}>
+                    {newlyRegisteredTeacher.email}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0', paddingTop: '0.65rem' }}>
+                  <div>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Staff ID: </span>
+                    <strong style={{ fontSize: '0.95rem', color: '#09090b' }}>{newlyRegisteredTeacher.staffId || '—'}</strong>
+                  </div>
+                  <span style={{ fontSize: '0.72rem', color: '#16A34A', fontWeight: 800, background: '#DCFCE7', padding: '2px 8px', borderRadius: '4px' }}>Ready to Claim</span>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {/* 1. Direct WhatsApp Share */}
+                <a
+                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Hello ${newlyRegisteredTeacher.fullName},\n\nYou have been registered as a teacher on the Labour Edu school portal.\n\n📧 *Registered Email:* ${newlyRegisteredTeacher.email}\n👤 *Staff ID:* ${newlyRegisteredTeacher.staffId || '—'}\n🔗 *Portal Link:* ${window.location.origin}/login\n\nPlease tap the link, click "Claim / Activate Teacher Account", enter your email (${newlyRegisteredTeacher.email}) to set your password and access your classes.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn"
+                  style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', fontSize: '0.88rem', fontWeight: 800, background: '#16A34A', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', border: 'none' }}
+                >
+                  <i className="fab fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                  <span>Send Invite on WhatsApp</span>
+                </a>
+
+                {/* 2. Copy Full Message */}
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ width: '100%', padding: '0.7rem', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 700, background: '#EFF6FF', color: '#2563eb', border: '1px solid #DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}
+                  onClick={() => {
+                    const inviteText = `Hello ${newlyRegisteredTeacher.fullName},\n\nYou have been registered as a teacher on the Labour Edu school portal.\n\n📧 Registered Email: ${newlyRegisteredTeacher.email}\n👤 Staff ID: ${newlyRegisteredTeacher.staffId || '—'}\n🔗 Portal Link: ${window.location.origin}/login\n\nPlease visit the link, click "Claim / Activate Teacher Account", enter your email (${newlyRegisteredTeacher.email}) to set your password and access your classes.`;
+                    navigator.clipboard.writeText(inviteText);
+                    setCopiedInvite('full');
+                    setTimeout(() => setCopiedInvite(false), 2500);
+                  }}
+                >
+                  <i className={`fas ${copiedInvite === 'full' ? 'fa-check' : 'fa-copy'}`}></i>
+                  <span>{copiedInvite === 'full' ? 'Invitation Text Copied!' : 'Copy Full Invite Message'}</span>
+                </button>
+
+                {/* 3. Copy Email Only */}
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '12px', fontSize: '0.82rem', fontWeight: 700, background: '#FAFAFA', color: '#09090b', border: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(newlyRegisteredTeacher.email);
+                    setCopiedInvite('email');
+                    setTimeout(() => setCopiedInvite(false), 2500);
+                  }}
+                >
+                  <i className={`fas ${copiedInvite === 'email' ? 'fa-check' : 'fa-envelope'}`}></i>
+                  <span>{copiedInvite === 'email' ? 'Email Copied!' : 'Copy Email Address'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ width: '100%', padding: '0.65rem', background: 'transparent', border: 'none', color: '#71717a', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', marginTop: '4px' }}
+                  onClick={() => {
+                    setNewlyRegisteredTeacher(null);
+                    setCopiedInvite(false);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}

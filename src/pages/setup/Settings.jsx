@@ -5,14 +5,20 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { enqueueSync } from '../../services/syncEngine';
-import { compressImageToBlob } from '../../utils/imageUtils';
+import { compressImageToBlob, processSchoolLogo, blobToDataURL } from '../../utils/imageUtils';
 import authService from '../../services/authService';
+import { DEFAULT_GRADING_SCALE } from '../../lib/grading';
 
 const Settings = () => {
   const { user, updateProfile } = useAuth();
+  const isAdmin = user?.role === 'super_admin';
+
   const globalSettings = useLiveQuery(() => db.settings.get('global'), []);
   const schoolData = useLiveQuery(() => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]);
   
+  const [activeTab, setActiveTab] = useState(isAdmin ? 'school' : 'profile'); // 'school' | 'assessment' | 'profile' | 'security'
+
+  // User Profile State
   const [profileName, setProfileName] = useState('');
   const [profileStaffId, setProfileStaffId] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -24,6 +30,7 @@ const Settings = () => {
     }
   }, [user]);
 
+  // Security / Password State
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -58,6 +65,7 @@ const Settings = () => {
     }
   };
 
+  // Assessment & Grading State
   const [settings, setSettings] = useState({
     caWeight: 30,
     examWeight: 70,
@@ -68,9 +76,11 @@ const Settings = () => {
       { id: 'assignments', label: 'Group work', count: 2, maxScore: 10, enabled: true },
       { id: 'projects', label: 'Project Work', count: 1, maxScore: 10, enabled: true }
     ],
-    gradingScale: []
+    gradingScale: DEFAULT_GRADING_SCALE,
+    enableBest6Aggregate: true
   });
 
+  // School Profile State
   const [school, setSchool] = useState({
     name: '',
     motto: '',
@@ -79,6 +89,7 @@ const Settings = () => {
     district: '',
     region: '',
     circuit: '',
+    schoolType: 'private',
     currentAcademicYear: '',
     currentTerm: 'Term 1',
     vacationDate: '',
@@ -95,7 +106,6 @@ const Settings = () => {
     const fetchCloudSettings = async () => {
       if (!navigator.onLine || !user?.schoolId) return;
       try {
-        // 1. Hydrate grading & assessment settings
         const { data: settingsList, error: settingsError } = await supabase
           .from('report_settings')
           .select('*')
@@ -106,7 +116,6 @@ const Settings = () => {
           let rawBreakdown = settingsData.ca_breakdown || [];
           let needsUpdate = false;
 
-          // Migrate: strip exercises and rename assignments to Group work
           const cleanBreakdown = rawBreakdown.filter(item => {
             if (item.id === 'exercises') {
               needsUpdate = true;
@@ -128,11 +137,11 @@ const Settings = () => {
             caModel: settingsData.ca_model,
             caBestNCount: settingsData.ca_best_n || '',
             caBreakdown: cleanBreakdown,
-            gradingScale: settingsData.grading_scale || []
+            gradingScale: settingsData.grading_scale || [],
+            enableBest6Aggregate: settingsData.enable_best6_aggregate ?? true
           });
 
           if (needsUpdate) {
-            console.log('[Settings] Syncing migrated CA Breakdown to Supabase...');
             await enqueueSync('upsert', 'report_settings', {
               id: user.schoolId,
               school_id: user.schoolId,
@@ -142,176 +151,198 @@ const Settings = () => {
               ca_best_n: settingsData.ca_best_n || null,
               ca_breakdown: cleanBreakdown,
               grading_scale: settingsData.grading_scale || [],
+              enable_best6_aggregate: settingsData.enable_best6_aggregate ?? true,
               updated_at: new Date().toISOString()
             }, user.schoolId);
           }
         }
 
-        // 2. Hydrate school motto, logo, dates
-        const { data: remoteSchoolList, error: schoolError } = await supabase
+        const { data: schoolCloudData, error: schoolError } = await supabase
           .from('report_schools')
           .select('*')
           .eq('id', user.schoolId);
-        const remoteSchool = remoteSchoolList?.[0];
+        const sData = schoolCloudData?.[0];
 
-        if (remoteSchool && !schoolError) {
+        if (sData && !schoolError) {
+          const localSchool = await db.schools.get(user.schoolId).catch(() => null);
+          const remoteLogo = sData.logo_url;
+          const localLogo = localSchool?.logoUrl;
+          const isLocalDataUrl = localLogo && typeof localLogo === 'string' && localLogo.startsWith('data:');
+          const isRemoteDataUrl = remoteLogo && typeof remoteLogo === 'string' && remoteLogo.startsWith('data:');
+          const isRemoteStorageBroken = remoteLogo && typeof remoteLogo === 'string' && remoteLogo.includes('storage/v1/object/public/learner-photos/logos');
+
+          let effectiveLogo = localLogo || '';
+          if (isRemoteDataUrl) {
+            effectiveLogo = remoteLogo;
+          } else if (remoteLogo && typeof remoteLogo === 'string' && !isRemoteStorageBroken) {
+            effectiveLogo = remoteLogo;
+          } else if (isLocalDataUrl) {
+            effectiveLogo = localLogo;
+          } else if (remoteLogo && typeof remoteLogo === 'string') {
+            effectiveLogo = remoteLogo;
+          }
+
+          const rawType = (sData.school_type || sData.school_category || localSchool?.schoolType || 'private').toLowerCase();
+          const effectiveType = rawType === 'public' || rawType === 'ges' ? 'public' : rawType === 'international' ? 'international' : 'private';
+          const effectiveCategory = sData.school_category || (effectiveType === 'public' ? 'GES' : effectiveType === 'international' ? 'International' : 'Private');
+
           await db.schools.put({
+            ...(localSchool || {}),
             id: user.schoolId,
-            name: remoteSchool.name || '',
-            location: remoteSchool.location || '',
-            district: remoteSchool.district || '',
-            region: remoteSchool.region || '',
-            circuit: remoteSchool.circuit || '',
-            motto: remoteSchool.motto || '',
-            logoUrl: remoteSchool.logo_url || '',
-            currentAcademicYear: remoteSchool.current_academic_year || '',
-            currentTerm: remoteSchool.current_term || 'Term 1',
-            vacationDate: remoteSchool.vacation_date || '',
-            nextTermBegins: remoteSchool.next_term_begins || '',
-            phone: remoteSchool.phone || '',
-            email: remoteSchool.email || ''
+            name: sData.name || localSchool?.name || '',
+            motto: sData.motto ?? localSchool?.motto ?? '',
+            logoUrl: effectiveLogo,
+            logoBlob: localSchool?.logoBlob || null,
+            location: sData.location ?? localSchool?.location ?? '',
+            district: sData.district ?? localSchool?.district ?? '',
+            region: sData.region ?? localSchool?.region ?? '',
+            circuit: sData.circuit ?? localSchool?.circuit ?? '',
+            schoolType: effectiveType,
+            school_category: effectiveCategory,
+            currentAcademicYear: sData.current_academic_year || localSchool?.currentAcademicYear || '',
+            currentTerm: sData.current_term || localSchool?.currentTerm || 'Term 1',
+            vacationDate: sData.vacation_date || localSchool?.vacationDate || '',
+            nextTermBegins: sData.next_term_begins || localSchool?.nextTermBegins || '',
+            phone: sData.phone || localSchool?.phone || '',
+            email: sData.email || localSchool?.email || ''
           });
         }
       } catch (err) {
-        console.error('Failed to sync global settings or school from cloud:', err);
+        console.warn('Could not fetch settings from cloud, using local database:', err);
       }
     };
+
     fetchCloudSettings();
   }, [user]);
 
-  // Sync local changes to states
+  // Sync state from Dexie IndexedDB
   useEffect(() => {
     if (globalSettings) {
-      const safeSettings = { ...globalSettings };
-      let needsLocalUpdate = false;
+      let rawBreakdown = globalSettings.caBreakdown || [];
+      const cleanBreakdown = rawBreakdown.filter(item => item.id !== 'exercises').map(item => {
+        if (item.id === 'assignments' && item.label !== 'Group work') {
+          return { ...item, label: 'Group work' };
+        }
+        return item;
+      });
 
-      if (!safeSettings.caBreakdown || safeSettings.caBreakdown.length === 0) {
-        safeSettings.caBreakdown = [
+      setSettings({
+        caWeight: globalSettings.caWeight ?? 30,
+        examWeight: globalSettings.examWeight ?? 70,
+        caModel: globalSettings.caModel || 'simple_mean',
+        caBestNCount: globalSettings.caBestNCount || '',
+        caBreakdown: cleanBreakdown.length > 0 ? cleanBreakdown : [
           { id: 'tests', label: 'Class Tests', count: 2, maxScore: 15, enabled: true },
           { id: 'assignments', label: 'Group work', count: 2, maxScore: 10, enabled: true },
           { id: 'projects', label: 'Project Work', count: 1, maxScore: 10, enabled: true }
-        ];
-        needsLocalUpdate = true;
-      } else {
-        // Migrate existing local breakdown
-        const initialLen = safeSettings.caBreakdown.length;
-        safeSettings.caBreakdown = safeSettings.caBreakdown.filter(item => {
-          if (item.id === 'exercises') {
-            needsLocalUpdate = true;
-            return false;
-          }
-          return true;
-        }).map(item => {
-          if (item.id === 'assignments' && item.label !== 'Group work') {
-            needsLocalUpdate = true;
-            return { ...item, label: 'Group work' };
-          }
-          return item;
-        });
-      }
-
-      setSettings(safeSettings);
-
-      if (needsLocalUpdate) {
-        db.settings.put(safeSettings);
-      }
+        ],
+        gradingScale: globalSettings.gradingScale && globalSettings.gradingScale.length > 0
+          ? globalSettings.gradingScale
+          : DEFAULT_GRADING_SCALE,
+        enableBest6Aggregate: globalSettings.enableBest6Aggregate ?? true
+      });
     }
   }, [globalSettings]);
 
   useEffect(() => {
     if (schoolData) {
-      setSchool({
-        name: schoolData.name || '',
-        motto: schoolData.motto || '',
-        logoUrl: schoolData.logoUrl || '',
-        location: schoolData.location || '',
-        district: schoolData.district || '',
-        region: schoolData.region || '',
-        circuit: schoolData.circuit || '',
-        currentAcademicYear: schoolData.currentAcademicYear || '',
-        currentTerm: schoolData.currentTerm || 'Term 1',
-        vacationDate: schoolData.vacationDate || '',
-        nextTermBegins: schoolData.nextTermBegins || '',
-        phone: schoolData.phone || '',
-        email: schoolData.email || ''
-      });
+      setSchool(prev => ({
+        ...prev,
+        name: schoolData.name || prev.name || '',
+        motto: schoolData.motto || prev.motto || '',
+        logoUrl: schoolData.logoUrl || prev.logoUrl || '',
+        location: schoolData.location || prev.location || '',
+        district: schoolData.district || prev.district || '',
+        region: schoolData.region || prev.region || '',
+        circuit: schoolData.circuit || prev.circuit || '',
+        schoolType: schoolData.schoolType || prev.schoolType || 'private',
+        currentAcademicYear: schoolData.currentAcademicYear || prev.currentAcademicYear || '',
+        currentTerm: schoolData.currentTerm || prev.currentTerm || 'Term 1',
+        vacationDate: schoolData.vacationDate || prev.vacationDate || '',
+        nextTermBegins: schoolData.nextTermBegins || prev.nextTermBegins || '',
+        phone: schoolData.phone || prev.phone || '',
+        email: schoolData.email || prev.email || ''
+      }));
     }
   }, [schoolData]);
 
+  // Handle Logo Upload
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Accept ANY image format — we convert everything to WebP regardless.
-    // No arbitrary file-size cap: compressImageToBlob will scale it down to
-    // at most 500×500 px, so even a 20 MB RAW photo becomes a tiny WebP.
-    if (!file.type.startsWith('image/')) {
-      alert('Please select a valid image file (JPEG, PNG, GIF, WebP, BMP, AVIF, SVG, etc.).');
-      return;
-    }
-
     setIsUploadingLogo(true);
     try {
-      // Step 1: Decode + resize + convert to WebP Blob — zero base64 in this pipeline
-      const webpBlob = await compressImageToBlob(file, 500, 500, 0.85);
-
-      // Step 2: Upload the Blob directly to Supabase Storage
-      const fileName = `${user?.schoolId ?? 'logo'}_logo_${Date.now()}.webp`;
-      const { error: uploadError } = await supabase.storage
-        .from('school-logos')
-        .upload(fileName, webpBlob, { upsert: true, contentType: 'image/webp' });
-
-      if (uploadError) {
-        console.error('Logo upload error:', uploadError);
-        alert('Failed to upload logo: ' + uploadError.message);
-        return;
+      let dataUrl = null;
+      let logoBlob = null;
+      try {
+        logoBlob = await processSchoolLogo(file, 600);
+        dataUrl = await blobToDataURL(logoBlob);
+      } catch (procErr) {
+        logoBlob = await compressImageToBlob(file, 400, 400, 0.85);
+        dataUrl = await blobToDataURL(logoBlob);
       }
 
-      // Step 3: Save only the public URL — never a base64 string
-      const { data } = supabase.storage.from('school-logos').getPublicUrl(fileName);
-      const publicUrl = data?.publicUrl || '';
-      
-      const updatedSchool = { ...school, logoUrl: publicUrl };
-      setSchool(updatedSchool);
+      if (!dataUrl) {
+        throw new Error('Failed to generate image preview.');
+      }
 
+      // 1. Immediately update UI state
+      setSchool(prev => ({ ...prev, logoUrl: dataUrl }));
+
+      // 2. Save directly to local IndexedDB (with both dataUrl and raw blob)
       if (user?.schoolId) {
-        // Update local database immediately
-        await db.schools.put({ ...updatedSchool, id: user.schoolId });
-        
-        // Update cloud database immediately using 'update' instead of 'upsert'
-        // to avoid violating NOT NULL constraints on other fields.
-        await enqueueSync('update', 'report_schools', {
-          filter: { id: user.schoolId },
-          data: {
-            logo_url: publicUrl,
-            updated_at: new Date().toISOString()
-          }
+        await db.schools.update(user.schoolId, { 
+          logoUrl: dataUrl, 
+          logoBlob,
+          logo_url: dataUrl 
+        });
+
+        // 3. Persist directly to Supabase report_schools table (fast & permanent)
+        try {
+          await supabase
+            .from('report_schools')
+            .update({ 
+              logo_url: dataUrl,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', user.schoolId);
+        } catch (dbErr) {
+          console.warn('[Settings] Direct Supabase logo update skipped, queued in sync engine:', dbErr);
+        }
+
+        // 4. Also enqueue to sync engine for offline-safe guarantee
+        await enqueueSync('upsert', 'report_schools', {
+          id: user.schoolId,
+          logo_url: dataUrl,
+          updated_at: new Date().toISOString()
         }, user.schoolId);
       }
 
-      alert('School logo uploaded successfully!');
+      alert('School logo saved successfully!');
     } catch (err) {
-      console.error('Logo processing error:', err);
-      alert('Failed to process image: ' + err.message + '\nPlease try a different image file.');
+      alert(`Failed to process logo: ${err.message}`);
     } finally {
       setIsUploadingLogo(false);
-      // Reset the input so the same file can be re-selected if needed
       e.target.value = '';
     }
   };
 
-
   const handleSave = async (e) => {
     e.preventDefault();
+
     if (Number(settings.caWeight) + Number(settings.examWeight) !== 100) {
-      alert("CA and Exam weights must add up to 100.");
+      alert('Continuous Assessment and Exam weights must sum to exactly 100%.');
+      return;
+    }
+
+    if (settings.caModel === 'best_n' && (!settings.caBestNCount || Number(settings.caBestNCount) <= 0)) {
+      alert('Please specify how many top components to count for Best N.');
       return;
     }
     
     setIsSaving(true);
     
-    // Sort gradingScale before saving so it's clean and sorted descending in the database/IndexedDB.
-    // Also resolve any blank values to their calculated defaults so the backend has valid numbers.
     const sortedScale = [...settings.gradingScale]
       .map(item => ({
         ...item,
@@ -337,18 +368,25 @@ const Settings = () => {
     const updatedSettings = { ...settings, gradingScale: finalScale, id: 'global' };
     setSettings(updatedSettings);
     
-    // Save assessment settings locally
     await db.settings.put(updatedSettings);
 
-    // Save school profile locally
     if (user?.schoolId) {
-      await db.schools.put({ ...school, id: user.schoolId });
+      const sType = school.schoolType || 'private';
+      const mappedCategory = sType === 'public' ? 'GES' : sType === 'international' ? 'International' : 'Private';
+
+      await db.schools.put({
+        ...school,
+        schoolType: sType,
+        school_category: mappedCategory,
+        id: user.schoolId
+      });
     }
 
-    // Sync to Cloud
     if (user?.schoolId) {
       try {
-        // Sync report_settings
+        const sType = school.schoolType || 'private';
+        const mappedCategory = sType === 'public' ? 'GES' : sType === 'international' ? 'International' : 'Private';
+
         await enqueueSync('upsert', 'report_settings', {
           id: user.schoolId,
           school_id: user.schoolId,
@@ -358,13 +396,15 @@ const Settings = () => {
           ca_best_n: settings.caBestNCount || null,
           ca_breakdown: settings.caBreakdown,
           grading_scale: finalScale,
+          enable_best6_aggregate: settings.enableBest6Aggregate ?? true,
           updated_at: new Date().toISOString()
         }, user.schoolId);
 
-        // Sync report_schools — use upsert so it works even if fields were null before
         await enqueueSync('upsert', 'report_schools', {
           id: user.schoolId,
           name: school.name,
+          school_type: sType,
+          school_category: mappedCategory,
           motto: school.motto || null,
           logo_url: school.logoUrl || null,
           location: school.location || null,
@@ -381,19 +421,19 @@ const Settings = () => {
         }, user.schoolId);
 
       } catch (err) {
-        console.error('Failed to sync settings or school to cloud:', err);
+        console.error('Failed to sync settings or school:', err);
       }
     }
 
     setIsSaving(false);
-    alert('All school settings saved and synchronized successfully!');
+    alert('Settings saved and synchronized successfully!');
   };
 
+  // Canvas Signature state & handlers
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [signaturePreview, setSignaturePreview] = useState(null);
 
-  // Load signature on mount
   useEffect(() => {
     if (user?.id) {
       db.profiles.get(user.id).then(p => {
@@ -410,18 +450,22 @@ const Settings = () => {
 
   const getCanvasCoordinates = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
     };
   };
 
   const getTouchCoordinates = (e, canvas) => {
     const rect = canvas.getBoundingClientRect();
     const touch = e.touches[0];
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     return {
-      x: touch.clientX - rect.left,
-      y: touch.clientY - rect.top
+      x: (touch.clientX - rect.left) * scaleX,
+      y: (touch.clientY - rect.top) * scaleY
     };
   };
 
@@ -429,7 +473,7 @@ const Settings = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const coords = getCanvasCoordinates(e, canvas);
+    const coords = e.touches ? getTouchCoordinates(e, canvas) : getCanvasCoordinates(e, canvas);
     ctx.beginPath();
     ctx.moveTo(coords.x, coords.y);
     setIsDrawing(true);
@@ -440,36 +484,10 @@ const Settings = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const coords = getCanvasCoordinates(e, canvas);
+    const coords = e.touches ? getTouchCoordinates(e, canvas) : getCanvasCoordinates(e, canvas);
     ctx.lineTo(coords.x, coords.y);
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-  };
-
-  const startDrawingTouch = (e) => {
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const coords = getTouchCoordinates(e, canvas);
-    ctx.beginPath();
-    ctx.moveTo(coords.x, coords.y);
-    setIsDrawing(true);
-  };
-
-  const drawTouch = (e) => {
-    e.preventDefault();
-    if (!isDrawing) return;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const coords = getTouchCoordinates(e, canvas);
-    ctx.lineTo(coords.x, coords.y);
-    ctx.strokeStyle = '#000000';
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#09090b';
+    ctx.lineWidth = 2.5;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
@@ -495,86 +513,26 @@ const Settings = () => {
     }, 'image/png');
   };
 
-  const extractSignatureFromImage = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const ctx = canvas.getContext('2d');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          ctx.drawImage(img, 0, 0);
-
-          const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const data = imgData.data;
-
-          // Loop through pixels and make bright background transparent
-          for (let i = 0; i < data.length; i += 4) {
-            const r = data[i];
-            const g = data[i+1];
-            const b = data[i+2];
-            const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-
-            if (brightness > 200) {
-              data[i+3] = 0; // Make background transparent
-            } else {
-              // Enhance ink contrast: force to pure black
-              data[i] = 0;
-              data[i+1] = 0;
-              data[i+2] = 0;
-              data[i+3] = Math.min(255, data[i+3] * 1.25);
-            }
-          }
-
-          ctx.putImageData(imgData, 0, 0);
-          canvas.toBlob((blob) => {
-            if (blob) resolve(blob);
-            else reject(new Error('Failed to convert canvas to blob'));
-          }, 'image/png');
-        };
-        img.onerror = () => reject(new Error('Failed to load signature image'));
-        img.src = event.target.result;
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
-  };
-
   const handleSignatureUpload = async (e) => {
-    const file = e.target.files?.[0];
+    const file = e.target.files[0];
     if (!file) return;
     try {
-      const processedBlob = await extractSignatureFromImage(file);
-      const compressed = await compressImageToBlob(processedBlob, 400, 150, 0.9);
+      const compressed = await compressImageToBlob(file, 400, 200, 0.9);
       await uploadAndSaveSignature(compressed);
     } catch (err) {
-      console.warn('Signature processing failed, fallback to original:', err);
-      try {
-        const compressed = await compressImageToBlob(file, 400, 150, 0.9);
-        await uploadAndSaveSignature(compressed);
-      } catch (fallbackErr) {
-        await uploadAndSaveSignature(file);
-      }
-    } finally {
-      e.target.value = '';
+      alert('Failed to upload signature: ' + err.message);
     }
   };
 
   const uploadAndSaveSignature = async (blob) => {
     try {
-      // 1. Update locally in Dexie
       await db.profiles.update(user.id, {
         signature: blob,
-        synced: false
+        updatedAt: new Date().toISOString()
       });
-
-      // Update UI preview
       setSignaturePreview(URL.createObjectURL(blob));
 
-      // 2. If online: upload to Supabase Storage and update profile
-      if (navigator.onLine) {
+      if (navigator.onLine && user?.id) {
         const path = `signatures/${user.id}.png`;
         const { error: uploadErr } = await supabase.storage
           .from('learner-photos')
@@ -583,133 +541,72 @@ const Settings = () => {
         if (!uploadErr) {
           const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
           const publicUrl = data.publicUrl;
-
-          // Update in IndexedDB
           await db.profiles.update(user.id, {
             signatureUrl: publicUrl,
-            synced: true
+            updatedAt: new Date().toISOString()
           });
 
-          // Sync metadata to report_profiles table
-          await enqueueSync('update', 'report_profiles', {
-            filter: { id: user.id },
-            data: {
-              signature_url: publicUrl,
-              updated_at: new Date().toISOString()
-            }
+          await enqueueSync('upsert', 'report_profiles', {
+            id: user.id,
+            signature_url: publicUrl,
+            updated_at: new Date().toISOString()
           }, user.schoolId);
-
-          console.log('[Settings] Signature synced successfully. URL:', publicUrl);
-        } else {
-          console.warn('[Settings] Signature storage upload failed, queued in outbox:', uploadErr);
         }
       }
-
-      alert('Signature saved successfully!');
-      clearCanvas();
+      alert('Digital signature saved successfully!');
     } catch (err) {
-      console.error('Failed to save signature:', err);
       alert('Failed to save signature: ' + err.message);
     }
   };
 
   const deleteSignature = async () => {
-    if (!window.confirm('Are you sure you want to delete your signature?')) return;
+    if (!window.confirm('Are you sure you want to delete your digital signature?')) return;
     try {
       await db.profiles.update(user.id, {
         signature: null,
         signatureUrl: null,
-        synced: false
+        updatedAt: new Date().toISOString()
       });
       setSignaturePreview(null);
+      clearCanvas();
 
-      if (navigator.onLine) {
-        await enqueueSync('update', 'report_profiles', {
-          filter: { id: user.id },
-          data: {
-            signature_url: null,
-            updated_at: new Date().toISOString()
-          }
+      if (navigator.onLine && user?.id) {
+        await enqueueSync('upsert', 'report_profiles', {
+          id: user.id,
+          signature_url: null,
+          updated_at: new Date().toISOString()
         }, user.schoolId);
-
         await supabase.storage.from('learner-photos').remove([`signatures/${user.id}.png`]).catch(() => null);
       }
-
-      alert('Signature deleted successfully.');
+      alert('Signature deleted.');
     } catch (err) {
-      console.error('Failed to delete signature:', err);
       alert('Failed to delete signature: ' + err.message);
     }
   };
 
   const handleSaveProfile = async (e) => {
     e.preventDefault();
-    if (!profileName.trim()) {
-      alert('Full Name is required.');
-      return;
-    }
-    
     setIsSavingProfile(true);
     try {
-      const updatedFields = {
-        fullName: profileName.trim(),
-        staffId: profileStaffId.trim()
-      };
-      
-      // 1. Update locally in Dexie
-      await db.profiles.update(user.id, updatedFields);
-
-      // 2. Update context state
-      updateProfile(updatedFields);
-
-      // 3. Enqueue sync for cloud update
-      await enqueueSync('update', 'report_profiles', {
-        filter: { id: user.id },
-        data: {
-          full_name: updatedFields.fullName,
-          staff_id: updatedFields.staffId,
-          updated_at: new Date().toISOString()
-        }
-      }, user.schoolId);
-
-      // 4. Update Supabase Auth user metadata
-      if (navigator.onLine) {
-        try {
-          await supabase.auth.updateUser({
-            data: { 
-              full_name: updatedFields.fullName,
-              staff_id: updatedFields.staffId
-            }
-          });
-        } catch (authErr) {
-          console.warn('Failed to update auth metadata:', authErr);
-        }
-      }
-
-      alert('Profile details updated successfully!');
+      await updateProfile({
+        fullName: profileName,
+        staffId: profileStaffId
+      });
+      alert('Profile updated successfully!');
     } catch (err) {
-      console.error('Failed to save profile:', err);
       alert('Failed to update profile: ' + err.message);
     } finally {
       setIsSavingProfile(false);
     }
   };
 
-
-  const updateGradingScale = (index, field, value) => {
-    const newScale = [...settings.gradingScale];
-    if (field === 'min' || field === 'max') {
-       newScale[index][field] = value === '' ? '' : Number(value);
-    } else {
-       newScale[index][field] = value;
-    }
-    setSettings({ ...settings, gradingScale: newScale });
-  };
-
   const addGradingRow = () => {
     setSettings({
       ...settings,
-      gradingScale: [...settings.gradingScale, { min: '', max: '', grade: '', remark: '' }]
+      gradingScale: [
+        ...settings.gradingScale,
+        { min: 0, max: 100, grade: 'X', remark: 'Custom', interpretation: 'Custom' }
+      ]
     });
   };
 
@@ -718,625 +615,943 @@ const Settings = () => {
     setSettings({ ...settings, gradingScale: newScale });
   };
 
-  const isAdmin = user?.role === 'super_admin';
+  const tabs = [
+    ...(isAdmin ? [{ id: 'school', label: 'School & Term', icon: 'fa-school' }] : []),
+    ...(isAdmin ? [{ id: 'assessment', label: 'Grading & CA', icon: 'fa-sliders' }] : []),
+    { id: 'profile', label: 'My Profile', icon: 'fa-user-gear' },
+    { id: 'security', label: 'Security', icon: 'fa-key' }
+  ];
 
   return (
-    <Layout title={isAdmin ? "Portal Setup & School Settings" : "Profile & Settings"}>
-      <div className="fade-in">
+    <Layout title={isAdmin ? "Settings & Preferences" : "Profile & Settings"}>
+      <style>{`
+        .settings-header-banner {
+          background: #09090B;
+          border-radius: 20px;
+          padding: 1.5rem 1.75rem;
+          color: #FFFFFF;
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 1.25rem;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .settings-tab-bar {
+          display: flex;
+          gap: 6px;
+          background: #FFFFFF;
+          padding: 5px;
+          border-radius: 14px;
+          border: 1px solid #E4E4E7;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          scrollbar-width: none;
+        }
+        .settings-tab-bar::-webkit-scrollbar {
+          display: none;
+        }
+        .settings-card {
+          background: #FFFFFF;
+          border-radius: 16px;
+          border: 1px solid #E4E4E7;
+          padding: 1.25rem 1.5rem;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+          margin-bottom: 1.25rem;
+        }
+        .settings-field-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .settings-field-group label {
+          font-size: 0.76rem;
+          font-weight: 700;
+          color: #475569;
+        }
+        .settings-input {
+          width: 100%;
+          padding: 0.55rem 0.85rem;
+          border-radius: 8px;
+          border: 1px solid #CBD5E1;
+          font-size: 0.85rem;
+          outline: 'none';
+          box-sizing: border-box;
+          background: #FFFFFF;
+          color: #0F172A;
+        }
+        .settings-input:focus {
+          border-color: #2563EB;
+          outline: none;
+        }
+        @media (max-width: 768px) {
+          .settings-header-banner {
+            padding: 1.25rem 1rem;
+            border-radius: 16px;
+          }
+          .settings-metrics-grid {
+            display: grid !important;
+            grid-template-columns: repeat(2, 1fr) !important;
+            width: 100% !important;
+            gap: 8px !important;
+          }
+          .settings-two-col {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
+
+      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '1200px', margin: '0 auto', width: '100%' }}>
         
-        {/* User Profile Card */}
-        <div className="card" style={{ marginBottom: '2rem' }}>
-          <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <i className="fas fa-user-cog" style={{ color: 'var(--accent)' }}></i>
-            {isAdmin ? "Headteacher Profile Settings" : "User Profile Settings"}
-          </h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Full Name</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="e.g. John Doe"
-                  value={profileName} 
-                  onChange={(e) => setProfileName(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Email Address (Read-only)</label>
-                <input 
-                  type="email" 
-                  className="form-input" 
-                  value={user?.email || ''} 
-                  disabled
-                  style={{ background: 'var(--background)', color: 'var(--text-muted)', cursor: 'not-allowed' }}
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Staff ID</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="e.g. HT-001"
-                  value={profileStaffId} 
-                  onChange={(e) => setProfileStaffId(e.target.value)}
-                />
+        {/* Executive Header Banner */}
+        <div className="settings-header-banner">
+          <div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '3px 9px', borderRadius: '999px', background: 'rgba(37, 99, 235, 0.2)', border: '1px solid rgba(37, 99, 235, 0.35)', color: '#60A5FA', fontSize: '0.72rem', fontWeight: 800, marginBottom: '0.5rem' }}>
+              <i className="fas fa-sliders"></i> Portal Settings
+            </div>
+            <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.65rem', fontWeight: 800, margin: '0 0 4px', letterSpacing: '-0.02em', color: '#FFFFFF' }}>
+              Settings &amp; Preferences
+            </h1>
+            <p style={{ margin: 0, color: '#A1A1AA', fontSize: '0.84rem', maxWidth: '460px' }}>
+              Manage school identity, academic grading, user profile, and security.
+            </p>
+          </div>
+
+          {/* Minimalist Glassmorphic Status Cards */}
+          <div className="settings-metrics-grid" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '0.75rem 1.1rem', minWidth: '110px' }}>
+              <div style={{ fontSize: '0.68rem', color: '#A1A1AA', fontWeight: 700, textTransform: 'uppercase' }}>School</div>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#FFFFFF', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '140px' }}>
+                {school.name || 'My School'}
               </div>
             </div>
-            
-            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-start' }}>
-              <button 
-                type="button" 
-                className="btn btn-accent" 
-                onClick={handleSaveProfile}
-                disabled={isSavingProfile}
-                style={{ 
-                  background: 'var(--accent)', 
-                  color: 'white', 
-                  padding: '0.6rem 1.25rem', 
-                  border: 'none', 
-                  borderRadius: '8px', 
-                  fontWeight: 'bold', 
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '0.75rem 1.1rem', minWidth: '100px' }}>
+              <div style={{ fontSize: '0.68rem', color: '#A1A1AA', fontWeight: 700, textTransform: 'uppercase' }}>Active Term</div>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#FFFFFF', marginTop: '2px' }}>
+                {school.currentTerm || 'Term 1'}
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '0.75rem 1.1rem', minWidth: '95px' }}>
+              <div style={{ fontSize: '0.68rem', color: '#A1A1AA', fontWeight: 700, textTransform: 'uppercase' }}>CA / Exam</div>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#60A5FA', marginTop: '2px' }}>
+                {settings.caWeight}/{settings.examWeight}%
+              </div>
+            </div>
+
+            <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '0.75rem 1.1rem', minWidth: '90px' }}>
+              <div style={{ fontSize: '0.68rem', color: '#A1A1AA', fontWeight: 700, textTransform: 'uppercase' }}>Role</div>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: '#10B981', marginTop: '2px' }}>
+                {user?.role === 'super_admin' ? 'Admin' : 'Teacher'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Tab Navigation Switcher */}
+        <div className="settings-tab-bar">
+          {tabs.map(tab => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  padding: '0.6rem 1.15rem',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: isActive ? '#09090B' : 'transparent',
+                  color: isActive ? '#FFFFFF' : '#71717A',
+                  fontWeight: 700,
+                  fontSize: '0.84rem',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  gap: '8px',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s'
                 }}
               >
-                {isSavingProfile ? <i className="fas fa-spinner fa-spin"></i> : null}
-                <span>Save Profile Details</span>
+                <i className={`fas ${tab.icon}`} style={{ color: isActive ? '#2563EB' : '#A1A1AA' }}></i>
+                <span>{tab.label}</span>
               </button>
-            </div>
-          </div>
+            );
+          })}
+        </div>
 
-          {/* Signature Settings Card */}
-          <div className="card" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fas fa-file-signature" style={{ color: 'var(--accent)' }}></i>
-              My Signature
-            </h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.25rem' }}>
-              Add your signature to be printed on your learners' report cards. You can draw it directly on the canvas below or upload a scanned image.
-            </p>
+        {/* ── TAB 1: SCHOOL & ACADEMIC CALENDAR ───────────────────────────── */}
+        {activeTab === 'school' && isAdmin && (
+          <form onSubmit={handleSave} className="fade-in">
+            
+            {/* School Profile Card */}
+            <div className="settings-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <i className="fas fa-school" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                  School Identity &amp; Contact
+                </h3>
+              </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '2rem', alignItems: 'start' }}>
-              {/* Draw pad */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>Draw Signature:</span>
-                <div style={{ position: 'relative', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: '12px', padding: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <canvas 
-                    ref={canvasRef} 
-                    width="350" 
-                    height="130" 
-                    style={{ background: 'white', border: '1px solid var(--border)', borderRadius: '8px', cursor: 'crosshair', touchAction: 'none' }}
-                    onMouseDown={startDrawing}
-                    onMouseMove={draw}
-                    onMouseUp={stopDrawing}
-                    onMouseLeave={stopDrawing}
-                    onTouchStart={startDrawingTouch}
-                    onTouchMove={drawTouch}
-                    onTouchEnd={stopDrawing}
-                  />
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '12px', width: '100%', justifyContent: 'space-between' }}>
-                    <button type="button" className="btn btn-outline" onClick={clearCanvas} style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', background: 'none', border: '1px solid var(--border)', color: 'var(--text)' }}>
-                      <i className="fas fa-eraser"></i> Clear Pad
-                    </button>
-                    <button type="button" className="btn btn-accent" onClick={saveCanvasSignature} style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', color: 'white', background: 'var(--accent)', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
-                      <i className="fas fa-check"></i> Save Drawing
-                    </button>
+              <div style={{ display: 'flex', gap: '1.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                {/* Logo Uploader */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', flex: '0 0 130px' }}>
+                  <div style={{
+                    width: '110px',
+                    height: '110px',
+                    borderRadius: '50%',
+                    border: '3px solid #2563EB',
+                    background: '#F8FAFC',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    position: 'relative'
+                  }}>
+                    {school.logoUrl ? (
+                      <img
+                        src={school.logoUrl}
+                        alt="School Logo"
+                        style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <i className="fas fa-university" style={{ fontSize: '2.5rem', color: '#CBD5E1' }} />
+                    )}
+                  </div>
+                  <label 
+                    style={{ 
+                      padding: '0.35rem 0.75rem', 
+                      fontSize: '0.75rem', 
+                      background: isUploadingLogo ? '#A1A1AA' : '#09090B', 
+                      color: 'white', 
+                      cursor: isUploadingLogo ? 'not-allowed' : 'pointer', 
+                      borderRadius: '8px', 
+                      fontWeight: 700,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px'
+                    }}
+                  >
+                    {isUploadingLogo ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-camera"></i>}
+                    <span>{isUploadingLogo ? 'Uploading...' : 'Change Logo'}</span>
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      onChange={handleLogoUpload} 
+                      disabled={isUploadingLogo}
+                      style={{ display: 'none' }} 
+                    />
+                  </label>
+                </div>
+
+                {/* Form Fields Grid */}
+                <div style={{ flex: '1 1 380px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
+                  <div className="settings-field-group">
+                    <label>School Name *</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={school.name} 
+                      onChange={(e) => setSchool({ ...school, name: e.target.value })}
+                      required
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Motto</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={school.motto} 
+                      onChange={(e) => setSchool({ ...school, motto: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>School Ownership Type</label>
+                    <select 
+                      className="settings-input" 
+                      value={school.schoolType || 'private'} 
+                      onChange={(e) => setSchool({ ...school, schoolType: e.target.value })}
+                    >
+                      <option value="private">Private School</option>
+                      <option value="public">Public / GES School</option>
+                      <option value="international">International School</option>
+                    </select>
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Location / Town</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={school.location} 
+                      onChange={(e) => setSchool({ ...school, location: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>District</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={school.district} 
+                      onChange={(e) => setSchool({ ...school, district: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Region</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={school.region} 
+                      onChange={(e) => setSchool({ ...school, region: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Phone Number</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={school.phone} 
+                      onChange={(e) => setSchool({ ...school, phone: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Email Address</label>
+                    <input 
+                      type="email" 
+                      className="settings-input" 
+                      value={school.email} 
+                      onChange={(e) => setSchool({ ...school, email: e.target.value })}
+                    />
                   </div>
                 </div>
               </div>
+            </div>
 
-              {/* Upload & Preview */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-                {/* Upload */}
-                <div>
-                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '8px' }}>Or Upload Scanned Image:</span>
+            {/* Academic Calendar Card */}
+            <div className="settings-card">
+              <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                <i className="fas fa-calendar-days" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                Academic Term &amp; Schedule
+              </h3>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
+                <div className="settings-field-group">
+                  <label>Current Academic Year</label>
                   <input 
-                    type="file" 
-                    accept="image/*" 
-                    className="form-input" 
-                    onChange={handleSignatureUpload}
-                    style={{ padding: '0.4rem', fontSize: '0.82rem' }}
+                    type="text" 
+                    className="settings-input" 
+                    placeholder="e.g. 2025/2026"
+                    value={school.currentAcademicYear} 
+                    onChange={(e) => setSchool({ ...school, currentAcademicYear: e.target.value })}
                   />
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', display: 'block', marginTop: '4px' }}>
-                    Supported formats: PNG, JPG, JPEG (transparent background recommended).
-                  </span>
+                </div>
+
+                <div className="settings-field-group">
+                  <label>Current Running Term</label>
+                  <select 
+                    className="settings-input" 
+                    value={school.currentTerm || 'Term 1'} 
+                    onChange={(e) => setSchool({ ...school, currentTerm: e.target.value })}
+                  >
+                    <option value="Term 1">Term 1</option>
+                    <option value="Term 2">Term 2</option>
+                    <option value="Term 3">Term 3</option>
+                  </select>
+                </div>
+
+                <div className="settings-field-group">
+                  <label>Vacation Date</label>
+                  <input 
+                    type="date" 
+                    className="settings-input" 
+                    value={school.vacationDate} 
+                    onChange={(e) => setSchool({ ...school, vacationDate: e.target.value })}
+                  />
+                </div>
+
+                <div className="settings-field-group">
+                  <label>Next Term Begins</label>
+                  <input 
+                    type="date" 
+                    className="settings-input" 
+                    value={school.nextTermBegins} 
+                    onChange={(e) => setSchool({ ...school, nextTermBegins: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  style={{
+                    padding: '0.65rem 1.35rem',
+                    borderRadius: '10px',
+                    background: '#09090B',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save" />}
+                  <span>Save School Profile</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {/* ── TAB 2: GRADING & CONTINUOUS ASSESSMENT ──────────────────────── */}
+        {activeTab === 'assessment' && isAdmin && (
+          <form onSubmit={handleSave} className="fade-in">
+            {/* Assessment Weights */}
+            <div className="settings-card">
+              <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                <i className="fas fa-balance-scale" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                Assessment Weight Distribution
+              </h3>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '0.75rem' }}>
+                <div className="settings-field-group">
+                  <label>Continuous Assessment (CA) %</label>
+                  <input 
+                    type="number" 
+                    className="settings-input" 
+                    value={settings.caWeight} 
+                    onChange={(e) => setSettings({ ...settings, caWeight: Number(e.target.value) })}
+                    min="0" max="100"
+                  />
+                </div>
+                <div className="settings-field-group">
+                  <label>Examination %</label>
+                  <input 
+                    type="number" 
+                    className="settings-input" 
+                    value={settings.examWeight} 
+                    onChange={(e) => setSettings({ ...settings, examWeight: Number(e.target.value) })}
+                    min="0" max="100"
+                  />
+                </div>
+              </div>
+
+              {Number(settings.caWeight) + Number(settings.examWeight) !== 100 ? (
+                <div style={{ color: '#DC2626', fontSize: '0.8rem', fontWeight: 700 }}>
+                  <i className="fas fa-triangle-exclamation" style={{ marginRight: '4px' }}></i>
+                  Weights must equal 100% (Current: {Number(settings.caWeight) + Number(settings.examWeight)}%)
+                </div>
+              ) : (
+                <div style={{ color: '#16A34A', fontSize: '0.8rem', fontWeight: 700 }}>
+                  <i className="fas fa-check-circle" style={{ marginRight: '4px' }}></i>
+                  Balanced (100% Total)
+                </div>
+              )}
+            </div>
+
+            {/* Continuous Assessment Breakdown */}
+            <div className="settings-card">
+              <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                <i className="fas fa-calculator" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                Continuous Assessment Breakdown
+              </h3>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div className="settings-field-group">
+                  <label>Calculation Model</label>
+                  <select 
+                    className="settings-input" 
+                    value={settings.caModel} 
+                    onChange={(e) => setSettings({ ...settings, caModel: e.target.value })}
+                  >
+                    <option value="simple_mean">Simple Mean (Average of all components)</option>
+                    <option value="best_n">Best 'N' Model (Average of top components)</option>
+                  </select>
+                </div>
+
+                {settings.caModel === 'best_n' && (
+                  <div className="settings-field-group">
+                    <label>Top 'N' Count</label>
+                    <input 
+                      type="number" 
+                      className="settings-input" 
+                      placeholder="e.g. 3"
+                      value={settings.caBestNCount || ''} 
+                      onChange={(e) => setSettings({ ...settings, caBestNCount: e.target.value ? Number(e.target.value) : '' })}
+                      min="1"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>Component</th>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textAlign: 'center', textTransform: 'uppercase' }}>Count</th>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textAlign: 'center', textTransform: 'uppercase' }}>Max Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {settings.caBreakdown?.map((item, index) => (
+                      <tr key={item.id} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '0.65rem 0.85rem', fontWeight: 700, fontSize: '0.85rem', color: '#09090B' }}>{item.label}</td>
+                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                          <input 
+                            type="number" 
+                            className="settings-input" 
+                            style={{ textAlign: 'center', width: '70px', margin: '0 auto' }}
+                            value={item.count || ''}
+                            onChange={(e) => {
+                              const newBreakdown = [...settings.caBreakdown];
+                              newBreakdown[index].count = e.target.value ? Number(e.target.value) : '';
+                              newBreakdown[index].enabled = newBreakdown[index].count > 0;
+                              setSettings({ ...settings, caBreakdown: newBreakdown });
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '0.65rem 0.85rem', textAlign: 'center' }}>
+                          <input 
+                            type="number" 
+                            className="settings-input" 
+                            style={{ textAlign: 'center', width: '70px', margin: '0 auto' }}
+                            value={item.maxScore || ''}
+                            onChange={(e) => {
+                              const newBreakdown = [...settings.caBreakdown];
+                              newBreakdown[index].maxScore = e.target.value ? Number(e.target.value) : '';
+                              setSettings({ ...settings, caBreakdown: newBreakdown });
+                            }}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Grading Scale Table */}
+            <div className="settings-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <i className="fas fa-chart-simple" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                  Grading Scale Matrix
+                </h3>
+
+                <button
+                  type="button"
+                  onClick={addGradingRow}
+                  style={{
+                    padding: '0.4rem 0.8rem',
+                    borderRadius: '8px',
+                    background: '#EFF6FF',
+                    border: '1px solid #BFDBFE',
+                    color: '#1D4ED8',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <i className="fas fa-plus" style={{ marginRight: '4px' }}></i> Add Row
+                </button>
+              </div>
+
+              <div style={{ overflowX: 'auto', marginBottom: '1.25rem' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead>
+                    <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>Min</th>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>Max</th>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>Grade</th>
+                      <th style={{ padding: '0.65rem 0.85rem', fontSize: '0.75rem', color: '#475569', fontWeight: 800, textTransform: 'uppercase' }}>Remark</th>
+                      <th style={{ padding: '0.65rem 0.85rem', textAlign: 'right' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {settings.gradingScale?.map((row, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                        <td style={{ padding: '0.5rem 0.65rem' }}>
+                          <input 
+                            type="number" 
+                            className="settings-input" 
+                            style={{ width: '60px' }}
+                            value={row.min ?? ''} 
+                            onChange={(e) => {
+                              const newScale = [...settings.gradingScale];
+                              newScale[idx].min = e.target.value === '' ? '' : Number(e.target.value);
+                              setSettings({ ...settings, gradingScale: newScale });
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '0.5rem 0.65rem' }}>
+                          <input 
+                            type="number" 
+                            className="settings-input" 
+                            style={{ width: '60px' }}
+                            value={row.max ?? ''} 
+                            onChange={(e) => {
+                              const newScale = [...settings.gradingScale];
+                              newScale[idx].max = e.target.value === '' ? '' : Number(e.target.value);
+                              setSettings({ ...settings, gradingScale: newScale });
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '0.5rem 0.65rem' }}>
+                          <input 
+                            type="text" 
+                            className="settings-input" 
+                            style={{ width: '50px', fontWeight: 800, textAlign: 'center' }}
+                            value={row.grade || ''} 
+                            onChange={(e) => {
+                              const newScale = [...settings.gradingScale];
+                              newScale[idx].grade = e.target.value;
+                              setSettings({ ...settings, gradingScale: newScale });
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '0.5rem 0.65rem' }}>
+                          <input 
+                            type="text" 
+                            className="settings-input" 
+                            value={row.remark || ''} 
+                            onChange={(e) => {
+                              const newScale = [...settings.gradingScale];
+                              newScale[idx].remark = e.target.value;
+                              setSettings({ ...settings, gradingScale: newScale });
+                            }}
+                          />
+                        </td>
+                        <td style={{ padding: '0.5rem 0.65rem', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => removeGradingRow(idx)}
+                            style={{ border: 'none', background: 'transparent', color: '#EF4444', cursor: 'pointer', padding: '4px' }}
+                          >
+                            <i className="fas fa-trash-can"></i>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Best 6 Aggregate Toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '1.25rem' }}>
+                <input
+                  type="checkbox"
+                  id="best6Toggle"
+                  checked={settings.enableBest6Aggregate}
+                  onChange={e => setSettings({ ...settings, enableBest6Aggregate: e.target.checked })}
+                  style={{ width: '16px', height: '16px', accentColor: '#2563EB', cursor: 'pointer' }}
+                />
+                <label htmlFor="best6Toggle" style={{ fontSize: '0.84rem', fontWeight: 700, color: '#09090B', cursor: 'pointer' }}>
+                  Enable Best 6 Aggregate calculation on Broadsheets and Reports
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  style={{
+                    padding: '0.65rem 1.35rem',
+                    borderRadius: '10px',
+                    background: '#09090B',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    cursor: isSaving ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save" />}
+                  <span>Save Grading Settings</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {/* ── TAB 3: USER PROFILE & SIGNATURE ────────────────────────────── */}
+        {activeTab === 'profile' && (
+          <div className="fade-in">
+            <div className="settings-card">
+              <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                <i className="fas fa-user-circle" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                Personal Profile Details
+              </h3>
+
+              <form onSubmit={handleSaveProfile}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem', marginBottom: '1.25rem' }}>
+                  <div className="settings-field-group">
+                    <label>Full Name</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={profileName} 
+                      onChange={(e) => setProfileName(e.target.value)}
+                      required
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Staff ID</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={profileStaffId} 
+                      onChange={(e) => setProfileStaffId(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Email Address</label>
+                    <input 
+                      type="email" 
+                      className="settings-input" 
+                      value={user?.email || ''} 
+                      disabled
+                      style={{ background: '#F8FAFC', color: '#64748B' }}
+                    />
+                  </div>
+
+                  <div className="settings-field-group">
+                    <label>Assigned Role</label>
+                    <input 
+                      type="text" 
+                      className="settings-input" 
+                      value={user?.role === 'super_admin' ? 'Super Administrator' : 'Staff Teacher'} 
+                      disabled
+                      style={{ background: '#F8FAFC', color: '#64748B' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="submit"
+                    disabled={isSavingProfile}
+                    style={{
+                      padding: '0.6rem 1.25rem',
+                      borderRadius: '10px',
+                      background: '#09090B',
+                      border: 'none',
+                      color: '#FFFFFF',
+                      fontWeight: 800,
+                      fontSize: '0.84rem',
+                      cursor: isSavingProfile ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {isSavingProfile ? 'Saving...' : 'Save Profile'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Digital Signature Card */}
+            <div className="settings-card">
+              <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <i className="fas fa-signature" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                Official Digital Signature
+              </h3>
+              <p style={{ margin: '0 0 1rem', fontSize: '0.8rem', color: '#71717A' }}>
+                Draw on the pad below or upload an image to print your signature on terminal report cards.
+              </p>
+
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                {/* Signature Pad */}
+                <div style={{ flex: '1 1 280px' }}>
+                  <div style={{
+                    border: '1px solid #CBD5E1',
+                    borderRadius: '10px',
+                    background: '#FAFAFA',
+                    overflow: 'hidden',
+                    marginBottom: '0.5rem'
+                  }}>
+                    <canvas
+                      ref={canvasRef}
+                      width={380}
+                      height={120}
+                      onMouseDown={startDrawing}
+                      onMouseMove={draw}
+                      onMouseUp={stopDrawing}
+                      onMouseLeave={stopDrawing}
+                      onTouchStart={startDrawing}
+                      onTouchMove={draw}
+                      onTouchEnd={stopDrawing}
+                      style={{ width: '100%', height: '120px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button
+                      type="button"
+                      onClick={clearCanvas}
+                      style={{
+                        padding: '0.4rem 0.75rem',
+                        borderRadius: '6px',
+                        background: '#F1F5F9',
+                        border: 'none',
+                        color: '#475569',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveCanvasSignature}
+                      style={{
+                        padding: '0.4rem 0.85rem',
+                        borderRadius: '6px',
+                        background: '#09090B',
+                        border: 'none',
+                        color: '#FFFFFF',
+                        fontSize: '0.78rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Save Drawing
+                    </button>
+                    <label style={{
+                      padding: '0.4rem 0.85rem',
+                      borderRadius: '6px',
+                      background: '#EFF6FF',
+                      border: '1px solid #BFDBFE',
+                      color: '#1D4ED8',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}>
+                      Upload File
+                      <input type="file" accept="image/*" onChange={handleSignatureUpload} style={{ display: 'none' }} />
+                    </label>
+                  </div>
                 </div>
 
                 {/* Preview */}
                 {signaturePreview && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>Current Signature Preview:</span>
-                    <div style={{ padding: '8px 12px', background: 'white', border: '1px solid var(--border)', borderRadius: '8px', display: 'inline-flex', width: 'fit-content' }}>
-                      <img src={signaturePreview} alt="Signature Preview" style={{ maxHeight: '60px', maxWidth: '180px', objectFit: 'contain' }} />
+                  <div style={{ flex: '0 0 160px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '4px' }}>
+                      Current Signature
                     </div>
-                    <button type="button" className="btn btn-outline" onClick={deleteSignature} style={{ border: '1px solid #ef4444', color: '#ef4444', fontSize: '0.75rem', width: 'fit-content', padding: '0.35rem 0.75rem', background: 'none', cursor: 'pointer', borderRadius: '6px' }}>
-                      <i className="fas fa-trash-alt"></i> Delete Signature
+                    <div style={{ padding: '8px', border: '1px solid #E2E8F0', borderRadius: '8px', background: '#FFFFFF', marginBottom: '6px' }}>
+                      <img src={signaturePreview} alt="Signature" style={{ maxHeight: '50px', maxWidth: '100%', objectFit: 'contain' }} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={deleteSignature}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        border: '1px solid #FEE2E2',
+                        background: '#FEF2F2',
+                        color: '#DC2626',
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Delete
                     </button>
                   </div>
                 )}
               </div>
             </div>
           </div>
+        )}
 
-          {/* Change Password Card */}
-          <div className="card" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fas fa-key" style={{ color: 'var(--accent)' }}></i>
-              Change Account Password
-            </h3>
-            <form onSubmit={handleChangePassword}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Current Password</label>
+        {/* ── TAB 4: ACCOUNT SECURITY ────────────────────────────────────── */}
+        {activeTab === 'security' && (
+          <div className="fade-in">
+            <div className="settings-card" style={{ maxWidth: '500px' }}>
+              <h3 style={{ margin: '0 0 1.25rem', fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem' }}>
+                <i className="fas fa-lock" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                Change Password
+              </h3>
+
+              <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <div className="settings-field-group">
+                  <label>Current Password</label>
                   <input 
                     type="password" 
-                    className="form-input" 
-                    placeholder="••••••••"
+                    className="settings-input" 
                     value={currentPassword} 
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     required
                   />
                 </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">New Password (Min 6 chars)</label>
+
+                <div className="settings-field-group">
+                  <label>New Password (min. 6 characters)</label>
                   <input 
                     type="password" 
-                    className="form-input" 
-                    placeholder="••••••••"
+                    className="settings-input" 
                     value={newPassword} 
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
                   />
                 </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Confirm New Password</label>
+
+                <div className="settings-field-group">
+                  <label>Confirm New Password</label>
                   <input 
                     type="password" 
-                    className="form-input" 
-                    placeholder="••••••••"
+                    className="settings-input" 
                     value={confirmPassword} 
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
                   />
                 </div>
-              </div>
-              
-              <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-start' }}>
-                <button 
-                  type="submit" 
-                  className="btn btn-accent" 
-                  disabled={isChangingPassword}
-                  style={{ 
-                    background: 'var(--accent)', 
-                    color: 'white', 
-                    padding: '0.6rem 1.25rem', 
-                    border: 'none', 
-                    borderRadius: '8px', 
-                    fontWeight: 'bold', 
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  {isChangingPassword ? <i className="fas fa-spinner fa-spin"></i> : null}
-                  <span>Update Password</span>
-                </button>
-              </div>
-            </form>
-          </div>
-          
-          {isAdmin && (
-            <form onSubmit={handleSave}>
-              {/* School Profile & Term Settings Card */}
-          <div className="card" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem', color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fas fa-school" style={{ color: 'var(--accent)' }}></i>
-              School Profile & Academic Term Setup
-            </h3>
 
-            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
-              {/* Logo Upload Circle */}
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', flex: '0 0 150px' }}>
-                <div style={{
-                  width: '120px',
-                  height: '120px',
-                  borderRadius: '50%',
-                  border: '3px solid var(--accent-light)',
-                  background: 'var(--background)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                  position: 'relative',
-                  boxShadow: 'var(--shadow-sm)'
-                }}>
-                  {school.logoUrl ? (
-                    <img src={school.logoUrl} alt="School Logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <i className="fas fa-university" style={{ fontSize: '3rem', color: 'var(--text-muted)', opacity: 0.5 }}></i>
-                  )}
+                <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="submit"
+                    disabled={isChangingPassword}
+                    style={{
+                      padding: '0.6rem 1.35rem',
+                      borderRadius: '10px',
+                      background: '#09090B',
+                      border: 'none',
+                      color: '#FFFFFF',
+                      fontWeight: 800,
+                      fontSize: '0.84rem',
+                      cursor: isChangingPassword ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    {isChangingPassword ? 'Updating...' : 'Update Password'}
+                  </button>
                 </div>
-                <label 
-                  className="btn" 
-                  style={{ 
-                    padding: '0.35rem 0.75rem', 
-                    fontSize: '0.75rem', 
-                    background: isUploadingLogo ? 'var(--text-muted)' : 'var(--accent)', 
-                    color: 'white', 
-                    cursor: isUploadingLogo ? 'not-allowed' : 'pointer', 
-                    borderRadius: '6px', 
-                    fontWeight: 600,
-                    opacity: isUploadingLogo ? 0.7 : 1
-                  }}
-                >
-                  {isUploadingLogo 
-                    ? <><i className="fas fa-spinner fa-spin" style={{ marginRight: '4px' }}></i>Uploading...</>
-                    : <><i className="fas fa-camera" style={{ marginRight: '4px' }}></i>Upload Logo</>
-                  }
-                  {/* Accept all image formats — we convert to WebP internally */}
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleLogoUpload} 
-                    disabled={isUploadingLogo}
-                    style={{ display: 'none' }} 
-                  />
-                </label>
-              </div>
-
-              {/* School Details Grid */}
-              <div style={{ flex: '1 1 400px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.25rem' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">School Name</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Labour Edu Academy"
-                    value={school.name} 
-                    onChange={(e) => setSchool({ ...school, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">School Motto</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Knowledge is Power"
-                    value={school.motto} 
-                    onChange={(e) => setSchool({ ...school, motto: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Location / Address</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Accra Central"
-                    value={school.location} 
-                    onChange={(e) => setSchool({ ...school, location: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">District</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Ashiedu Keteke"
-                    value={school.district} 
-                    onChange={(e) => setSchool({ ...school, district: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Region</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Greater Accra"
-                    value={school.region} 
-                    onChange={(e) => setSchool({ ...school, region: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Circuit</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. Circuit 4"
-                    value={school.circuit} 
-                    onChange={(e) => setSchool({ ...school, circuit: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Support Phone Number</label>
-                  <input 
-                    type="text" 
-                    className="form-input" 
-                    placeholder="e.g. 054 220 2200"
-                    value={school.phone} 
-                    onChange={(e) => setSchool({ ...school, phone: e.target.value })}
-                  />
-                </div>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Support Email Address</label>
-                  <input 
-                    type="email" 
-                    className="form-input" 
-                    placeholder="e.g. support@school.edu"
-                    value={school.email} 
-                    onChange={(e) => setSchool({ ...school, email: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Term dates configuration */}
-            <div style={{ 
-              borderTop: '1px dashed var(--border)', 
-              paddingTop: '1.5rem', 
-              marginTop: '1.5rem', 
-              display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', 
-              gap: '1.25rem' 
-            }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Active Academic Year</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
-                  placeholder="e.g. 2025/2026"
-                  value={school.currentAcademicYear} 
-                  onChange={(e) => setSchool({ ...school, currentAcademicYear: e.target.value })}
-                  required
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Active Term</label>
-                <select 
-                  className="form-input"
-                  style={{ cursor: 'pointer' }}
-                  value={school.currentTerm} 
-                  onChange={(e) => setSchool({ ...school, currentTerm: e.target.value })}
-                >
-                  <option value="Term 1">Term 1</option>
-                  <option value="Term 2">Term 2</option>
-                  <option value="Term 3">Term 3</option>
-                </select>
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Vacation Date</label>
-                <input 
-                  type="date" 
-                  className="form-input" 
-                  value={school.vacationDate} 
-                  onChange={(e) => setSchool({ ...school, vacationDate: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Next Term Resumes</label>
-                <input 
-                  type="date" 
-                  className="form-input" 
-                  value={school.nextTermBegins} 
-                  onChange={(e) => setSchool({ ...school, nextTermBegins: e.target.value })}
-                />
-              </div>
+              </form>
             </div>
           </div>
-          
-          {/* Assessment Weighting */}
-          <div className="card" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
-              <i className="fas fa-balance-scale" style={{ color: 'var(--accent)', marginRight: '8px' }}></i>
-              Assessment Weighting
-            </h3>
-            
-            <div className="two-col-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Continuous Assessment (CA) %</label>
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  value={settings.caWeight} 
-                  onChange={(e) => setSettings({ ...settings, caWeight: Number(e.target.value) })}
-                  min="0" max="100"
-                />
-              </div>
-              <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Examination %</label>
-                <input 
-                  type="number" 
-                  className="form-input" 
-                  value={settings.examWeight} 
-                  onChange={(e) => setSettings({ ...settings, examWeight: Number(e.target.value) })}
-                  min="0" max="100"
-                />
-              </div>
-            </div>
-            {Number(settings.caWeight) + Number(settings.examWeight) !== 100 && (
-              <div style={{ color: 'var(--error)', fontSize: '0.85rem', marginTop: '-0.5rem' }}>
-                <i className="fas fa-exclamation-triangle" style={{ marginRight: '5px' }}></i>
-                Weights must add up to exactly 100%. (Current: {Number(settings.caWeight) + Number(settings.examWeight)}%)
-              </div>
-            )}
-          </div>
-
-          {/* CA Calculation Model & Structure */}
-          <div className="card" style={{ marginBottom: '2rem' }}>
-            <h3 style={{ marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
-              <i className="fas fa-calculator" style={{ color: 'var(--accent)', marginRight: '8px' }}></i>
-              Continuous Assessment Structure
-            </h3>
-            
-            <div className="two-col-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-               <div className="form-group" style={{ marginBottom: 0 }}>
-                <label className="form-label">Calculation Model</label>
-                <select 
-                  className="form-input" 
-                  value={settings.caModel} 
-                  onChange={(e) => setSettings({ ...settings, caModel: e.target.value })}
-                >
-                  <option value="simple_mean">Simple Mean (Average of all CA components)</option>
-                  <option value="best_n">Best 'N' Model (Average of highest scoring components)</option>
-                </select>
-              </div>
-
-              {settings.caModel === 'best_n' && (
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Select Best 'N' Components</label>
-                  <input 
-                    type="number" 
-                    className="form-input" 
-                    placeholder="e.g. 3"
-                    value={settings.caBestNCount || ''} 
-                    onChange={(e) => setSettings({ ...settings, caBestNCount: e.target.value ? Number(e.target.value) : '' })}
-                    min="1"
-                  />
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>How many of the top components to count.</div>
-                </div>
-              )}
-            </div>
-
-            <h4 style={{ fontSize: '0.9rem', marginBottom: '1rem', color: 'var(--text)' }}>CA Component Breakdown</h4>
-            <div className="table-wrapper">
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
-                <thead style={{ background: 'var(--background)' }}>
-                  <tr>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Component Type</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Count Per Term</th>
-                    <th style={{ padding: '0.75rem 1rem', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>Max Raw Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {settings.caBreakdown?.map((item, index) => (
-                    <tr key={item.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '0.75rem 1rem', fontWeight: 600, fontSize: '0.85rem' }}>{item.label}</td>
-                      <td style={{ padding: '0.75rem 1rem' }}>
-                        <input 
-                          type="number" 
-                          className="form-input" 
-                          style={{ textAlign: 'center', margin: '0 auto', maxWidth: '80px' }}
-                          value={item.count || ''}
-                          onChange={(e) => {
-                            const newBreakdown = [...settings.caBreakdown];
-                            newBreakdown[index].count = e.target.value ? Number(e.target.value) : '';
-                            // Automatically ensure it's marked as enabled if they add a count
-                            newBreakdown[index].enabled = newBreakdown[index].count > 0;
-                            setSettings({ ...settings, caBreakdown: newBreakdown });
-                          }}
-                        />
-                      </td>
-                      <td style={{ padding: '0.75rem 1rem' }}>
-                        <input 
-                          type="number" 
-                          className="form-input" 
-                          style={{ textAlign: 'center', margin: '0 auto', maxWidth: '80px' }}
-                          value={item.maxScore || ''}
-                          onChange={(e) => {
-                            const newBreakdown = [...settings.caBreakdown];
-                            newBreakdown[index].maxScore = e.target.value ? Number(e.target.value) : '';
-                            setSettings({ ...settings, caBreakdown: newBreakdown });
-                          }}
-                        />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div style={{ marginTop: '1.5rem', padding: '1rem', background: 'var(--background)', borderRadius: 'var(--radius-md)', fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: '1.6' }}>
-              <strong>How it works:</strong> Teachers will enter scores based on the active components above. 
-              The system will convert each entered score into a percentage.
-              {settings.caModel === 'simple_mean' ? 
-                ` It will then average all these percentages, and scale the result to your ${settings.caWeight}% CA weight.` : 
-                ` It will then select the highest ${settings.caBestNCount || 'N'} percentages, average them, and scale the result to your ${settings.caWeight}% CA weight.`
-              }
-            </div>
-          </div>
-
-          {/* Grading System */}
-          <div style={{ marginBottom: '2rem', background: 'var(--surface)', padding: '2rem 1rem', borderRadius: 'var(--radius-lg)' }}>
-            <h3 style={{ margin: '0 0 1rem 0', color: '#1e293b', fontSize: '1.25rem', fontWeight: 'bold' }}>
-              Grading System
-            </h3>
-            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', marginBottom: '1.5rem' }} />
-            
-            <div style={{ overflowX: 'auto' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr 50px', gap: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid var(--border)', marginBottom: '1rem', minWidth: '600px' }}>
-                <div style={{ fontWeight: '600', color: '#94a3b8', fontSize: '0.85rem' }}>Min</div>
-                <div style={{ fontWeight: '600', color: '#94a3b8', fontSize: '0.85rem' }}>Max</div>
-                <div style={{ fontWeight: '600', color: '#94a3b8', fontSize: '0.85rem' }}>Grade</div>
-                <div style={{ fontWeight: '600', color: '#94a3b8', fontSize: '0.85rem' }}>Remark</div>
-                <div style={{ fontWeight: '600', color: '#94a3b8', fontSize: '0.85rem', textAlign: 'center' }}>Del</div>
-              </div>
-
-              <div style={{ minWidth: '600px' }}>
-                {settings.gradingScale.map((scale, index) => (
-                  <div key={index} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr 50px', gap: '1.5rem', alignItems: 'center', marginBottom: '1rem' }}>
-                    <input 
-                      type="number" 
-                      style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: 'none', background: '#f8fafc', fontWeight: 'bold', width: '100%', outline: 'none', color: '#1e293b', fontSize: '0.95rem' }}
-                      value={scale.min === 0 ? 0 : (scale.min || '')}
-                      placeholder="0"
-                      onChange={(e) => updateGradingScale(index, 'min', e.target.value)}
-                    />
-                    <input 
-                      type="number" 
-                      style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: 'none', background: '#f8fafc', fontWeight: 'bold', width: '100%', outline: 'none', color: '#1e293b', fontSize: '0.95rem' }}
-                      value={scale.max === 0 ? 0 : (scale.max || '')}
-                      placeholder={index === 0 ? "100" : (settings.gradingScale[index - 1]?.min !== '' && settings.gradingScale[index - 1]?.min !== undefined ? String(Number(settings.gradingScale[index - 1]?.min) - 1) : "Max score")}
-                      onChange={(e) => updateGradingScale(index, 'max', e.target.value)}
-                    />
-                    <input 
-                      type="text" 
-                      style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: 'none', background: '#f8fafc', fontWeight: 'bold', width: '100%', outline: 'none', color: '#1e293b', fontSize: '0.95rem' }}
-                      value={scale.grade}
-                      placeholder="Grade"
-                      onChange={(e) => updateGradingScale(index, 'grade', e.target.value)}
-                    />
-                    <input 
-                      type="text" 
-                      style={{ padding: '0.75rem 1rem', borderRadius: '8px', border: 'none', background: '#f8fafc', fontWeight: 'bold', width: '100%', outline: 'none', color: '#1e293b', fontSize: '0.95rem' }}
-                      value={scale.remark}
-                      placeholder="Remark"
-                      onChange={(e) => updateGradingScale(index, 'remark', e.target.value)}
-                    />
-                    <button 
-                      type="button" 
-                      style={{ background: 'none', border: 'none', color: '#ff4d4f', cursor: 'pointer', fontSize: '1.1rem', display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%' }} 
-                      onClick={() => removeGradingRow(index)}
-                    >
-                      <i className="fas fa-trash"></i>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <button type="button" style={{ background: 'none', border: 'none', color: '#0084ff', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', marginTop: '1.5rem', padding: 0, fontSize: '0.9rem' }} onClick={addGradingRow}>
-              + Add Grade Range
-            </button>
-            
-              <div style={{ marginTop: '2.5rem' }}>
-                <button type="submit" style={{ background: '#0084ff', color: 'white', padding: '0.8rem 1.5rem', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.95rem' }} disabled={isSaving}>
-                   {isSaving ? <i className="fas fa-spinner fa-spin"></i> : null}
-                   <span>Save Academic Settings</span>
-                </button>
-              </div>
-            </div>
-          </form>
         )}
-        </div>
-      </Layout>
-    );
-  };
-  
-  export default Settings;
+
+      </div>
+    </Layout>
+  );
+};
+
+export default Settings;

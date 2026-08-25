@@ -4,11 +4,15 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
-import { compressImageToBlob } from '../../utils/imageUtils';
+import { compressImageToBlob, processPassportPhoto } from '../../utils/imageUtils';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
 import authService from '../../services/authService';
 import { enqueueSync } from '../../services/syncEngine';
+import { GHANAIAN_LANGUAGE_OPTIONS, getLearnerLanguage, getLanguageLabel } from '../../utils/languageUtils';
+import subscriptionService from '../../services/subscriptionService';
+import recycleBinService from '../../services/recycleBinService';
 import * as XLSX from 'xlsx';
+import LogoPreloader from '../../components/common/LogoPreloader';
 
 // ── Registration number helpers ──────────────────────────────────────────────
 const REG_KEY = 'labour_edu_last_reg';
@@ -59,6 +63,7 @@ const mapHeadersAndParse = (headers, rows, schoolId, classesList) => {
   const guardRelationIdx = findColIndex(['relation', 'relationship', 'guardianrelation']);
   const guardLocationIdx = findColIndex(['location', 'address', 'residence']);
   const guardProfessionIdx = findColIndex(['profession', 'occupation', 'job']);
+  const langIdx = findColIndex(['ghanaianlanguage', 'language', 'ghlanguage', 'locallanguage', 'dialet', 'dialect']);
 
   const parsed = [];
   
@@ -77,6 +82,7 @@ const mapHeadersAndParse = (headers, rows, schoolId, classesList) => {
     const rawReg = getVal(regIdx);
     const rawGender = getVal(genderIdx);
     const rawClass = getVal(classIdx);
+    const rawLang = getVal(langIdx).toLowerCase();
     
     let normalizedGender = 'Male';
     if (rawGender) {
@@ -84,6 +90,17 @@ const mapHeadersAndParse = (headers, rows, schoolId, classesList) => {
       if (gLower.startsWith('f') || gLower.includes('female') || gLower.includes('girl')) {
         normalizedGender = 'Female';
       }
+    }
+
+    let normalizedLang = 'twi';
+    if (rawLang) {
+      if (rawLang.includes('ewe') || rawLang.includes('eʋe')) normalizedLang = 'ewe';
+      else if (rawLang.includes('ga') && !rawLang.includes('organ')) normalizedLang = 'ga';
+      else if (rawLang.includes('fante')) normalizedLang = 'fante';
+      else if (rawLang.includes('nzema')) normalizedLang = 'nzema';
+      else if (rawLang.includes('dagbani')) normalizedLang = 'dagbani';
+      else if (rawLang.includes('none') || rawLang.includes('n/a')) normalizedLang = 'none';
+      else if (rawLang.includes('twi') || rawLang.includes('asante') || rawLang.includes('akuapem')) normalizedLang = 'twi';
     }
 
     let matchedClassId = '';
@@ -97,6 +114,7 @@ const mapHeadersAndParse = (headers, rows, schoolId, classesList) => {
       fullName: rawName,
       regNumber: rawReg,
       gender: normalizedGender,
+      ghanaianLanguage: normalizedLang,
       className: rawClass,
       classId: matchedClassId,
       guardianName: getVal(guardNameIdx),
@@ -141,6 +159,7 @@ const LearnerList = () => {
     fullName: '', 
     regNumber: peekNextRegNumber(), 
     gender: 'Male', 
+    ghanaianLanguage: 'twi',
     currentClassId: '',
     excludeFromPdf: false,
     guardianName: '',
@@ -161,8 +180,30 @@ const LearnerList = () => {
   const [reassignStatus, setReassignStatus] = useState('');
   const [isReassigning, setIsReassigning] = useState(false);
 
-  const learners = useLiveQuery(() => user?.schoolId ? db.learners.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
-  const classes = useLiveQuery(() => user?.schoolId ? db.classes.where('schoolId').equals(user.schoolId).toArray() : [], [user?.schoolId]);
+  const [subStatus, setSubStatus] = useState(null);
+
+  useEffect(() => {
+    if (user?.schoolId) {
+      subscriptionService.getSchoolSubscriptionStatus(user.schoolId)
+        .then(res => setSubStatus(res))
+        .catch(err => console.error('[LearnerList] Error fetching sub status:', err));
+    }
+  }, [user?.schoolId]);
+
+  const areLearnerCardsFrozen = !!subStatus?.learners_cards_frozen || (!!subStatus?.reports_locked && subStatus?.billing_status !== 'FIRST_TERM_FREE' && subStatus?.billing_status !== 'EXEMPT');
+
+  const learners = useLiveQuery(
+    () => user?.schoolId 
+      ? db.learners.filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId)).toArray() 
+      : [], 
+    [user?.schoolId]
+  );
+  const classes = useLiveQuery(
+    () => user?.schoolId 
+      ? db.classes.filter(c => String(c.schoolId) === String(user.schoolId) || String(c.school_id || '') === String(user.schoolId)).toArray() 
+      : [], 
+    [user?.schoolId]
+  );
 
   const schoolInfo = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
@@ -322,14 +363,14 @@ const LearnerList = () => {
     if (!v || !c) return;
     c.width = v.videoWidth; c.height = v.videoHeight;
     c.getContext('2d').drawImage(v, 0, 0);
-    // Get blob directly from canvas — no base64 string ever created
+    // Get blob directly from canvas — formatted to 3:4 Passport Picture
     c.toBlob(async (rawBlob) => {
       if (!rawBlob) return;
       try {
-        const compressed = await compressImageToBlob(rawBlob, 500, 500, 0.85);
-        setPhotoPreview(compressed);
+        const passportBlob = await processPassportPhoto(rawBlob, 450, 600, 0.90);
+        setPhotoPreview(passportBlob);
       } catch (err) {
-        console.warn('Failed to compress camera capture:', err);
+        console.warn('Failed to format passport photo from camera capture:', err);
         setPhotoPreview(rawBlob);
       }
       stopCamera();
@@ -340,10 +381,10 @@ const LearnerList = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
-      const compressed = await compressImageToBlob(file, 500, 500, 0.85);
-      setPhotoPreview(compressed);
+      const passportBlob = await processPassportPhoto(file, 450, 600, 0.90);
+      setPhotoPreview(passportBlob);
     } catch (err) {
-      console.warn('Failed to compress uploaded file:', err);
+      console.warn('Failed to format passport photo from uploaded file:', err);
       setPhotoPreview(file);
     }
   };
@@ -354,6 +395,7 @@ const LearnerList = () => {
       fullName: '',
       regNumber: peekNextRegNumber(),
       gender: 'Male',
+      ghanaianLanguage: 'twi',
       currentClassId: '',
       excludeFromPdf: false,
       guardianName: '',
@@ -369,12 +411,17 @@ const LearnerList = () => {
   };
 
   const openEditModal = (l) => {
+    if (areLearnerCardsFrozen) {
+      alert('🔒 Existing learner records are frozen while a Term Subscription Payment Request is active. Registering new learners remains 100% operational.');
+      return;
+    }
     setEditingId(l.id);
     setForm({
-      fullName: l.fullName,
-      regNumber: l.regNumber,
-      gender: l.gender,
-      currentClassId: String(l.currentClassId),
+      fullName: l.fullName || '',
+      regNumber: l.regNumber || '',
+      gender: l.gender || 'Male',
+      ghanaianLanguage: l.ghanaianLanguage || l.ghanaian_language || 'twi',
+      currentClassId: l.currentClassId ? String(l.currentClassId) : '',
       excludeFromPdf: !!l.excludeFromPdf,
       guardianName: l.guardianName || '',
       guardianRelation: l.guardianRelation || '',
@@ -443,8 +490,10 @@ const LearnerList = () => {
         fullName: form.fullName,
         regNumber: String(form.regNumber),
         gender: form.gender,
+        ghanaianLanguage: form.ghanaianLanguage || 'twi',
         schoolId: user.schoolId,
         currentClassId: Number(form.currentClassId),
+        status: existingRecord?.status || 'Active',
         photo: photoField,
         photoUrl: photoUrlField,
         excludeFromPdf: !!form.excludeFromPdf,
@@ -468,7 +517,9 @@ const LearnerList = () => {
               full_name: record.fullName,
               reg_number: record.regNumber,
               gender: record.gender,
+              ghanaian_language: record.ghanaianLanguage || 'twi',
               class_id: record.currentClassId,
+              status: record.status || 'Active',
               photo_url: photoUrlField,
               exclude_from_pdf: record.excludeFromPdf,
               guardian_name: record.guardianName,
@@ -492,8 +543,10 @@ const LearnerList = () => {
                 full_name: record.fullName,
                 reg_number: record.regNumber,
                 gender: record.gender,
+                ghanaian_language: record.ghanaianLanguage || 'twi',
                 class_id: record.currentClassId,
                 school_id: record.schoolId,
+                status: record.status || 'Active',
                 photo_url: photoUrlField,
                 exclude_from_pdf: record.excludeFromPdf,
                 guardian_name: record.guardianName,
@@ -519,8 +572,10 @@ const LearnerList = () => {
           full_name: record.fullName,
           reg_number: record.regNumber,
           gender: record.gender,
+          ghanaian_language: record.ghanaianLanguage || 'twi',
           class_id: record.currentClassId,
           school_id: record.schoolId,
+          status: record.status || 'Active',
           photo_url: remotePhotoUrl,
           exclude_from_pdf: record.excludeFromPdf,
           guardian_name: record.guardianName,
@@ -626,6 +681,8 @@ const LearnerList = () => {
           fullName: d.fullName || 'Unnamed Learner',
           regNumber: String(regNo),
           gender: d.gender || 'Male',
+          ghanaianLanguage: d.ghanaianLanguage || 'twi',
+          status: 'Active',
           schoolId: user.schoolId,
           currentClassId: Number(d.classId),
           photo: null,
@@ -658,8 +715,10 @@ const LearnerList = () => {
         full_name: item.record.fullName,
         reg_number: item.record.regNumber,
         gender: item.record.gender,
+        ghanaian_language: item.record.ghanaianLanguage || 'twi',
         class_id: item.record.currentClassId,
         school_id: item.record.schoolId,
+        status: 'Active',
         photo_url: null,
         guardian_name: item.record.guardianName,
         guardian_relation: item.record.guardianRelation,
@@ -821,7 +880,9 @@ const LearnerList = () => {
   const syncUnsyncedLearners = useCallback(async () => {
     if (navigator.onLine && user?.schoolId) {
       try {
-        const unsynced = await db.learners.where('schoolId').equals(user.schoolId).filter(l => !l.synced).toArray();
+        const unsynced = await db.learners.filter(l => 
+          (String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId)) && !l.synced
+        ).toArray();
         if (unsynced.length === 0) return;
 
         console.log(`Syncing ${unsynced.length} un-synced learners to the cloud...`);
@@ -834,16 +895,13 @@ const LearnerList = () => {
           if (needsUpload && !remotePhotoUrl) {
             try {
               const blob = localPhoto instanceof Blob ? localPhoto : await fetch(localPhoto).then(r => r.blob());
-              // FIX: Use deterministic path — no Date.now() — so re-syncing the same learner
-              // always overwrites the same file and never creates duplicate storage objects.
-              const cleanReg = String(l.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-              const path = `learners/${l.schoolId}_${cleanReg}.webp`;
+              const cleanReg = String(l.regNumber || l.id).replace(/[^a-zA-Z0-9]/g, '_');
+              const path = `learners/${user.schoolId}_${cleanReg}.webp`;
               const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true, contentType: 'image/webp' });
               if (!uploadError) {
                 const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
                 if (data?.publicUrl) {
                   remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
-                  // Keep local Blob in photo field, store the URL in photoUrl for sync reference
                   await db.learners.update(l.id, { photoUrl: remotePhotoUrl });
                 }
               }
@@ -852,26 +910,25 @@ const LearnerList = () => {
             }
           }
 
-          // Use remotePhotoUrl (http) for cloud, never put a Blob into Supabase
           const photoUrl = remotePhotoUrl;
-
           let supabaseId = l.supabaseId;
 
           if (!supabaseId) {
             // Self-healing: Check if the learner already exists remotely by matching school_id and reg_number
             try {
-              const { data: remoteRecord, error: checkErr } = await supabase
-                .from('report_learners')
-                .select('id')
-                .eq('school_id', l.schoolId)
-                .eq('reg_number', l.regNumber)
-                .maybeSingle();
-              
-              if (!checkErr && remoteRecord) {
-                supabaseId = remoteRecord.id;
-                // Update local record with the found supabaseId so we don't have to look it up again
-                await db.learners.update(l.id, { supabaseId });
-                console.log(`[Sync] Self-healed learner ${l.fullName}: associated with existing remote ID ${supabaseId}`);
+              if (l.regNumber) {
+                const { data: remoteRecord } = await supabase
+                  .from('report_learners')
+                  .select('id')
+                  .eq('school_id', user.schoolId)
+                  .eq('reg_number', l.regNumber)
+                  .maybeSingle();
+                
+                if (remoteRecord) {
+                  supabaseId = remoteRecord.id;
+                  await db.learners.update(l.id, { supabaseId, synced: true });
+                  console.log(`[Sync] Self-healed learner ${l.fullName}: associated with existing remote ID ${supabaseId}`);
+                }
               }
             } catch (checkErr) {
               console.warn('Failed to perform self-healing check for learner:', checkErr);
@@ -884,7 +941,9 @@ const LearnerList = () => {
               full_name: l.fullName,
               reg_number: l.regNumber,
               gender: l.gender,
+              ghanaian_language: l.ghanaianLanguage || 'twi',
               class_id: l.currentClassId,
+              status: l.status || 'Active',
               photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
               guardian_name: l.guardianName,
               guardian_relation: l.guardianRelation,
@@ -899,92 +958,33 @@ const LearnerList = () => {
               await db.learners.update(l.id, { photoUrl: remotePhotoUrl, synced: true });
             } else {
               console.error('Error syncing learner update:', error);
-              
-              // Self-healing: if update fails due to a unique key conflict (ghost student)
-              if (error.code === '23505' || String(error.message).toLowerCase().includes('unique constraint') || String(error.message).toLowerCase().includes('duplicate key')) {
-                console.log(`[Inline Sync] 🔄 Unique key conflict (23505) detected on update for learner ${l.fullName} with reg_number ${l.regNumber}. Attempting self-healing...`);
-                
-                try {
-                  // 1. Query Supabase to find the duplicate student holding this registration number
-                  const { data: duplicateLearner } = await supabase
-                    .from('report_learners')
-                    .select('id, full_name')
-                    .eq('school_id', l.schoolId)
-                    .eq('reg_number', l.regNumber)
-                    .maybeSingle();
-                    
-                  if (duplicateLearner && duplicateLearner.id !== supabaseId) {
-                    console.log(`[Inline Sync] Conflicting student found on Supabase: "${duplicateLearner.full_name}" (ID: ${duplicateLearner.id}). Checking if deleted locally...`);
-                    
-                    const existsLocally = await db.learners.where('supabaseId').equals(duplicateLearner.id).first();
-                    
-                    if (!existsLocally) {
-                      // Conflicting student does NOT exist locally in Dexie (Ghost Student). Automatically purge!
-                      console.log(`[Inline Sync] 🧹 Purging ghost student "${duplicateLearner.full_name}" from Supabase...`);
-                      const { error: purgeErr } = await supabase
-                        .from('report_learners')
-                        .delete()
-                        .eq('id', duplicateLearner.id);
-                        
-                      if (!purgeErr) {
-                        console.log(`[Inline Sync] ✅ Purged ghost student. Retrying update...`);
-                        
-                        // Retry the update
-                        const { error: retryErr } = await supabase.from('report_learners').update({
-                          full_name: l.fullName,
-                          reg_number: l.regNumber,
-                          gender: l.gender,
-                          class_id: l.currentClassId,
-                          photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
-                          guardian_name: l.guardianName,
-                          guardian_relation: l.guardianRelation,
-                          guardian_contact_1: l.guardianContact1,
-                          guardian_contact_2: l.guardianContact2,
-                          guardian_profession: l.guardianProfession,
-                          guardian_location: l.guardianLocation,
-                          updated_at: l.updatedAt || new Date().toISOString()
-                        }).eq('id', supabaseId);
-                        
-                        if (!retryErr) {
-                          await db.learners.update(l.id, { photoUrl: remotePhotoUrl, synced: true });
-                          console.log(`[Inline Sync] ✅ Successfully self-healed and synced learner ${l.fullName}`);
-                        } else {
-                          console.error('[Inline Sync] Retry update failed:', retryErr);
-                        }
-                      } else {
-                        console.error('[Inline Sync] Failed to purge ghost student:', purgeErr);
-                      }
-                    } else {
-                      console.log(`[Inline Sync] Conflicting student exists locally. Legitimate duplicate.`);
-                    }
-                  }
-                } catch (reconcileErr) {
-                  console.error('[Inline Sync] Self-healing failed:', reconcileErr);
-                }
-              }
             }
           } else {
-            // Insert new record online
-            const { data, error } = await supabase.from('report_learners').insert([{
-              full_name: l.fullName,
-              reg_number: l.regNumber,
-              gender: l.gender,
-              class_id: l.currentClassId,
-              school_id: l.schoolId,
-              photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
-              guardian_name: l.guardianName,
-              guardian_relation: l.guardianRelation,
-              guardian_contact_1: l.guardianContact1,
-              guardian_contact_2: l.guardianContact2,
-              guardian_profession: l.guardianProfession,
-              guardian_location: l.guardianLocation,
-              created_at: l.createdAt || new Date().toISOString()
-            }]).select().single();
+            // Check outbox first to avoid double enqueue
+            const isAlreadyInOutbox = await db.outbox
+              .filter(o => o.table === 'report_learners' && o.operation === 'insert' && 
+                (o.payload.includes(String(l.regNumber)) || o.payload.includes(String(l.fullName))))
+              .first();
 
-            if (!error && data) {
-              await db.learners.update(l.id, { supabaseId: data.id, photoUrl: remotePhotoUrl, synced: true });
-            } else if (error) {
-              console.error('Error syncing learner insert:', error);
+            if (!isAlreadyInOutbox) {
+              await enqueueSync('insert', 'report_learners', {
+                full_name: l.fullName,
+                reg_number: l.regNumber,
+                gender: l.gender,
+                ghanaian_language: l.ghanaianLanguage || 'twi',
+                class_id: l.currentClassId,
+                school_id: user.schoolId,
+                status: l.status || 'Active',
+                photo_url: typeof photoUrl === 'string' && photoUrl.startsWith('http') ? photoUrl : null,
+                guardian_name: l.guardianName,
+                guardian_relation: l.guardianRelation,
+                guardian_contact_1: l.guardianContact1,
+                guardian_contact_2: l.guardianContact2,
+                guardian_profession: l.guardianProfession,
+                guardian_location: l.guardianLocation,
+                created_at: l.createdAt || new Date().toISOString()
+              }, user.schoolId);
+              await db.learners.update(l.id, { photoUrl: remotePhotoUrl, synced: true });
             }
           }
         }
@@ -1118,6 +1118,10 @@ const LearnerList = () => {
   };
 
   const handleDeleteLearner = async (l) => {
+    if (areLearnerCardsFrozen) {
+      alert('🔒 Deleting or altering existing learner records is locked while a Term Subscription Payment Request is active.');
+      return;
+    }
     const warningMessage = 
       `🚨 PERMANENT ACADEMIC ERASURE!\n\n` +
       `Are you sure you want to absolutely delete ${l.fullName}?\n` +
@@ -1178,7 +1182,47 @@ const LearnerList = () => {
         }
       }
 
-      // 2. Enqueue the deletion in both sync systems for robust success (online & offline)
+      // 2. Capture full snapshot (profile, scores, summaries) and move to Recycle Bin
+      try {
+        const learnerScores = await db.scores
+          .filter(s => String(s.learnerId) === String(l.id) || (l.supabaseId && String(s.learnerId) === String(l.supabaseId)))
+          .toArray();
+        const learnerSummaries = await db.reportSummaries
+          .filter(s => String(s.learnerId) === String(l.id) || (l.supabaseId && String(s.learnerId) === String(l.supabaseId)))
+          .toArray();
+
+        await recycleBinService.moveToRecycleBin({
+          schoolId: user.schoolId,
+          entityType: 'learner',
+          entityId: l.supabaseId || l.id,
+          entityName: `${l.fullName}${l.regNumber ? ` (${l.regNumber})` : ''}`,
+          dataPayload: {
+            learner: l,
+            scores: learnerScores,
+            summaries: learnerSummaries
+          },
+          user
+        });
+      } catch (recErr) {
+        console.warn('[LearnerList] Notice: could not record recycle bin entry:', recErr);
+      }
+
+      // 3. Direct Cloud Delete & Enqueue Outbox for robust multi-device sync
+      if (navigator.onLine) {
+        try {
+          if (l.supabaseId) {
+            await supabase.from('report_scores').delete().eq('learner_id', l.supabaseId).catch(() => null);
+            await supabase.from('report_summaries').delete().eq('learner_id', l.supabaseId).catch(() => null);
+            await supabase.from('report_learners').delete().eq('id', l.supabaseId).catch(() => null);
+          }
+          if (l.regNumber && user.schoolId) {
+            await supabase.from('report_learners').delete().eq('reg_number', l.regNumber).eq('school_id', user.schoolId).catch(() => null);
+          }
+        } catch (cloudDelErr) {
+          console.warn('[LearnerList] Direct cloud delete notice:', cloudDelErr);
+        }
+      }
+
       if (l.supabaseId) {
         // Enqueue cascade deletes on cloud just in case foreign keys cascade isn't fully active
         await enqueueSync('delete', 'report_scores', {
@@ -1206,7 +1250,7 @@ const LearnerList = () => {
         }, user.schoolId);
       }
       
-      // 3. Absolute delete locally in Dexie (scores, summaries, and profile) in a transaction
+      // 4. Absolute delete locally in Dexie (scores, summaries, and profile) in a transaction
       await db.transaction('rw', [db.learners, db.scores, db.reportSummaries], async () => {
         // Purge local scores
         await db.scores
@@ -1222,7 +1266,7 @@ const LearnerList = () => {
         await db.learners.delete(l.id);
       });
 
-      console.log(`[Absolute Delete] Successfully completed database purge locally and enqueued cloud deletes for ${l.fullName}`);
+      console.log(`[Recycle Bin Delete] Moved to Recycle Bin and purged active records for ${l.fullName}`);
       
       if (profileLearner && profileLearner.id === l.id) {
         setProfileLearner(null);
@@ -1233,81 +1277,80 @@ const LearnerList = () => {
     }
   };
 
-  const filtered = learners
-    ?.filter(l => {
-      const matchSearch = l.fullName?.toLowerCase().includes(searchTerm.toLowerCase()) || String(l.regNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchClass = selectedClass === 'alumni' 
-        ? l.status === 'Alumni'
-        : selectedClass === '' 
-          ? (l.status !== 'Alumni' && l.status !== 'Graduated')
-          : (String(l.currentClassId) === String(selectedClass) && l.status !== 'Alumni' && l.status !== 'Graduated');
-      return matchSearch && matchClass;
-    })
-    .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
+  const filtered = useMemo(() => {
+    if (!learners || learners.length === 0) return [];
+
+    // Defensive deduplication: ensure each student is rendered at most once
+    const seen = new Set();
+    const uniqueLearners = [];
+
+    for (const l of learners) {
+      const regKey = l.regNumber ? String(l.regNumber).trim().toUpperCase() : null;
+      const subKey = l.supabaseId ? String(l.supabaseId) : null;
+      const nameClassKey = `${(l.fullName || '').trim().toLowerCase()}_${l.currentClassId || ''}`;
+
+      const key = subKey ? `SUB_${subKey}` : (regKey ? `REG_${regKey}` : `NC_${nameClassKey}`);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      uniqueLearners.push(l);
+    }
+
+    return uniqueLearners
+      .filter(l => {
+        const matchSearch = (l.fullName || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            String(l.regNumber || '').toLowerCase().includes(searchTerm.toLowerCase());
+        const matchClass = selectedClass === 'alumni' 
+          ? (l.status === 'Alumni' || l.status === 'Graduated')
+          : selectedClass === '' 
+            ? (l.status !== 'Alumni' && l.status !== 'Graduated')
+            : (String(l.currentClassId) === String(selectedClass) && l.status !== 'Alumni' && l.status !== 'Graduated');
+        return matchSearch && matchClass;
+      })
+      .sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
+  }, [learners, searchTerm, selectedClass]);
 
   const getClass = id => classes?.find(c => c.id === id)?.name || 'Unassigned';
 
   return (
     <Layout title="Learner Management">
       <style>{`
-        .reg-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.6);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem;overflow-y:auto;}
-        .reg-modal{background:#fff;border-radius:20px;width:100%;max-width:580px;box-shadow:0 25px 60px rgba(0,0,0,0.2);animation:modalIn .25s cubic-bezier(.34,1.56,.64,1) both;margin:auto;}
+        .reg-modal-backdrop{position:fixed;inset:0;background:rgba(9,9,11,0.7);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:200;padding:1.5rem 1rem;overflow-y:auto;}
+        .reg-modal{background:#fff;border-radius:24px;width:100%;max-width:640px;box-shadow:0 30px 70px rgba(9,9,11,0.25);animation:modalIn .25s cubic-bezier(.34,1.56,.64,1) both;margin:auto;border:1px solid #E4E4E7;overflow:hidden;}
         @keyframes modalIn{from{opacity:0;transform:scale(.94) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
-        .reg-modal-header{padding:1.5rem 1.5rem 0;display:flex;justify-content:space-between;align-items:center;}
-        .reg-modal-body{padding:1.25rem 1.5rem 1.5rem;}
-        .photo-zone{border:2px dashed #cbd5e1;border-radius:14px;padding:1.5rem;text-align:center;cursor:pointer;transition:all .2s;background:#f8fafc;}
-        .photo-zone:hover{border-color:#0d9488;background:#f0fdfa;}
-        .mode-pill{display:flex;background:#f1f5f9;border-radius:999px;padding:3px;gap:3px;margin-bottom:1rem;width:fit-content;}
-        .mode-btn{padding:.35rem .9rem;border-radius:999px;border:none;cursor:pointer;font-size:.8rem;font-weight:600;font-family:inherit;transition:all .2s;background:transparent;color:#64748b;}
-        .mode-btn.active{background:#fff;color:#0d9488;box-shadow:0 1px 4px rgba(0,0,0,.1);}
-        .field-label{display:block;font-size:.78rem;font-weight:600;color:#475569;margin-bottom:.4rem;letter-spacing:.02em;text-transform:uppercase;}
-        .field-input{width:100%;padding:.7rem 1rem;border:1.5px solid #e2e8f0;border-radius:10px;font-size:.95rem;font-family:inherit;color:#0f172a;background:#fff;outline:none;transition:border-color .2s,box-shadow .2s;}
-        .field-input:focus{border-color:#0d9488;box-shadow:0 0 0 3px rgba(13,148,136,.12);}
-        .field-row{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
-        @media(max-width:480px){.field-row{grid-template-columns:1fr;}.reg-modal-header{padding:1rem 1rem 0;}.reg-modal-body{padding:1rem;}}
-        .reg-btn-primary{width:100%;padding:.85rem;background:linear-gradient(135deg,#0d9488,#0f766e);color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.5rem;transition:opacity .2s,transform .15s;}
-        .reg-btn-primary:hover:not(:disabled){opacity:.92;transform:translateY(-1px);}
+        .reg-modal-header{padding:1.5rem 1.75rem 1rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #F4F4F5;}
+        .reg-modal-body{padding:1.5rem 1.75rem 1.75rem;max-height:calc(85vh - 80px);overflow-y:auto;}
+        .form-section-box{background:#FAFAFA;border:1px solid #E4E4E7;border-radius:16px;padding:1.25rem;margin-bottom:1.25rem;}
+        .form-section-title{font-size:.82rem;font-weight:800;color:#09090b;text-transform:uppercase;letter-spacing:.05em;margin:0 0 1rem;display:flex;align-items:center;gap:8px;}
+        .photo-zone{border:2px dashed #D4D4D8;border-radius:16px;padding:1.5rem;text-align:center;cursor:pointer;transition:all .2s;background:#fff;}
+        .photo-zone:hover{border-color:#2563eb;background:rgba(37,99,235,0.02);}
+        .mode-pill{display:flex;background:#E4E4E7;border-radius:999px;padding:3px;gap:3px;margin-bottom:1rem;width:fit-content;}
+        .mode-btn{padding:.35rem 1rem;border-radius:999px;border:none;cursor:pointer;font-size:.78rem;font-weight:700;font-family:inherit;transition:all .2s;background:transparent;color:#71717a;}
+        .mode-btn.active{background:#09090b;color:#fff;box-shadow:0 2px 6px rgba(9,9,11,.15);}
+        .field-label{display:block;font-size:.75rem;font-weight:700;color:#09090b;margin-bottom:.4rem;letter-spacing:.03em;text-transform:uppercase;}
+        .field-input{width:100%;padding:.65rem .9rem;border:1.5px solid #E4E4E7;border-radius:10px;font-size:.9rem;font-family:inherit;color:#09090b;background:#fff;outline:none;transition:border-color .2s,box-shadow .2s;}
+        .field-input:focus{border-color:#2563eb;box-shadow:0 0 0 3px rgba(37,99,235,.12);background:#fff;}
+        .field-row{display:grid;grid-template-columns:1fr 1fr;gap:.85rem;}
+        @media(max-width:480px){.field-row{grid-template-columns:1fr;}.reg-modal-header{padding:1rem 1.25rem;}.reg-modal-body{padding:1.25rem;}}
+        .reg-btn-primary{width:100%;padding:.85rem 1.5rem;background:#09090b;color:#fff;border:none;border-radius:12px;font-size:.95rem;font-weight:800;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:.6rem;transition:all .2s;box-shadow:0 4px 14px rgba(9,9,11,.25);}
+        .reg-btn-primary:hover:not(:disabled){background:#18181b;transform:translateY(-1px);box-shadow:0 6px 20px rgba(9,9,11,.35);}
         .reg-btn-primary:disabled{opacity:.6;cursor:not-allowed;}
-        .reg-btn-ghost{width:100%;padding:.85rem;background:#f1f5f9;color:#64748b;border:none;border-radius:12px;font-size:.95rem;font-weight:600;font-family:inherit;cursor:pointer;transition:background .2s;}
-        .reg-btn-ghost:hover{background:#e2e8f0;}
-        .sync-chip{display:inline-flex;align-items:center;gap:6px;padding:.35rem .75rem;border-radius:999px;font-size:.75rem;font-weight:600;}
-        .sync-online{background:rgba(16,185,129,.1);color:#059669;}
-        .sync-offline{background:rgba(245,158,11,.1);color:#d97706;}
+        .reg-btn-ghost{width:100%;padding:.85rem 1.25rem;background:#FAFAFA;color:#71717a;border:1px solid #E4E4E7;border-radius:12px;font-size:.92rem;font-weight:700;font-family:inherit;cursor:pointer;transition:all .2s;}
+        .reg-btn-ghost:hover{background:#E4E4E7;color:#09090b;}
+        .sync-chip{display:inline-flex;align-items:center;gap:6px;padding:.4rem .85rem;border-radius:999px;font-size:.75rem;font-weight:700;}
+        .sync-online{background:rgba(16,185,129,.12);color:#10B981;border:1px solid rgba(16,185,129,.2);}
+        .sync-offline{background:rgba(245,158,11,.12);color:#F59E0B;border:1px solid rgba(245,158,11,.2);}
         .photo-preview-wrap{display:flex;flex-direction:column;align-items:center;gap:.75rem;}
-        .photo-avatar{width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid #0d9488;box-shadow:0 4px 14px rgba(13,148,136,.25);}
-        .gen-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);padding:.3rem .65rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;font-size:.72rem;font-weight:600;cursor:pointer;font-family:inherit;color:#475569;white-space:nowrap;}
-        .gen-btn:hover{background:#e2e8f0;}
-        .learners-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1.25rem; }
-        .learner-card { background: #fff; border-radius: 20px; padding: 1.25rem; display: flex; flex-direction: column; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid rgba(226, 232, 240, 0.8); position: relative; overflow: hidden; }
-        .learner-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 4px; background: linear-gradient(90deg, #0d9488, #3b82f6); opacity: 0; transition: opacity 0.3s; }
-        .learner-card:hover { transform: translateY(-4px); box-shadow: 0 20px 40px rgba(0,0,0,0.08); border-color: rgba(13, 148, 136, 0.3); }
-        .learner-card:hover::before { opacity: 1; }
-        .lc-header { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.25rem; }
-        .lc-photo { width: 56px; height: 56px; border-radius: 16px; object-fit: cover; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-        .lc-photo-placeholder { width: 56px; height: 56px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-        .lc-name { font-weight: 700; color: #0f172a; font-size: 1.05rem; margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .lc-reg { font-size: 0.72rem; background: rgba(13, 148, 136, 0.1); color: #0d9488; padding: 0.2rem 0.5rem; border-radius: 6px; font-weight: 700; display: inline-block; letter-spacing: 0.03em; }
-        .lc-details { display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1rem; background: #f8fafc; border-radius: 12px; margin-bottom: 1.25rem; border: 1px solid #f1f5f9; }
-        .lc-detail-item { display: flex; flex-direction: column; gap: 4px; }
-        .lc-detail-lbl { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-        .lc-detail-val { font-size: 0.85rem; color: #1e293b; font-weight: 600; display: flex; align-items: center; gap: 6px; }
-        .lc-actions { display: flex; gap: 0.5rem; margin-top: auto; flex-wrap: wrap; }
-        .lc-btn { padding: 0.7rem; border-radius: 12px; font-size: 0.8rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; transition: all 0.2s; border: none; font-family: inherit; }
-        .lc-btn-view { flex: 1 1 100%; background: rgba(13, 148, 136, 0.08); color: #0d9488; }
-        .lc-btn-view:hover { background: #0d9488; color: #fff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.2); }
-        .lc-btn-edit { flex: 1 1 calc(50% - 0.25rem); background: rgba(245, 158, 11, 0.1); color: #d97706; }
-        .lc-btn-edit:hover { background: #f59e0b; color: #fff; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2); }
-        .lc-btn-delete { flex: 1 1 calc(50% - 0.25rem); background: rgba(239, 68, 68, 0.08); color: #ef4444; }
-        .lc-btn-delete:hover { background: #ef4444; color: #fff; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2); }
-
+        .photo-avatar{width:100px;height:100px;border-radius:50%;object-fit:cover;border:3px solid #2563eb;box-shadow:0 4px 14px rgba(37,99,235,.25);}
+        .gen-btn{position:absolute;right:8px;top:50%;transform:translateY(-50%);padding:.35rem .75rem;background:#09090b;border:none;border-radius:8px;font-size:.72rem;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;white-space:nowrap;}
+        .gen-btn:hover{background:#2563eb;}
         /* Learner Profile Modal Styles */
-        .profile-modal-backdrop { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; overflow-y: auto; }
-        .profile-modal { background: #fff; border-radius: 24px; width: 100%; max-width: 440px; box-shadow: 0 25px 60px rgba(15, 23, 42, 0.18); animation: profileModalIn .3s cubic-bezier(.34, 1.56, .64, 1) both; overflow: hidden; border: 1px solid rgba(226, 232, 240, 0.8); margin: auto; position: relative; }
+        .profile-modal-backdrop { position: fixed; inset: 0; background: rgba(9, 9, 11, 0.7); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 1rem; overflow-y: auto; }
+        .profile-modal { background: #fff; border-radius: 24px; width: 100%; max-width: 440px; box-shadow: 0 25px 60px rgba(9, 9, 11, 0.3); animation: profileModalIn .3s cubic-bezier(.34, 1.56, .64, 1) both; overflow: hidden; border: 1px solid #E4E4E7; margin: auto; position: relative; }
         @keyframes profileModalIn { from { opacity: 0; transform: scale(.92) translateY(30px); } to { opacity: 1; transform: scale(1) translateY(0); } }
         
         .profile-header-grad { height: 110px; position: relative; padding: 1rem 1.5rem; display: flex; justify-content: flex-end; align-items: flex-start; }
-        .profile-header-grad.male { background: linear-gradient(135deg, #0d9488, #3b82f6); }
-        .profile-header-grad.female { background: linear-gradient(135deg, #0d9488, #ec4899); }
+        .profile-header-grad.male { background: linear-gradient(135deg, #09090b, #2563eb); }
+        .profile-header-grad.female { background: linear-gradient(135deg, #09090b, #ec4899); }
         
         .profile-close-btn { background: rgba(255, 255, 255, 0.25); border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 0.95rem; color: #fff; display: flex; align-items: center; justify-content: center; transition: all 0.2s; backdrop-filter: blur(4px); }
         .profile-close-btn:hover { background: rgba(255, 255, 255, 0.4); transform: rotate(90deg); }
@@ -1317,63 +1360,63 @@ const LearnerList = () => {
         .profile-avatar-container { margin-top: -55px; margin-bottom: 0.75rem; position: relative; }
         .profile-avatar-img { width: 110px; height: 110px; border-radius: 50%; object-fit: cover; border: 4px solid #fff; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12); background: #fff; }
         .profile-avatar-placeholder { width: 110px; height: 110px; border-radius: 50%; border: 4px solid #fff; box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12); display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }
-        .profile-avatar-placeholder.male { background: #eff6ff; color: #3b82f6; }
+        .profile-avatar-placeholder.male { background: #EFF6FF; color: #2563eb; }
         .profile-avatar-placeholder.female { background: #fdf2f8; color: #ec4899; }
         
-        .profile-name { font-size: 1.35rem; font-weight: 800; color: #0f172a; text-align: center; margin: 0 0 0.25rem 0; letter-spacing: -0.01em; }
-        .profile-reg-badge { font-size: 0.75rem; font-weight: 700; color: #0d9488; background: rgba(13, 148, 136, 0.08); padding: 0.25rem 0.75rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(13, 148, 136, 0.12); }
+        .profile-name { font-size: 1.35rem; font-weight: 800; color: #09090b; text-align: center; margin: 0 0 0.25rem 0; letter-spacing: -0.01em; }
+        .profile-reg-badge { font-size: 0.75rem; font-weight: 700; color: #2563eb; background: rgba(37, 99, 235, 0.08); padding: 0.25rem 0.75rem; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(37, 99, 235, 0.2); }
         
-        .profile-tabs { display: flex; background: #f1f5f9; border-radius: 14px; padding: 4px; gap: 4px; margin: 1.25rem 0 1rem; width: 100%; }
-        .profile-tab-btn { flex: 1; padding: 0.55rem; border-radius: 10px; border: none; cursor: pointer; font-size: 0.82rem; font-weight: 700; font-family: inherit; transition: all 0.2s; background: transparent; color: #64748b; text-align: center; }
-        .profile-tab-btn.active { background: #fff; color: #0d9488; box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06); }
+        .profile-tabs { display: flex; background: #FAFAFA; border: 1px solid #E4E4E7; border-radius: 14px; padding: 4px; gap: 4px; margin: 1.25rem 0 1rem; width: 100%; }
+        .profile-tab-btn { flex: 1; padding: 0.55rem; border-radius: 10px; border: none; cursor: pointer; font-size: 0.82rem; font-weight: 700; font-family: inherit; transition: all 0.2s; background: transparent; color: #71717a; text-align: center; }
+        .profile-tab-btn.active { background: #fff; color: #2563eb; box-shadow: 0 2px 8px rgba(9, 9, 11, 0.06); }
         
         .profile-content { width: 100%; min-height: 140px; }
         
         .profile-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; width: 100%; }
-        .profile-info-card { background: #f8fafc; border: 1px solid #f1f5f9; border-radius: 14px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 4px; }
-        .profile-info-label { font-size: 0.65rem; color: #94a3b8; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-        .profile-info-value { font-size: 0.85rem; color: #1e293b; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+        .profile-info-card { background: #FAFAFA; border: 1px solid #E4E4E7; border-radius: 14px; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 4px; }
+        .profile-info-label { font-size: 0.65rem; color: #71717a; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
+        .profile-info-value { font-size: 0.85rem; color: #18181b; font-weight: 600; display: flex; align-items: center; gap: 6px; }
         
         .academic-stats { display: flex; flex-direction: column; gap: 0.75rem; width: 100%; }
         .stat-bar-container { display: flex; flex-direction: column; gap: 4px; }
-        .stat-bar-header { display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600; color: #475569; }
-        .stat-bar-outer { width: 100%; height: 8px; background: #e2e8f0; border-radius: 999px; overflow: hidden; }
-        .stat-bar-inner { height: 100%; background: linear-gradient(90deg, #0d9488, #10b981); border-radius: 999px; }
+        .stat-bar-header { display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 600; color: #71717a; }
+        .stat-bar-outer { width: 100%; height: 8px; background: #E4E4E7; border-radius: 999px; overflow: hidden; }
+        .stat-bar-inner { height: 100%; background: #10B981; border-radius: 999px; }
         
         .badge-pill { display: inline-flex; align-items: center; gap: 6px; padding: 0.25rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: 700; width: fit-content; }
-        .badge-pill-success { background: rgba(16, 185, 129, 0.1); color: #059669; }
-        .badge-pill-warning { background: rgba(245, 158, 11, 0.1); color: #d97706; }
+        .badge-pill-success { background: #ECFDF5; color: #10B981; border: 1px solid #A7F3D0; }
+        .badge-pill-warning { background: #FFFBEB; color: #F59E0B; border: 1px solid #FDE68A; }
         
-        .profile-actions { display: grid; grid-template-columns: 1fr auto; gap: 0.75rem; width: 100%; margin-top: 1.25rem; border-top: 1px solid #f1f5f9; padding-top: 1.25rem; }
+        .profile-actions { display: grid; grid-template-columns: 1fr auto; gap: 0.75rem; width: 100%; margin-top: 1.25rem; border-top: 1px solid #E4E4E7; padding-top: 1.25rem; }
         .profile-btn { padding: 0.75rem 1rem; border-radius: 12px; font-size: 0.85rem; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s; border: none; font-family: inherit; }
-        .profile-btn-primary { background: linear-gradient(135deg, #0d9488, #0f766e); color: #fff; box-shadow: 0 4px 12px rgba(13, 148, 136, 0.15); flex: 1; }
+        .profile-btn-primary { background: #09090b; color: #fff; box-shadow: 0 4px 12px rgba(9, 9, 11, 0.2); flex: 1; }
         .profile-btn-primary:hover { opacity: 0.95; transform: translateY(-1px); }
-        .profile-btn-secondary { background: #f1f5f9; color: #475569; }
-        .profile-btn-secondary:hover { background: #e2e8f0; color: #0f172a; }
+        .profile-btn-secondary { background: #FAFAFA; border: 1px solid #E4E4E7; color: #18181b; }
+        .profile-btn-secondary:hover { background: #E4E4E7; }
 
-        .import-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.65);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem;}
-        .import-modal{background:#fff;border-radius:24px;width:100%;max-width:920px;box-shadow:0 25px 60px rgba(0,0,0,0.25);animation:modalIn .25s cubic-bezier(.34,1.56,.64,1) both;display:flex;flex-direction:column;max-height:90vh;}
-        .import-modal-header{padding:1.5rem 1.5rem 1rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #f1f5f9;}
+        .import-modal-backdrop{position:fixed;inset:0;background:rgba(9,9,11,0.7);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem;}
+        .import-modal{background:#fff;border-radius:24px;width:100%;max-width:920px;box-shadow:0 25px 60px rgba(0,0,0,0.25);animation:modalIn .25s cubic-bezier(.34,1.56,.64,1) both;display:flex;flex-direction:column;max-height:90vh;border:1px solid #E4E4E7;}
+        .import-modal-header{padding:1.5rem 1.5rem 1rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #E4E4E7;}
         .import-modal-body{padding:1.5rem;overflow-y:auto;flex:1;}
-        .import-modal-footer{padding:1.25rem 1.5rem;display:flex;justify-content:flex-end;gap:.75rem;border-top:1px solid #f1f5f9;background:#f8fafc;border-bottom-left-radius:24px;border-bottom-right-radius:24px;}
+        .import-modal-footer{padding:1.25rem 1.5rem;display:flex;justify-content:flex-end;gap:.75rem;border-top:1px solid #E4E4E7;background:#FAFAFA;border-bottom-left-radius:24px;border-bottom-right-radius:24px;}
         
         .import-table{width:100%;border-collapse:collapse;text-align:left;font-size:.9rem;}
-        .import-table th{background:#f8fafc;padding:.75rem 1rem;font-weight:700;color:#475569;border-bottom:2px solid #e2e8f0;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;}
-        .import-table td{padding:.65rem 1rem;border-bottom:1px solid #e2e8f0;vertical-align:middle;}
-        .import-table tr:hover{background:#f8fafc;}
+        .import-table th{background:#FAFAFA;padding:.75rem 1rem;font-weight:700;color:#71717a;border-bottom:2px solid #E4E4E7;font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;}
+        .import-table td{padding:.65rem 1rem;border-bottom:1px solid #E4E4E7;vertical-align:middle;}
+        .import-table tr:hover{background:#FAFAFA;}
         
-        .import-input{width:100%;padding:.45rem .75rem;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;}
-        .import-input:focus{border-color:#0d9488;}
-        .import-input.warning{border-color:#f59e0b;background:#fffbeb;}
+        .import-input{width:100%;padding:.45rem .75rem;border:1.5px solid #E4E4E7;border-radius:8px;font-size:.85rem;outline:none;transition:border-color .2s;color:#18181b;}
+        .import-input:focus{border-color:#2563eb;}
+        .import-input.warning{border-color:#F59E0B;background:#FFFBEB;}
         
-        .import-select{padding:.45rem .75rem;border:1.5px solid #e2e8f0;border-radius:8px;font-size:.85rem;outline:none;background:#fff;width:100%;}
-        .import-select:focus{border-color:#0d9488;}
-        .import-select.warning{border-color:#f59e0b;background:#fffbeb;color:#d97706;font-weight:600;}
+        .import-select{padding:.45rem .75rem;border:1.5px solid #E4E4E7;border-radius:8px;font-size:.85rem;outline:none;background:#fff;width:100%;color:#18181b;}
+        .import-select:focus{border-color:#2563eb;}
+        .import-select.warning{border-color:#F59E0B;background:#FFFBEB;color:#F59E0B;font-weight:600;}
         
         .stat-badge{display:inline-flex;align-items:center;gap:6px;padding:.35rem .75rem;border-radius:10px;font-size:.75rem;font-weight:700;}
-        .stat-badge-total{background:#f1f5f9;color:#475569;}
-        .stat-badge-warning{background:#fffbeb;color:#d97706;border:1px solid #fef3c7;}
-        .stat-badge-valid{background:#f0fdfa;color:#0d9488;border:1px solid #ccfbf1;}
+        .stat-badge-total{background:#FAFAFA;border:1px solid #E4E4E7;color:#71717a;}
+        .stat-badge-warning{background:#FFFBEB;color:#F59E0B;border:1px solid #FDE68A;}
+        .stat-badge-valid{background:#ECFDF5;color:#10B981;border:1px solid #A7F3D0;}
       `}</style>
 
       {/* Page Header */}
@@ -1393,7 +1436,7 @@ const LearnerList = () => {
           </div>
         </div>
         
-        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+        <div data-tour="learners-actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button 
             className="btn" 
             onClick={() => fileInputExcelRef.current?.click()} 
@@ -1406,10 +1449,10 @@ const LearnerList = () => {
               alignItems: 'center', 
               gap: '.5rem', 
               fontWeight: 700, 
-              background: '#0d9488',
+              background: '#2563eb',
               color: '#fff',
               border: 'none',
-              boxShadow: '0 4px 12px rgba(13,148,136,.15)', 
+              boxShadow: '0 4px 12px rgba(37,99,235,.2)', 
               whiteSpace: 'nowrap',
               cursor: 'pointer'
             }}
@@ -1455,6 +1498,22 @@ const LearnerList = () => {
         </div>
       </div>
 
+      {areLearnerCardsFrozen && (
+        <div style={{ background: '#fffbe5', border: '1px solid #fde047', borderRadius: '16px', padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', color: '#854d0e', boxShadow: '0 4px 12px rgba(245, 158, 11, 0.1)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', color: '#d97706', flexShrink: 0 }}>
+            <i className="fas fa-lock" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#92400e' }}>
+              Existing Learner Cards Frozen (Payment Request Active)
+            </div>
+            <div style={{ fontSize: '0.82rem', color: '#b45309', marginTop: '2px' }}>
+              Editing or deleting existing learners is frozen to preserve billing snapshot integrity. <strong>Registering new learners remains 100% operational.</strong>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '.85rem', color: '#64748b', fontWeight: 500 }}>
           Showing <strong style={{ color: '#0f172a' }}>{filtered?.length ?? 0}</strong> learner{filtered?.length !== 1 ? 's' : ''}
@@ -1485,8 +1544,14 @@ const LearnerList = () => {
                 <div className="lc-detail-item">
                   <span className="lc-detail-lbl">Class</span>
                   <span className="lc-detail-val">
-                    <i className="fas fa-chalkboard" style={{ color: '#0d9488', fontSize: '.75rem' }}></i>
+                    <i className="fas fa-chalkboard" style={{ color: '#2563eb', fontSize: '.75rem' }}></i>
                     {getClass(l.currentClassId)}
+                  </span>
+                </div>
+                <div className="lc-detail-item" style={{ alignItems: 'center' }}>
+                  <span className="lc-detail-lbl">Language</span>
+                  <span className="lc-detail-val" style={{ fontSize: '.72rem', fontWeight: 700, color: '#1e293b' }}>
+                    {getLanguageLabel(l.ghanaianLanguage || l.ghanaian_language)}
                   </span>
                 </div>
                 <div className="lc-detail-item" style={{ alignItems: 'flex-end' }}>
@@ -1537,18 +1602,20 @@ const LearnerList = () => {
           <div className="reg-modal">
             {/* Header */}
             <div className="reg-modal-header">
-              <div>
-                <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: 'rgba(13,148,136,.1)', borderRadius: 10, marginRight: 10 }}>
-                    <i className={editingId ? "fas fa-edit" : "fas fa-user-plus"} style={{ color: '#0d9488', fontSize: '.9rem' }}></i>
-                  </span>
-                  {editingId ? 'Edit Learner' : 'Register Learner'}
-                </h2>
-                <p style={{ margin: '4px 0 0 46px', fontSize: '.8rem', color: '#94a3b8' }}>
-                  {editingId ? 'Modify the details of this learner.' : 'Fill in the details below to enrol a new learner.'}
-                </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 42, height: 42, background: '#09090b', borderRadius: 12, color: '#fff', fontSize: '1.05rem', boxShadow: '0 4px 12px rgba(9,9,11,0.2)' }}>
+                  <i className={editingId ? "fas fa-edit" : "fas fa-user-plus"}></i>
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#09090b' }}>
+                    {editingId ? 'Edit Learner Profile' : 'Register New Learner'}
+                  </h2>
+                  <p style={{ margin: '2px 0 0', fontSize: '.8rem', color: '#71717a' }}>
+                    {editingId ? 'Update this learner’s academic and contact records.' : 'Enroll a learner and configure academic stream and guardian details.'}
+                  </p>
+                </div>
               </div>
-              <button onClick={closeModal} style={{ background: '#f1f5f9', border: 'none', width: 34, height: 34, borderRadius: '50%', cursor: 'pointer', fontSize: '1rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <button onClick={closeModal} style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', width: 34, height: 34, borderRadius: '50%', cursor: 'pointer', fontSize: '.9rem', color: '#71717a', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .2s' }}>
                 <i className="fas fa-times"></i>
               </button>
             </div>
@@ -1556,11 +1623,15 @@ const LearnerList = () => {
             <div className="reg-modal-body">
               <form onSubmit={handleRegister}>
 
-                {/* ── Photo ── */}
-                <div style={{ marginBottom: '1.25rem' }}>
-                  <label className="field-label"><i className="fas fa-camera" style={{ marginRight: 5 }}></i>Learner Photo</label>
+                {/* ── SECTION 1: Photo & Identification ── */}
+                <div className="form-section-box">
+                  <div className="form-section-title">
+                    <i className="fas fa-camera" style={{ color: '#2563eb' }}></i>
+                    <span>1. Learner Photo</span>
+                  </div>
+
                   <div className="mode-pill">
-                    {[['upload','fa-upload','Upload'],['camera','fa-camera','Live Camera']].map(([m, ic, lbl]) => (
+                    {[['upload','fa-upload','Upload File'],['camera','fa-camera','Live Camera']].map(([m, ic, lbl]) => (
                       <button key={m} type="button" className={`mode-btn${photoMode===m?' active':''}`} onClick={async () => {
                         setPhotoMode(m); setPhotoPreview(null);
                         if (m === 'camera') {
@@ -1571,27 +1642,27 @@ const LearnerList = () => {
                           stopCamera();
                         }
                       }}>
-                        <i className={`fas ${ic}`} style={{ marginRight: 4 }}></i>{lbl}
+                        <i className={`fas ${ic}`} style={{ marginRight: 6 }}></i>{lbl}
                       </button>
                     ))}
                   </div>
 
                   {photoPreview ? (
                     <div className="photo-preview-wrap">
-                      <LearnerPhoto photo={photoPreview} alt="preview" gender={form.gender} className="photo-avatar" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #0d9488', boxShadow: '0 4px 14px rgba(13,148,136,.25)' }} />
-                      <button type="button" onClick={() => { setPhotoPreview(null); setPhotoPreviewUrl(null); stopCamera(); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '.78rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
-                        <i className="fas fa-redo" style={{ marginRight: 4 }}></i>Retake / Change
+                      <LearnerPhoto photo={photoPreview} alt="preview" gender={form.gender} className="photo-avatar" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #2563eb', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }} />
+                      <button type="button" onClick={() => { setPhotoPreview(null); setPhotoPreviewUrl(null); stopCamera(); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '.8rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <i className="fas fa-redo"></i> Retake / Change Photo
                       </button>
                     </div>
                   ) : photoMode === 'camera' ? (
                     <div style={{ textAlign: 'center' }}>
                       {/* Camera viewport */}
-                      <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', border: '2px solid #e2e8f0', background: '#000', maxWidth: 300, margin: '0 auto' }}>
+                      <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', border: '2px solid #E4E4E7', background: '#000', maxWidth: 300, margin: '0 auto' }}>
                         <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
                         {!cameraActive && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><i className="fas fa-circle-notch fa-spin" style={{ fontSize: '1.5rem', opacity: .6 }}></i></div>}
                         {/* Camera label badge */}
                         {cameraActive && cameras.length > 0 && (
-                          <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(0,0,0,.55)', color: '#fff', fontSize: '.7rem', padding: '2px 8px', borderRadius: 999, backdropFilter: 'blur(4px)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(9,9,11,.75)', color: '#fff', fontSize: '.7rem', padding: '2px 8px', borderRadius: 999, backdropFilter: 'blur(4px)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <i className="fas fa-video" style={{ marginRight: 4 }}></i>
                             {cameras[activeCamIdx]?.label || `Camera ${activeCamIdx + 1}`}
                           </div>
@@ -1600,171 +1671,196 @@ const LearnerList = () => {
                       <canvas ref={canvasRef} style={{ display: 'none' }} />
                       {/* Camera controls row */}
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', marginTop: '.75rem', flexWrap: 'wrap' }}>
-                        {/* Switch prev */}
                         {cameras.length > 1 && (
                           <button type="button" onClick={() => switchCamera(-1)} title="Previous camera"
-                            style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
+                            style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#71717a' }}>
                             <i className="fas fa-chevron-left"></i>
                           </button>
                         )}
                         {cameraActive && (
-                          <button type="button" className="btn btn-accent" onClick={capturePhoto} style={{ padding: '.5rem 1.25rem' }}>
+                          <button type="button" onClick={capturePhoto} style={{ padding: '.5rem 1.25rem', background: '#09090b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
                             <i className="fas fa-camera"></i> Capture
                           </button>
                         )}
-                        {/* Switch next */}
                         {cameras.length > 1 && (
                           <button type="button" onClick={() => switchCamera(1)} title="Next camera"
-                            style={{ background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
+                            style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#71717a' }}>
                             <i className="fas fa-chevron-right"></i>
                           </button>
                         )}
                       </div>
-                      {/* Camera count indicator */}
                       {cameras.length > 1 && (
-                        <div style={{ marginTop: '.4rem', fontSize: '.72rem', color: '#94a3b8' }}>
+                        <div style={{ marginTop: '.4rem', fontSize: '.72rem', color: '#71717a' }}>
                           Camera {activeCamIdx + 1} of {cameras.length} — use arrows to switch
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="photo-zone" onClick={() => fileInputRef.current?.click()}>
-                      <i className="fas fa-cloud-upload-alt" style={{ fontSize: '2rem', color: '#0d9488', display: 'block', marginBottom: '.5rem' }}></i>
-                      <p style={{ margin: 0, fontSize: '.85rem', color: '#64748b', fontWeight: 500 }}>Click to upload a photo</p>
-                      <p style={{ margin: '4px 0 0', fontSize: '.72rem', color: '#94a3b8' }}>JPG, PNG or WEBP</p>
+                      <i className="fas fa-cloud-arrow-up" style={{ fontSize: '2rem', color: '#2563eb', display: 'block', marginBottom: '.5rem' }}></i>
+                      <p style={{ margin: 0, fontSize: '.88rem', color: '#09090b', fontWeight: 700 }}>Click to browse or drop photo</p>
+                      <p style={{ margin: '4px 0 0', fontSize: '.75rem', color: '#71717a' }}>Supports JPG, PNG or WEBP</p>
                       <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileUpload} />
                     </div>
                   )}
                 </div>
 
-                <hr style={{ border: 'none', borderTop: '1px solid #f1f5f9', margin: '1rem 0' }} />
+                {/* ── SECTION 2: Academic & Personal Profile ── */}
+                <div className="form-section-box">
+                  <div className="form-section-title">
+                    <i className="fas fa-graduation-cap" style={{ color: '#2563eb' }}></i>
+                    <span>2. Academic Enrollment</span>
+                  </div>
 
-                {/* ── Full Name ── */}
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="field-label">Full Name <span style={{ color: '#ef4444' }}>*</span></label>
-                  <input type="text" className="field-input" required placeholder="e.g. Ama Mensah" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} />
-                </div>
+                  {/* Full Name */}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label className="field-label">Full Name <span style={{ color: '#ef4444' }}>*</span></label>
+                    <input type="text" className="field-input" required placeholder="e.g. Ama Mensah" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} />
+                  </div>
 
-                {/* ── Reg Number ── */}
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="field-label">Registration Number <span style={{ color: '#ef4444' }}>*</span></label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="text" className="field-input" required
-                      placeholder="e.g. STUD-0001, GES-0023, BK-0100"
-                      value={form.regNumber}
-                      onChange={e => setForm({ ...form, regNumber: e.target.value })}
-                      style={{ paddingRight: 80, fontFamily: 'monospace', letterSpacing: '.04em' }}
-                    />
-                    <button type="button" className="gen-btn" onClick={() => setForm({ ...form, regNumber: peekNextRegNumber() })}>
-                      <i className="fas fa-undo" style={{ marginRight: 4 }}></i>Auto
-                    </button>
+                  {/* Reg Number */}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label className="field-label">Registration Number <span style={{ color: '#ef4444' }}>*</span></label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        type="text" className="field-input" required
+                        placeholder="e.g. STUD-0001, GES-0023, BK-0100"
+                        value={form.regNumber}
+                        onChange={e => setForm({ ...form, regNumber: e.target.value })}
+                        style={{ paddingRight: 90, fontFamily: 'monospace', letterSpacing: '.04em' }}
+                      />
+                      <button type="button" className="gen-btn" onClick={() => setForm({ ...form, regNumber: peekNextRegNumber() })}>
+                        <i className="fas fa-magic" style={{ marginRight: 4 }}></i> Auto ID
+                      </button>
+                    </div>
+                    <div style={{ fontSize: '.72rem', color: '#71717a', marginTop: 4 }}>
+                      Default format: <strong style={{ color: '#2563eb' }}>{getPrefix()}-XXXX</strong> (prefix is remembered automatically).
+                    </div>
                   </div>
-                  <div style={{ fontSize: '.72rem', color: '#94a3b8', marginTop: 4 }}>
-                    Default format: <strong style={{ color: '#0d9488' }}>{getPrefix()}-XXXX</strong>. Type any format you like — your prefix is remembered for next time.
-                  </div>
-                </div>
 
-                {/* ── Gender + Class ── */}
-                <div className="field-row" style={{ marginBottom: '1rem' }}>
-                  <div>
-                    <label className="field-label">Gender <span style={{ color: '#ef4444' }}>*</span></label>
-                    <select className="field-input" value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                    </select>
+                  {/* Gender + Class */}
+                  <div className="field-row" style={{ marginBottom: '1rem' }}>
+                    <div>
+                      <label className="field-label">Gender <span style={{ color: '#ef4444' }}>*</span></label>
+                      <select className="field-input" value={form.gender} onChange={e => setForm({ ...form, gender: e.target.value })}>
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label">Assigned Class <span style={{ color: '#ef4444' }}>*</span></label>
+                      <select className="field-input" required value={form.currentClassId} onChange={e => setForm({ ...form, currentClassId: e.target.value })}>
+                        <option value="">— Select Class —</option>
+                        {classes?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="field-label">Assigned Class <span style={{ color: '#ef4444' }}>*</span></label>
-                    <select className="field-input" required value={form.currentClassId} onChange={e => setForm({ ...form, currentClassId: e.target.value })}>
-                      <option value="">— Select Class —</option>
-                      {classes?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-                
-                {/* ── Parent Portal Access Preference ── */}
-                <div style={{
-                  background: 'var(--accent-light)',
-                  border: '1px solid rgba(13,148,136,0.15)',
-                  borderRadius: '12px',
-                  padding: '0.85rem 1rem',
-                  marginBottom: '1.25rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  <input
-                    type="checkbox"
-                    id="excludeFromPdf"
-                    checked={form.excludeFromPdf}
-                    onChange={e => setForm({ ...form, excludeFromPdf: e.target.checked })}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-                  />
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <label htmlFor="excludeFromPdf" style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)', cursor: 'pointer' }}>
-                      Parent Portal Access Enabled
+
+                  {/* Ghanaian Language Option */}
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label className="field-label">
+                      <i className="fas fa-language" style={{ marginRight: 5, color: '#2563eb' }}></i>
+                      Ghanaian Language Option <span style={{ color: '#ef4444' }}>*</span>
                     </label>
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                      If checked, this student will be excluded from bulk printed PDF report cards.
-                    </span>
-                  </div>
-                </div>
-
-                {/* ── Guardian Details Section ── */}
-                <h3 style={{ fontSize: '0.85rem', color: '#0d9488', textTransform: 'uppercase', letterSpacing: '.06em', margin: '1.75rem 0 1rem', display: 'flex', alignItems: 'center', gap: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.5rem', fontWeight: 700 }}>
-                  <i className="fas fa-users" style={{ fontSize: '0.95rem' }}></i> Guardian Information
-                </h3>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="field-label">Guardian's Full Name</label>
-                  <input type="text" className="field-input" placeholder="e.g. John Mensah" value={form.guardianName} onChange={e => setForm({ ...form, guardianName: e.target.value })} />
-                </div>
-
-                <div style={{ marginBottom: '1rem' }}>
-                  <label className="field-label">Guardian's Location / Address</label>
-                  <input type="text" className="field-input" placeholder="e.g. House No. B24, Adenta, Accra" value={form.guardianLocation} onChange={e => setForm({ ...form, guardianLocation: e.target.value })} />
-                </div>
-
-                <div className="field-row" style={{ marginBottom: '1rem' }}>
-                  <div>
-                    <label className="field-label">Relation to Learner</label>
-                    <select className="field-input" value={form.guardianRelation} onChange={e => setForm({ ...form, guardianRelation: e.target.value })}>
-                      <option value="">— Select Relation —</option>
-                      <option value="Father">Father</option>
-                      <option value="Mother">Mother</option>
-                      <option value="Uncle">Uncle</option>
-                      <option value="Aunt">Aunt</option>
-                      <option value="Grandparent">Grandparent</option>
-                      <option value="Guardian">Guardian</option>
+                    <select 
+                      className="field-input" 
+                      value={form.ghanaianLanguage || 'twi'} 
+                      onChange={e => setForm({ ...form, ghanaianLanguage: e.target.value })}
+                    >
+                      {GHANAIAN_LANGUAGE_OPTIONS.map(opt => (
+                        <option key={opt.id} value={opt.id}>{opt.label}</option>
+                      ))}
                     </select>
+                    <div style={{ fontSize: '.72rem', color: '#71717a', marginTop: 4 }}>
+                      Filters subject score entry and terminal report card language section.
+                    </div>
                   </div>
-                  <div>
-                    <label className="field-label">Profession / Occupation</label>
-                    <input type="text" className="field-input" placeholder="e.g. Teacher" value={form.guardianProfession} onChange={e => setForm({ ...form, guardianProfession: e.target.value })} />
+                  
+                  {/* Parent Portal Access Preference */}
+                  <div style={{
+                    background: '#EFF6FF',
+                    border: '1px solid #DBEAFE',
+                    borderRadius: '12px',
+                    padding: '0.85rem 1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      id="excludeFromPdf"
+                      checked={form.excludeFromPdf}
+                      onChange={e => setForm({ ...form, excludeFromPdf: e.target.checked })}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <label htmlFor="excludeFromPdf" style={{ fontWeight: 700, fontSize: '0.85rem', color: '#09090b', cursor: 'pointer' }}>
+                        Parent Portal Access Enabled
+                      </label>
+                      <span style={{ fontSize: '0.72rem', color: '#71717a' }}>
+                        Excludes student from bulk printed PDFs when digital guardian portal is preferred.
+                      </span>
+                    </div>
                   </div>
                 </div>
 
-                <div className="field-row" style={{ marginBottom: '1rem' }}>
-                  <div>
-                    <label className="field-label">Primary Contact</label>
-                    <input type="tel" className="field-input" placeholder="e.g. 0244123456" value={form.guardianContact1} onChange={e => setForm({ ...form, guardianContact1: e.target.value })} />
+                {/* ── SECTION 3: Guardian Details ── */}
+                <div className="form-section-box">
+                  <div className="form-section-title">
+                    <i className="fas fa-users" style={{ color: '#2563eb' }}></i>
+                    <span>3. Guardian &amp; Emergency Contacts</span>
                   </div>
-                  <div>
-                    <label className="field-label">Secondary Contact</label>
-                    <input type="tel" className="field-input" placeholder="e.g. 0200123456" value={form.guardianContact2} onChange={e => setForm({ ...form, guardianContact2: e.target.value })} />
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label className="field-label">Guardian's Full Name</label>
+                    <input type="text" className="field-input" placeholder="e.g. John Mensah" value={form.guardianName} onChange={e => setForm({ ...form, guardianName: e.target.value })} />
+                  </div>
+
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label className="field-label">Guardian's Location / Address</label>
+                    <input type="text" className="field-input" placeholder="e.g. House No. B24, Adenta, Accra" value={form.guardianLocation} onChange={e => setForm({ ...form, guardianLocation: e.target.value })} />
+                  </div>
+
+                  <div className="field-row" style={{ marginBottom: '1rem' }}>
+                    <div>
+                      <label className="field-label">Relation to Learner</label>
+                      <select className="field-input" value={form.guardianRelation} onChange={e => setForm({ ...form, guardianRelation: e.target.value })}>
+                        <option value="">— Select Relation —</option>
+                        <option value="Father">Father</option>
+                        <option value="Mother">Mother</option>
+                        <option value="Uncle">Uncle</option>
+                        <option value="Aunt">Aunt</option>
+                        <option value="Grandparent">Grandparent</option>
+                        <option value="Guardian">Guardian</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="field-label">Profession / Occupation</label>
+                      <input type="text" className="field-input" placeholder="e.g. Teacher" value={form.guardianProfession} onChange={e => setForm({ ...form, guardianProfession: e.target.value })} />
+                    </div>
+                  </div>
+
+                  <div className="field-row">
+                    <div>
+                      <label className="field-label">Primary Contact</label>
+                      <input type="tel" className="field-input" placeholder="e.g. 0244123456" value={form.guardianContact1} onChange={e => setForm({ ...form, guardianContact1: e.target.value })} />
+                    </div>
+                    <div>
+                      <label className="field-label">Secondary Contact</label>
+                      <input type="tel" className="field-input" placeholder="e.g. 0200123456" value={form.guardianContact2} onChange={e => setForm({ ...form, guardianContact2: e.target.value })} />
+                    </div>
                   </div>
                 </div>
 
-                {/* ── Sync Status ── */}
-                <div style={{ marginBottom: '1.25rem' }}>
+                {/* ── Sync Status & Actions ── */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '8px' }}>
                   <span className={`sync-chip ${navigator.onLine ? 'sync-online' : 'sync-offline'}`}>
-                    <i className={`fas ${navigator.onLine ? 'fa-wifi' : 'fa-exclamation-triangle'}`}></i>
-                    {navigator.onLine ? 'Online — will sync to cloud' : 'Offline — saved locally, will sync later'}
+                    <i className={`fas ${navigator.onLine ? 'fa-cloud-check' : 'fa-triangle-exclamation'}`}></i>
+                    {navigator.onLine ? 'Online • Real-time cloud synchronization' : 'Offline • Saved locally, auto-syncs on reconnect'}
                   </span>
                 </div>
 
-                {/* ── Actions ── */}
+                {/* Actions */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '.75rem' }}>
                   <button type="button" className="reg-btn-ghost" onClick={closeModal}>Cancel</button>
                   <button type="submit" className="reg-btn-primary" disabled={isSaving}>
@@ -1797,7 +1893,7 @@ const LearnerList = () => {
                   alt={profileLearner.fullName}
                   gender={profileLearner.gender}
                   className="profile-avatar-img"
-                  style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '4px solid #0d9488', boxShadow: '0 8px 24px rgba(13,148,136,.3)' }}
+                  style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '4px solid #2563eb', boxShadow: '0 8px 24px rgba(37,99,235,.3)' }}
                 />
               </div>
 
@@ -1840,7 +1936,7 @@ const LearnerList = () => {
                     <div className="profile-info-card">
                       <span className="profile-info-label">Assigned Class</span>
                       <span className="profile-info-value">
-                        <i className="fas fa-chalkboard" style={{ color: '#0d9488' }}></i>
+                        <i className="fas fa-chalkboard" style={{ color: '#2563eb' }}></i>
                         {getClass(profileLearner.currentClassId)}
                       </span>
                     </div>
@@ -1877,7 +1973,14 @@ const LearnerList = () => {
                         )}
                       </span>
                     </div>
-                    <div className="profile-info-card" style={{ gridColumn: 'span 2' }}>
+                    <div className="profile-info-card">
+                      <span className="profile-info-label">Ghanaian Language</span>
+                      <span className="profile-info-value" style={{ color: '#2563eb', fontWeight: 700 }}>
+                        <i className="fas fa-language"></i>
+                        {getLanguageLabel(profileLearner.ghanaianLanguage || profileLearner.ghanaian_language)}
+                      </span>
+                    </div>
+                    <div className="profile-info-card">
                       <span className="profile-info-label">Enrollment Date</span>
                       <span className="profile-info-value">
                         <i className="fas fa-calendar-alt" style={{ color: '#64748b' }}></i>
@@ -1894,7 +1997,7 @@ const LearnerList = () => {
                     <div className="profile-info-card" style={{ gridColumn: 'span 2' }}>
                       <span className="profile-info-label">Guardian's Name</span>
                       <span className="profile-info-value">
-                        <i className="fas fa-user" style={{ color: '#0d9488' }}></i>
+                        <i className="fas fa-user" style={{ color: '#2563eb' }}></i>
                         {profileLearner.guardianName || 'Not Provided'}
                       </span>
                     </div>
@@ -1945,8 +2048,8 @@ const LearnerList = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                           <span className="profile-info-label">Parent Portal Access</span>
-                          <span className="profile-info-value" style={{ fontSize: '.8rem', color: '#64748b', fontWeight: 'normal' }}>
-                            <i className="fas fa-mobile-alt" style={{ color: '#0d9488' }}></i>
+                          <span className="profile-info-value" style={{ fontSize: '.8rem', color: '#71717a', fontWeight: 'normal' }}>
+                            <i className="fas fa-mobile-alt" style={{ color: '#2563eb' }}></i>
                             Manage login access for this guardian's primary contact.
                           </span>
                         </div>
@@ -1977,20 +2080,20 @@ const LearnerList = () => {
                   </div>
                 ) : (
                   <div className="academic-stats">
-                    <div style={{ marginBottom: '0.75rem', fontSize: '0.75rem', color: '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <i className="fas fa-calendar-alt" style={{ color: '#0d9488' }}></i>
+                    <div style={{ marginBottom: '0.75rem', fontSize: '0.75rem', color: '#71717a', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <i className="fas fa-calendar-alt" style={{ color: '#2563eb' }}></i>
                       <span>Period: <strong>{activeAcademicYear || 'N/A'} — {activeTerm}</strong></span>
                     </div>
                     <div className="profile-info-grid" style={{ marginBottom: '0.5rem' }}>
                       <div className="profile-info-card">
                         <span className="profile-info-label">Attendance Rate</span>
-                        <span className="profile-info-value" style={{ color: '#10b981', fontSize: '1rem', fontWeight: 800 }}>
+                        <span className="profile-info-value" style={{ color: '#10B981', fontSize: '1rem', fontWeight: 800 }}>
                           {attendanceRate !== null ? `${attendanceRate}%` : 'N/A'}
                         </span>
                       </div>
                       <div className="profile-info-card">
                         <span className="profile-info-label">Current Average</span>
-                        <span className="profile-info-value" style={{ color: '#0d9488', fontSize: '1rem', fontWeight: 800 }}>
+                        <span className="profile-info-value" style={{ color: '#2563eb', fontSize: '1rem', fontWeight: 800 }}>
                           {currentAverage !== null ? `${currentAverage}%` : 'N/A'}
                         </span>
                       </div>
@@ -2012,7 +2115,7 @@ const LearnerList = () => {
                         <span>{currentAverage !== null ? `${currentAverage}%` : 'N/A'}</span>
                       </div>
                       <div className="stat-bar-outer">
-                        <div className="stat-bar-inner" style={{ width: currentAverage !== null ? `${Math.min(100, Math.max(0, currentAverage))}%` : '0%', background: 'linear-gradient(90deg, #0d9488, #3b82f6)' }}></div>
+                        <div className="stat-bar-inner" style={{ width: currentAverage !== null ? `${Math.min(100, Math.max(0, currentAverage))}%` : '0%', background: '#2563eb' }}></div>
                       </div>
                     </div>
                   </div>
@@ -2053,9 +2156,9 @@ const LearnerList = () => {
             {/* Header */}
             <div className="import-modal-header">
               <div>
-                <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#0f172a', display: 'flex', alignItems: 'center' }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: 'rgba(13,148,136,.1)', borderRadius: 10, marginRight: 10 }}>
-                    <i className="fas fa-file-excel" style={{ color: '#0d9488', fontSize: '.9rem' }}></i>
+                <h2 style={{ margin: 0, fontSize: '1.25rem', color: '#09090b', display: 'flex', alignItems: 'center' }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, background: 'rgba(37,99,235,.1)', borderRadius: 10, marginRight: 10 }}>
+                    <i className="fas fa-file-excel" style={{ color: '#2563eb', fontSize: '.9rem' }}></i>
                   </span>
                   Excel Bulk Registration Preview
                 </h2>
@@ -2235,7 +2338,7 @@ const LearnerList = () => {
                 type="button" 
                 className="reg-btn-primary" 
                 onClick={handleConfirmImport}
-                style={{ width: 'auto', padding: '.65rem 1.75rem', borderRadius: 10, background: 'linear-gradient(135deg,#0d9488,#0f766e)' }}
+                style={{ width: 'auto', padding: '.65rem 1.75rem', borderRadius: 10, background: '#09090b' }}
                 disabled={isSaving || importData.some(d => !d.fullName || !d.classId)}
               >
                 {isSaving ? <i className="fas fa-spinner fa-spin" style={{ marginRight: 6 }}></i> : <i className="fas fa-user-check" style={{ marginRight: 6 }}></i>}
@@ -2271,9 +2374,9 @@ const LearnerList = () => {
             {/* Form Body */}
             <form onSubmit={handleReassignRegNumbers} style={{ padding: '1.5rem' }}>
               {reassignStatus ? (
-                <div style={{ padding: '1rem', background: '#f8fafc', borderRadius: 12, border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', minHeight: '120px' }}>
-                  <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.8rem', color: '#3b82f6' }}></i>
-                  <div style={{ fontSize: '.85rem', color: '#475569', fontWeight: 600, textAlign: 'center' }}>{reassignStatus}</div>
+                <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '120px' }}>
+                  <LogoPreloader fullScreen={false} size="sm" />
+                  <div style={{ fontSize: '.85rem', color: '#475569', fontWeight: 600, textAlign: 'center', marginTop: '0.5rem' }}>{reassignStatus}</div>
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>

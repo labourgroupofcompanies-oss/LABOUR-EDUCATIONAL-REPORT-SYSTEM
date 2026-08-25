@@ -5,17 +5,20 @@ import db from '../../lib/db';
 import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade } from '../../lib/grading';
 import authService from '../../services/authService';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
+import { calculateBest6Aggregate } from '../../lib/beceAggregateEngine';
+import { filterSubjectsForLearner, getLanguageLabel, formatSubjectNameForLearner } from '../../utils/languageUtils';
+import LogoPreloader from '../../components/common/LogoPreloader';
 
 const DEFAULT_GRADING_SCALE = [
-  { min: 90, max: 100, grade: 'A1', remark: 'Excellent' },
-  { min: 80, max: 89,  grade: 'B2', remark: 'Very Good' },
-  { min: 70, max: 79,  grade: 'B3', remark: 'Good' },
-  { min: 60, max: 69,  grade: 'C4', remark: 'Credit' },
-  { min: 55, max: 59,  grade: 'C5', remark: 'Credit' },
-  { min: 50, max: 54,  grade: 'C6', remark: 'Credit' },
-  { min: 45, max: 49,  grade: 'D7', remark: 'Pass' },
-  { min: 40, max: 44,  grade: 'E8', remark: 'Pass' },
-  { min: 0,  max: 39,  grade: 'F9', remark: 'Fail' },
+  { min: 80, max: 100, grade: '1', remark: 'HIGHEST' },
+  { min: 70, max: 79,  grade: '2', remark: 'HIGHER' },
+  { min: 60, max: 69,  grade: '3', remark: 'HIGH' },
+  { min: 55, max: 59,  grade: '4', remark: 'HIGH AVERAGE' },
+  { min: 50, max: 54,  grade: '5', remark: 'AVERAGE' },
+  { min: 40, max: 49,  grade: '6', remark: 'LOW AVERAGE' },
+  { min: 35, max: 39,  grade: '7', remark: 'LOW' },
+  { min: 30, max: 34,  grade: '8', remark: 'LOWER' },
+  { min: 0,  max: 29,  grade: '9', remark: 'LOWEST' },
 ];
 
 function getGrade(total, scale) {
@@ -62,6 +65,17 @@ const ParentReportView = () => {
         learner = await db.learners.where('learnerId').equals(learnerId).first();
       }
       if (!learner) return { notFound: true };
+
+      // Fix #7: Validate the learner belongs to the logged-in parent
+      const parentSession = authService.getCurrentParent();
+      if (parentSession?.phone_number) {
+        const cleanParent = parentSession.phone_number.replace(/[\s\-\+\(\)]/g, '').slice(-9);
+        const c1 = (learner.guardianContact1 || '').replace(/[\s\-\+\(\)]/g, '').slice(-9);
+        const c2 = (learner.guardianContact2 || '').replace(/[\s\-\+\(\)]/g, '').slice(-9);
+        if (c1 !== cleanParent && c2 !== cleanParent) {
+          return { unauthorized: true };
+        }
+      }
 
       const schoolId = learner.schoolId;
       const currentClassId = learner.currentClassId;
@@ -170,15 +184,45 @@ const ParentReportView = () => {
   }, [schoolSettings]);
 
   const activeSummary = useMemo(() => {
-    if (!activeLearner || !reportSummaries || !selectedYear || !selectedTerm) return null;
-    return reportSummaries.find(s =>
-      (s.learnerId === activeLearner.id || s.learnerId === String(activeLearner.id) || (activeLearner.supabaseId && s.learnerId === activeLearner.supabaseId)) && 
-      s.academicYear === selectedYear && 
-      s.term === selectedTerm
-    );
+    if (!activeLearner || !reportSummaries || reportSummaries.length === 0) return null;
+    
+    const studentKeys = [
+      String(activeLearner.id || '').trim(),
+      String(activeLearner.supabaseId || '').trim(),
+      String(activeLearner.regNumber || '').trim(),
+      String(activeLearner.enrollmentCode || '').trim()
+    ].filter(Boolean);
+
+    const matched = reportSummaries.filter(s => {
+      const sLId = String(s.learnerId || s.learner_id || '').trim();
+      const matchLearner = studentKeys.includes(sLId);
+      if (!matchLearner) return false;
+
+      if (selectedYear && s.academicYear && String(s.academicYear).trim().toLowerCase() !== String(selectedYear).trim().toLowerCase()) return false;
+      if (selectedTerm && s.term && String(s.term).trim().toLowerCase() !== String(selectedTerm).trim().toLowerCase()) return false;
+      return true;
+    });
+
+    if (matched.length > 0) {
+      return matched.find(m => m.isReleased || m.is_released) || matched[0];
+    }
+
+    const fallbackMatched = reportSummaries.filter(s => studentKeys.includes(String(s.learnerId || s.learner_id || '').trim()));
+    return fallbackMatched.find(m => m.isReleased || m.is_released) || fallbackMatched[0] || null;
   }, [activeLearner, reportSummaries, selectedYear, selectedTerm]);
 
-  const isReportReleased = activeSummary && (activeSummary.isReleased || activeSummary.is_released);
+  const isReportReleased = useMemo(() => {
+    if (activeSummary && (activeSummary.isReleased || activeSummary.is_released)) return true;
+    if (reportSummaries && activeLearner) {
+      const studentKeys = [
+        String(activeLearner.id || '').trim(),
+        String(activeLearner.supabaseId || '').trim(),
+        String(activeLearner.regNumber || '').trim()
+      ].filter(Boolean);
+      return reportSummaries.some(s => studentKeys.includes(String(s.learnerId || s.learner_id || '').trim()) && (s.isReleased || s.is_released));
+    }
+    return false;
+  }, [activeSummary, reportSummaries, activeLearner]);
 
   const currentClass = useMemo(() => {
     if (!activeLearner || !classes) return null;
@@ -208,7 +252,9 @@ const ParentReportView = () => {
       return isStudent && isClass && isTerm && isYear;
     });
 
-    return classSubjectList.map(subj => {
+    const filteredSubjects = filterSubjectsForLearner(classSubjectList, activeLearner);
+
+    return filteredSubjects.map(subj => {
       const rec = termScores.find(s => String(s.subjectId) === String(subj.id));
       const hasCa = rec?.caScores && Array.isArray(rec.caScores) && rec.caScores.some(score => score !== undefined && score !== null && score !== '');
       const hasExam = rec?.examScore !== undefined && rec.examScore !== null && rec.examScore !== '';
@@ -237,7 +283,7 @@ const ParentReportView = () => {
       }
       
       return {
-        subjectName: subj.name,
+        subjectName: formatSubjectNameForLearner(subj.name, activeLearner),
         ca,
         exam,
         total,
@@ -367,27 +413,33 @@ const ParentReportView = () => {
   }, [activeSummary, isReportReleased]);
 
   if (!viewData) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b' }}>
-        <div>
-          <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#0d9488' }}></i>
-          <p>Loading report card details...</p>
-        </div>
-      </div>
-    );
+    return <LogoPreloader fullScreen={true} size="lg" />;
   }
 
   if (viewData?.error) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
-        <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', color: '#ef4444' }}></i>
-        <h2 style={{ color: '#0f172a' }}>Database Query Error</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#FAFAFA', color: '#71717a', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+        <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', color: '#EF4444' }}></i>
+        <h2 style={{ color: '#09090b' }}>Database Query Error</h2>
         <p>An unexpected error occurred while loading this sibling's academic records.</p>
-        <code style={{ background: '#f1f5f9', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', color: '#ef4444' }}>
+        <code style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', padding: '0.5rem 1rem', borderRadius: '8px', fontSize: '0.85rem', color: '#EF4444' }}>
           {viewData.message}
         </code>
-        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#0d9488', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '1rem' }}>
+        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#09090b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', marginTop: '1rem' }}>
           Return to Sibling Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  if (viewData?.unauthorized) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#FAFAFA', color: '#71717a', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+        <i className="fas fa-shield-alt" style={{ fontSize: '3rem', color: '#EF4444' }}></i>
+        <h2 style={{ color: '#09090b' }}>Not Authorized</h2>
+        <p>You do not have permission to view this learner's records.</p>
+        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#09090b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+          Return to Dashboard
         </button>
       </div>
     );
@@ -395,11 +447,11 @@ const ParentReportView = () => {
 
   if (viewData.notFound || !activeLearner) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f8fafc', color: '#64748b', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
-        <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', color: '#f59e0b' }}></i>
-        <h2 style={{ color: '#0f172a' }}>Student Not Found</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#FAFAFA', color: '#71717a', flexDirection: 'column', gap: '1rem', padding: '2rem', textAlign: 'center' }}>
+        <i className="fas fa-exclamation-triangle" style={{ fontSize: '3rem', color: '#F59E0B' }}></i>
+        <h2 style={{ color: '#09090b' }}>Student Not Found</h2>
         <p>We could not locate this sibling's profile record in your local database.</p>
-        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#0d9488', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+        <button onClick={() => navigate('/parent/dashboard')} style={{ padding: '0.6rem 1.5rem', background: '#09090b', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
           Return to Dashboard
         </button>
       </div>
@@ -433,7 +485,7 @@ const ParentReportView = () => {
           </div>
           <button 
             onClick={() => navigate('/parent/dashboard')} 
-            style={{ width: '100%', padding: '0.9rem', background: 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)', border: 'none', borderRadius: '12px', color: '#fff', fontSize: '0.92rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 15px rgba(13, 148, 136, 0.25)', transition: 'all 0.2s' }}
+            style={{ width: '100%', padding: '0.9rem', background: '#09090b', border: 'none', borderRadius: '12px', color: '#fff', fontSize: '0.92rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 15px rgba(9, 9, 11, 0.25)', transition: 'all 0.2s' }}
           >
             <i className="fas fa-arrow-left"></i> Return to Sibling Dashboard
           </button>
@@ -507,8 +559,8 @@ const ParentReportView = () => {
         }
 
         .btn-print {
-          background: #0d9488;
-          color: #fff;
+          background: #09090b;
+          color: '#fff';
           border: none;
           border-radius: 10px;
           padding: 0.5rem 1.1rem;
@@ -519,7 +571,7 @@ const ParentReportView = () => {
           align-items: center;
           gap: 6px;
           transition: all 0.2s;
-          box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+          box-shadow: 0 4px 12px rgba(9, 9, 11, 0.25);
         }
 
         .btn-print:hover {
@@ -544,55 +596,69 @@ const ParentReportView = () => {
         .rc-canvas-header {
           display: flex;
           align-items: center;
-          gap: 1rem;
-          border-bottom: 2px double #b45309;
-          padding-bottom: 1rem;
-          margin-bottom: 1.5rem;
-          flex-wrap: wrap;
+          gap: 0.6rem;
+          border-bottom: 1.5px solid #1E3A8A;
+          padding-bottom: 0.55rem;
+          margin-bottom: 0.85rem;
+          flex-wrap: nowrap;
         }
 
         .rc-school-logo {
-          width: 68px; height: 68px;
-          border-radius: 50%;
-          border: 2px solid #b45309;
-          object-fit: cover;
+          width: 56px; height: 56px;
+          border-radius: 10px;
+          border: 2px solid #1E3A8A;
+          outline: 1px solid #D97706;
+          object-fit: contain;
+          background: #ffffff;
+          padding: 3px;
           flex-shrink: 0;
+          box-shadow: 0 3px 8px rgba(30, 58, 138, 0.12);
         }
         .rc-school-logo-ph {
-          width: 68px; height: 68px;
-          border-radius: 50%;
-          border: 2px solid #b45309;
-          background: #f8fafc;
+          width: 56px; height: 56px;
+          border-radius: 10px;
+          border: 2px solid #1E3A8A;
+          outline: 1px solid #D97706;
+          background: rgba(30, 58, 138, 0.05);
           display: flex;
           align-items: center;
           justify-content: center;
-          color: #b45309;
-          font-size: 1.75rem;
+          color: #D97706;
+          font-size: 1.4rem;
           flex-shrink: 0;
+          box-shadow: 0 3px 8px rgba(30, 58, 138, 0.10);
         }
         .rc-student-photo {
-          width: 72px; height: 84px;
-          border-radius: 8px;
-          border: 2px solid #e2e8f0;
+          width: 85px;
+          height: 104px;
+          border-radius: 9px;
+          border: 2px solid #1E3A8A;
           object-fit: cover;
+          object-position: center top;
+          background: #ffffff;
+          padding: 2px;
           flex-shrink: 0;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+          font-size: 1.25rem;
+          box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+          margin-right: 18px;
         }
         .rc-student-photo-ph {
-          width: 72px; height: 84px;
-          border-radius: 8px;
-          border: 2px dashed #e2e8f0;
+          width: 85px;
+          height: 104px;
+          border-radius: 9px;
+          border: 1.5px dashed #cbd5e1;
           background: #f8fafc;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          color: #94a3b8;
-          font-size: 0.5rem;
+          color: #1E3A8A;
+          font-size: 0.65rem;
           font-weight: 700;
           text-transform: uppercase;
-          gap: 4px;
+          gap: 2px;
           flex-shrink: 0;
+          margin-right: 18px;
         }
 
         .rc-title-row {
@@ -688,9 +754,12 @@ const ParentReportView = () => {
           color: #64748b;
         }
 
-        .rc-sig-strip { display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 1rem; gap: 1rem; margin-top: auto; }
-        .rc-sig-block { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 120px; font-size: 0.7rem; font-weight: 700; text-align: center; color: #0f172a; }
-        .rc-sig-line { width: 100%; height: 1px; background: #cbd5e1; margin-bottom: 5px; margin-top: 28px; }
+        .rc-sig-strip { display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 0.75rem; gap: 1rem; margin-top: 0.85rem; }
+        .rc-sig-block { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 120px; font-size: 0.72rem; font-weight: 700; text-align: center; color: #0f172a; }
+        .rc-sig-img-wrap { height: 46px; display: flex; align-items: flex-end; justify-content: center; width: 100%; }
+        .rc-sig-img { max-height: 44px; max-width: 130px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.18)); }
+        .rc-sig-placeholder { height: 44px; }
+        .rc-sig-line { width: 100%; height: 1.5px; background: #0f172a; margin-top: 4px; margin-bottom: 4px; }
 
         /* ── Flawless A4 Print Stylesheet ── */
         @media print {
@@ -869,70 +938,108 @@ const ParentReportView = () => {
           </div>
 
           {/* Title row + KPIs */}
-          <div className="rc-title-row">
-            <span className="rc-doc-badge">Terminal Report Card</span>
-            <div className="rc-kpis">
-              <div className="rc-kpi" style={{ background: '#f0fdfa', border: '2px solid #0d9488' }}>
-                <span className="rc-kpi-lbl" style={{ color: '#0d9488' }}>Avg</span>
-                <span className="rc-kpi-val">{stats.avg !== null && stats.avg !== undefined ? `${stats.avg}%` : '—'}</span>
-              </div>
-              <div className="rc-kpi" style={{ background: '#fdf2f8', border: '2px solid #db2777' }}>
-                <span className="rc-kpi-lbl" style={{ color: '#db2777' }}>Rank</span>
-                <span className="rc-kpi-val">{ordinal(stats.rank)}</span>
-              </div>
-              <div className="rc-kpi" style={{ background: '#fefce8', border: '2px solid #ca8a04' }}>
-                <span className="rc-kpi-lbl" style={{ color: '#ca8a04' }}>Of</span>
-                <span className="rc-kpi-val">{stats.totalGraded}</span>
-              </div>
-            </div>
-          </div>
+          {(() => {
+            const beceResult = calculateBest6Aggregate(learnerGrades, schoolSettings);
+            return (
+              <>
+                <div className="rc-title-row">
+                  <span className="rc-doc-badge">Terminal Report Card</span>
+                  <div className="rc-kpis">
+                    <div className="rc-kpi" style={{ background: '#EFF6FF', border: '2px solid #2563eb' }}>
+                      <span className="rc-kpi-lbl" style={{ color: '#2563eb' }}>Avg</span>
+                      <span className="rc-kpi-val">{stats.avg !== null && stats.avg !== undefined ? `${stats.avg}%` : '—'}</span>
+                    </div>
+                    <div className="rc-kpi" style={{ background: '#fdf2f8', border: '2px solid #db2777' }}>
+                      <span className="rc-kpi-lbl" style={{ color: '#db2777' }}>Rank</span>
+                      <span className="rc-kpi-val">{ordinal(stats.rank)}</span>
+                    </div>
+                    <div className="rc-kpi" style={{ background: '#fefce8', border: '2px solid #ca8a04' }}>
+                      <span className="rc-kpi-lbl" style={{ color: '#ca8a04' }}>Of</span>
+                      <span className="rc-kpi-val">{stats.totalGraded}</span>
+                    </div>
+                    {beceResult?.enabled && beceResult?.aggregate_score !== null && (
+                      <div className="rc-kpi" style={{ background: beceResult.performance_level.bg, border: `2px solid ${beceResult.performance_level.color}` }}>
+                        <span className="rc-kpi-lbl" style={{ color: beceResult.performance_level.color }}>BECE Agg</span>
+                        <span className="rc-kpi-val" style={{ color: beceResult.performance_level.color }}>{beceResult.aggregate_score}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-          {/* Bio */}
-          <div className="rc-bio-grid">
-            <div className="rc-bio-item"><strong>Name:</strong>{activeLearner.fullName}</div>
-            <div className="rc-bio-item"><strong>Reg No:</strong>{activeLearner.regNumber || '—'}</div>
-            <div className="rc-bio-item"><strong>Gender:</strong>{activeLearner.gender || '—'}</div>
-            <div className="rc-bio-item"><strong>Class:</strong>{currentClass?.name || '—'}</div>
-            <div className="rc-bio-item"><strong>Academic Year:</strong>{selectedYear || '—'}</div>
-            <div className="rc-bio-item"><strong>Term:</strong>{selectedTerm}</div>
-          </div>
+                {/* Bio */}
+                <div className="rc-bio-grid">
+                  <div className="rc-bio-item"><strong>Name:</strong>{activeLearner.fullName}</div>
+                  <div className="rc-bio-item"><strong>Reg No:</strong>{activeLearner.regNumber || '—'}</div>
+                  <div className="rc-bio-item"><strong>Gender:</strong>{activeLearner.gender || '—'}</div>
+                  <div className="rc-bio-item"><strong>Language:</strong>{getLanguageLabel(activeLearner.ghanaianLanguage || activeLearner.ghanaian_language)}</div>
+                  <div className="rc-bio-item"><strong>Class:</strong>{currentClass?.name || '—'}</div>
+                  <div className="rc-bio-item"><strong>Academic Year:</strong>{selectedYear || '—'}</div>
+                  <div className="rc-bio-item"><strong>Term:</strong>{selectedTerm}</div>
+                </div>
 
-          {/* Grades table */}
-          {learnerGrades.length > 0 ? (
-            <div className="rc-table-wrap">
-              <table className="rc-table">
-                <thead>
-                  <tr>
-                    <th>Subject</th>
-                    <th className="c">CA</th>
-                    <th className="c">Exam</th>
-                    <th className="c">Total</th>
-                    <th className="c">Grade</th>
-                    <th>Remark</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {learnerGrades.map((g, i) => {
-                    const gc = gradeColor(g.grade);
-                    return (
-                      <tr key={i}>
-                        <td style={{ fontWeight: 600 }}>{g.subjectName}</td>
-                        <td className="c">{g.ca !== null ? Number(g.ca).toFixed(1) : '—'}</td>
-                        <td className="c">{g.exam !== null ? Number(g.exam).toFixed(1) : '—'}</td>
-                        <td className="c" style={{ fontWeight: 700, color: '#0f172a' }}>{g.total !== null ? Number(g.total).toFixed(1) : '—'}</td>
-                        <td className="c"><span className="rc-gbadge" style={{ background: gc.bg, color: gc.text }}>{g.grade}</span></td>
-                        <td style={{ color: gc.text, fontWeight: 600 }}>{g.remark}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ textAlign: 'center', padding: '2rem', border: '1px dashed #e2e8f0', borderRadius: '10px', color: '#94a3b8', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
-              No subject score entries compiled for this term yet.
-            </div>
-          )}
+                {/* Grades table */}
+                {learnerGrades.length > 0 ? (
+                  <>
+                    <div className="rc-table-wrap">
+                      <table className="rc-table">
+                        <thead>
+                          <tr>
+                            <th>Subject</th>
+                            <th className="c">CA</th>
+                            <th className="c">Exam</th>
+                            <th className="c">Total</th>
+                            <th className="c">Grade</th>
+                            <th>Remark</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {learnerGrades.map((g, i) => {
+                            const gc = gradeColor(g.grade);
+                            return (
+                              <tr key={i}>
+                                <td style={{ fontWeight: 600 }}>{g.subjectName}</td>
+                                <td className="c">{g.ca !== null ? Number(g.ca).toFixed(1) : '—'}</td>
+                                <td className="c">{g.exam !== null ? Number(g.exam).toFixed(1) : '—'}</td>
+                                <td className="c" style={{ fontWeight: 700, color: '#0f172a' }}>{g.total !== null ? Number(g.total).toFixed(1) : '—'}</td>
+                                <td className="c"><span className="rc-gbadge" style={{ background: gc.bg, color: gc.text }}>{g.grade}</span></td>
+                                <td style={{ color: gc.text, fontWeight: 600 }}>{g.remark}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* BECE Best 6 Performance Breakdown Card */}
+                    {beceResult?.enabled && (
+                      <div style={{ margin: '0.85rem 0 1.25rem', padding: '0.85rem 1.15rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            <i className="fas fa-graduation-cap" style={{ color: '#2563eb', marginRight: '6px' }} />
+                            Projected BECE Aggregate (Best 6): <strong style={{ color: beceResult.performance_level.color, fontSize: '0.92rem' }}>Aggregate {beceResult.aggregate_score || '—'} ({beceResult.performance_level.label})</strong>
+                          </span>
+                          <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', background: '#e2e8f0', padding: '2px 8px', borderRadius: '999px' }}>
+                            Best 6 Total Marks: {beceResult.best6_total_marks} / 600
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: '#475569', display: 'flex', flexWrap: 'wrap', gap: '8px', lineHeight: 1.5 }}>
+                          <div><strong>4 Core Subjects:</strong> {beceResult.core_subjects.map(c => `${c.subjectName} (${c.gradePoint}pts)`).join(', ') || 'None'}</div>
+                          <div>&bull; <strong>Best 2 Electives:</strong> {beceResult.elective_subjects.map(e => `${e.subjectName} (${e.gradePoint}pts)`).join(', ') || 'None'}</div>
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '6px' }}>
+                          * This aggregate is a projection based on current academic performance and is intended to help monitor learner progress.
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '2rem', border: '1px dashed #e2e8f0', borderRadius: '10px', color: '#94a3b8', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
+                    No subject score entries compiled for this term yet.
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* ── Compact Bottom Grid ── */}
           <div className="rc-bottom-grid">
@@ -961,16 +1068,10 @@ const ParentReportView = () => {
               <p><strong>Vacation Date:</strong> {vDate}</p>
               <p><strong>Resumes:</strong> {nDate}</p>
               {promoted && (
-                <p style={{ color: '#0d9488', fontWeight: 'bold', marginTop: '4px' }}>
+                <p style={{ color: '#10B981', fontWeight: 'bold', marginTop: '4px' }}>
                   <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
                   Decision: Promoted to {getPromotedClassName(promoted)}
                 </p>
-              )}
-              {(fees || bill) && (
-                <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0' }}>
-                  {bill && <p><strong>Next Term Bill:</strong> {bill}</p>}
-                  {fees && <p><strong>Previous Arrears:</strong> {fees}</p>}
-                </div>
               )}
             </div>
 
@@ -986,10 +1087,57 @@ const ParentReportView = () => {
 
           {/* Signatures */}
           <div className="rc-sig-strip">
-            <div className="rc-sig-block"><div className="rc-sig-line" />Class Advisor's Signature</div>
-            <div className="rc-sig-block"><div className="rc-sig-line" />School Stamp &amp; Date</div>
-            <div className="rc-sig-block"><div className="rc-sig-line" />Headteacher's Signature</div>
+            <div className="rc-sig-block">
+              <div className="rc-sig-img-wrap">
+                {activeSummary?.advisorSignatureUrl ? (
+                  <img src={activeSummary.advisorSignatureUrl} alt="Advisor Signature" className="rc-sig-img" />
+                ) : <div className="rc-sig-placeholder" />}
+              </div>
+              <div className="rc-sig-line" />
+              <span>Class Advisor's Signature</span>
+            </div>
+            <div className="rc-sig-block">
+              <div className="rc-sig-img-wrap">
+                <div className="rc-sig-placeholder" />
+              </div>
+              <div className="rc-sig-line" />
+              <span>School Stamp &amp; Date</span>
+            </div>
+            <div className="rc-sig-block">
+              <div className="rc-sig-img-wrap">
+                {activeSummary?.headteacherSignatureUrl ? (
+                  <img src={activeSummary.headteacherSignatureUrl} alt="Headteacher Signature" className="rc-sig-img" />
+                ) : <div className="rc-sig-placeholder" />}
+              </div>
+              <div className="rc-sig-line" />
+              <span>Headteacher's Signature</span>
+            </div>
           </div>
+
+          {/* ── Labour Educational App Branding ── */}
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: '5px',
+            marginTop: '10px',
+            paddingTop: '6px',
+            borderTop: '1px solid #e2e8f0',
+          }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="11" fill="#1e40af" />
+              <text x="12" y="16" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold" fontFamily="serif">L</text>
+            </svg>
+            <span style={{
+              fontSize: '0.6rem',
+              color: '#94a3b8',
+              fontFamily: 'sans-serif',
+              letterSpacing: '0.02em',
+            }}>
+              Powered by <strong style={{ color: '#64748b' }}>Labour Educational App</strong>
+            </span>
+          </div>
+
         </div>
       </div>
     </div>

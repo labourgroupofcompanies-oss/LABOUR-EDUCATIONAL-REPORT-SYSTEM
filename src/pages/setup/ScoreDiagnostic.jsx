@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { enqueueSync } from '../../services/syncEngine';
+import LogoPreloader from '../../components/common/LogoPreloader';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const statusColor = {
@@ -419,9 +420,8 @@ const ScoreDiagnostic = () => {
 
         {/* ── Group List ── */}
         {cloudLoading && groups.length === 0 ? (
-          <div className="diag-card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>
-            <i className="fas fa-spinner fa-spin fa-2x" style={{ color: '#3b82f6', marginBottom: '1rem' }} /><br />
-            Fetching cloud data…
+          <div className="diag-card" style={{ padding: '1.5rem 0' }}>
+            <LogoPreloader fullScreen={false} size="sm" />
           </div>
         ) : !isOnline && groups.length === 0 ? (
           <div className="diag-card" style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>

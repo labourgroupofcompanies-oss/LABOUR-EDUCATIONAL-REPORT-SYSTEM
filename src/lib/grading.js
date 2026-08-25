@@ -106,24 +106,32 @@ export const calculateTotal = (caTotal, examTotal) => {
   return Math.round((parseFloat(caTotal) || 0) + (parseFloat(examTotal) || 0));
 };
 
+export const DEFAULT_GRADING_SCALE = [
+  { min: 80, max: 100, grade: '1', remark: 'HIGHEST' },
+  { min: 70, max: 79,  grade: '2', remark: 'HIGHER' },
+  { min: 60, max: 69,  grade: '3', remark: 'HIGH' },
+  { min: 55, max: 59,  grade: '4', remark: 'HIGH AVERAGE' },
+  { min: 50, max: 54,  grade: '5', remark: 'AVERAGE' },
+  { min: 40, max: 49,  grade: '6', remark: 'LOW AVERAGE' },
+  { min: 35, max: 39,  grade: '7', remark: 'LOW' },
+  { min: 30, max: 34,  grade: '8', remark: 'LOWER' },
+  { min: 0,  max: 29,  grade: '9', remark: 'LOWEST' }
+];
+
 /**
  * Evaluates the total score against the dynamic grading scale.
  * @param {number} total - The total score.
  * @param {Array} gradingScale - Array of grading tiers sorted descending by min score.
  */
 export const calculateGrade = (total, gradingScale = []) => {
-  if (!gradingScale || gradingScale.length === 0) {
-    return { grade: '-', remark: '-' };
-  }
+  const activeScale = (Array.isArray(gradingScale) && gradingScale.length > 0) ? gradingScale : DEFAULT_GRADING_SCALE;
 
-  // Assume gradingScale is sorted descending by min (e.g. 80, 70, 60, etc)
-  for (const tier of gradingScale) {
+  for (const tier of activeScale) {
     if (total >= tier.min) {
       return { grade: tier.grade, remark: tier.remark };
     }
   }
 
-  // Fallback to lowest grade if total is below all tiers
-  const lowest = gradingScale[gradingScale.length - 1];
+  const lowest = activeScale[activeScale.length - 1];
   return { grade: lowest.grade, remark: lowest.remark };
 };

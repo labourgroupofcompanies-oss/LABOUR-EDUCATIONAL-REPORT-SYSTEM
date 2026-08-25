@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './assets/styles/global.css'
+import { formatUserFriendlyMessage } from './utils/errorMessageHelper'
 
 // One-time cleanup: clear old session if from a previous DB version
 const DB_KEY = 'labour_edu_db_version';
@@ -11,33 +12,48 @@ if (localStorage.getItem(DB_KEY) !== 'LabourEduReportSystem_v1') {
 }
 
 // Global override for window.alert to provide premium, unified styled toast notifications
-window.alert = (message) => {
-  const msgLower = (message || '').toLowerCase();
+window.alert = (rawMessage) => {
+  const isErrorOrWarning = 
+    typeof rawMessage === 'object' ||
+    (typeof rawMessage === 'string' && (
+      rawMessage.toLowerCase().includes('failed') ||
+      rawMessage.toLowerCase().includes('error') ||
+      rawMessage.toLowerCase().includes('exception') ||
+      rawMessage.toLowerCase().includes('cannot read') ||
+      rawMessage.toLowerCase().includes('pgrst') ||
+      rawMessage.toLowerCase().includes('constraint') ||
+      rawMessage.toLowerCase().includes('jwt') ||
+      rawMessage.toLowerCase().includes('network')
+    ));
+
+  const message = isErrorOrWarning ? formatUserFriendlyMessage(rawMessage) : String(rawMessage || '');
+  const msgLower = message.toLowerCase();
+
   let icon = 'fa-info-circle';
   let title = 'Notification';
-  let accentColor = '#3b82f6';
-  let bgGradient = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
-  let textColor = '#1e40af';
-  let progressBg = '#3b82f6';
+  let accentColor = '#2563eb';
+  let bgGradient = '#eff6ff';
+  let textColor = '#18181b';
+  let progressBg = '#2563eb';
 
   if (msgLower.includes('success') || msgLower.includes('saved') || msgLower.includes('activated') || msgLower.includes('sync')) {
     if (!msgLower.includes('failed')) {
       icon = 'fa-circle-check';
       title = 'Success';
-      accentColor = '#10b981';
-      bgGradient = 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)';
-      textColor = '#065f46';
-      progressBg = '#10b981';
+      accentColor = '#10B981';
+      bgGradient = '#ecfdf5';
+      textColor = '#18181b';
+      progressBg = '#10B981';
     }
   }
   
-  if (msgLower.includes('failed') || msgLower.includes('error') || msgLower.includes('must') || msgLower.includes('please') || msgLower.includes('invalid') || msgLower.includes('already')) {
+  if (isErrorOrWarning || msgLower.includes('failed') || msgLower.includes('error') || msgLower.includes('must') || msgLower.includes('please') || msgLower.includes('invalid') || msgLower.includes('already')) {
     icon = 'fa-triangle-exclamation';
-    title = 'Alert / Warning';
-    accentColor = '#ef4444';
-    bgGradient = 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)';
-    textColor = '#991b1b';
-    progressBg = '#ef4444';
+    title = 'Notice';
+    accentColor = '#EF4444';
+    bgGradient = '#fef2f2';
+    textColor = '#18181b';
+    progressBg = '#EF4444';
   }
 
   // Create toast DOM element
@@ -52,9 +68,9 @@ window.alert = (message) => {
     max-width: calc(100vw - 48px);
     background: ${bgGradient};
     border: 1px solid ${accentColor}40;
-    border-left: 6px solid ${accentColor};
+    border-left: 5px solid ${accentColor};
     border-radius: 16px;
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 20px 25px -5px rgba(9, 9, 11, 0.1), 0 10px 10px -5px rgba(9, 9, 11, 0.04);
     padding: 1rem 1.25rem;
     display: flex;
     flex-direction: column;
@@ -70,7 +86,7 @@ window.alert = (message) => {
     <div style="display: flex; align-items: flex-start; gap: 12px;">
       <i class="fa-solid ${icon}" style="font-size: 1.35rem; color: ${accentColor}; margin-top: 2px;"></i>
       <div style="flex: 1; min-width: 0;">
-        <h5 style="margin: 0; font-size: 0.9rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${accentColor};">
+        <h5 style="margin: 0; font-size: 0.88rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: ${accentColor};">
           ${title}
         </h5>
         <p style="margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 600; line-height: 1.45; color: ${textColor}; word-break: break-word;">
@@ -81,7 +97,7 @@ window.alert = (message) => {
         &times;
       </button>
     </div>
-    <div style="position: absolute; bottom: 0; left: 6px; right: 0; height: 3px; background: rgba(0,0,0,0.05);">
+    <div style="position: absolute; bottom: 0; left: 5px; right: 0; height: 3px; background: rgba(0,0,0,0.05);">
       <div class="custom-alert-progress" style="width: 100%; height: 100%; background: ${progressBg}; transition: width 4s linear;"></div>
     </div>
   `;
@@ -119,7 +135,7 @@ window.confirm = (message) => {
       left: 0;
       width: 100vw;
       height: 100vh;
-      background: rgba(15, 23, 42, 0.4);
+      background: rgba(9, 9, 11, 0.55);
       backdrop-filter: blur(8px);
       -webkit-backdrop-filter: blur(8px);
       z-index: 9999999;
@@ -140,7 +156,8 @@ window.confirm = (message) => {
       padding: 2.25rem 2rem 1.75rem;
       width: 450px;
       max-width: calc(100vw - 32px);
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(15, 23, 42, 0.05);
+      box-shadow: 0 25px 50px -12px rgba(9, 9, 11, 0.2);
+      border: 1px solid #E4E4E7;
       transform: scale(0.9) translateY(15px);
       transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
       display: flex;
@@ -155,10 +172,10 @@ window.confirm = (message) => {
                      message.toLowerCase().includes('revoke');
 
     const iconClass = isDanger ? 'fa-triangle-exclamation' : 'fa-circle-question';
-    const iconColor = isDanger ? '#ef4444' : '#0d9488';
-    const iconBg = isDanger ? 'rgba(239, 68, 68, 0.08)' : 'rgba(13, 148, 136, 0.08)';
-    const actionBtnColor = isDanger ? 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)' : 'linear-gradient(135deg, #0d9488 0%, #0f766e 100%)';
-    const actionBtnShadow = isDanger ? 'rgba(239, 68, 68, 0.25)' : 'rgba(13, 148, 136, 0.25)';
+    const iconColor = isDanger ? '#EF4444' : '#2563eb';
+    const iconBg = isDanger ? 'rgba(239, 68, 68, 0.1)' : 'rgba(37, 99, 235, 0.1)';
+    const actionBtnColor = isDanger ? '#EF4444' : '#09090b';
+    const actionBtnShadow = isDanger ? 'rgba(239, 68, 68, 0.25)' : 'rgba(9, 9, 11, 0.25)';
 
     card.innerHTML = `
       <div style="display: flex; gap: 1rem; align-items: flex-start;">
@@ -166,10 +183,10 @@ window.confirm = (message) => {
           <i class="fa-solid ${iconClass}"></i>
         </div>
         <div style="flex: 1; display: flex; flex-direction: column; gap: 6px;">
-          <h4 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #0f172a; letter-spacing: -0.01em;">
+          <h4 style="margin: 0; font-size: 1.15rem; font-weight: 800; color: #18181b; letter-spacing: -0.01em;">
             ${isDanger ? 'Are you sure?' : 'Please Confirm'}
           </h4>
-          <p style="margin: 0; font-size: 0.9rem; font-weight: 600; color: #475569; line-height: 1.5;">
+          <p style="margin: 0; font-size: 0.9rem; font-weight: 500; color: #71717a; line-height: 1.5;">
             ${message}
           </p>
         </div>
@@ -178,9 +195,9 @@ window.confirm = (message) => {
         <button class="custom-confirm-cancel" style="
           padding: 0.75rem 1.35rem;
           border-radius: 12px;
-          border: 1px solid #cbd5e1;
-          background: #f8fafc;
-          color: #475569;
+          border: 1.5px solid #E4E4E7;
+          background: #FAFAFA;
+          color: #71717a;
           font-size: 0.88rem;
           font-weight: 700;
           cursor: pointer;
@@ -259,16 +276,39 @@ if (typeof window !== 'undefined') {
   }, true);
 }
 
-// Request persistent storage to protect IndexedDB from eviction on browser restart
-if (typeof window !== 'undefined' && navigator.storage && navigator.storage.persist) {
-  navigator.storage.persist().then(granted => {
-    if (granted) {
-      console.log('[Storage] Persistent storage granted by the browser.');
-    } else {
-      console.warn('[Storage] Persistent storage not granted.');
+// Request persistent storage to protect IndexedDB from browser eviction.
+// Browsers only grant this automatically for installed PWAs or bookmarked sites.
+// We try once immediately, then retry silently on first user interaction.
+if (typeof window !== 'undefined' && navigator.storage?.persist) {
+  const requestPersist = async () => {
+    try {
+      const already = await navigator.storage.persisted();
+      if (already) return; // Already granted — nothing to do
+
+      const granted = await navigator.storage.persist();
+      if (granted) {
+        console.log('[Storage] Persistent storage granted ✅');
+      }
+      // Silently ignore denial — not a code error, purely a browser decision
+    } catch (_) {
+      // Storage API not supported or blocked — ignore silently
     }
-  });
+  };
+
+  // Try immediately (works for installed PWAs)
+  requestPersist();
+
+  // Retry once on first user gesture (click/keydown) — browsers are more likely
+  // to grant persistent storage when triggered by a real user interaction
+  const retryOnInteraction = () => {
+    requestPersist();
+    window.removeEventListener('click', retryOnInteraction);
+    window.removeEventListener('keydown', retryOnInteraction);
+  };
+  window.addEventListener('click', retryOnInteraction, { once: true, passive: true });
+  window.addEventListener('keydown', retryOnInteraction, { once: true, passive: true });
 }
+
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

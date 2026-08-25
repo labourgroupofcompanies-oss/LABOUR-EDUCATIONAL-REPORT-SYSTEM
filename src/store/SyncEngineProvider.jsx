@@ -1,14 +1,16 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
-import { drainOutbox, retryFailed, forceDrain, getIsSyncing } from '../services/syncEngine';
+import { drainOutbox, retryFailed, forceDrain, clearOutbox, clearLocalBase, getIsSyncing } from '../services/syncEngine';
 
 const SyncEngineContext = createContext({
   pendingCount: 0,
   failedCount: 0,
   isSyncing: false,
   retryFailed: async () => {},
-  forceDrain: async () => {}
+  forceDrain: async () => {},
+  clearOutbox: async () => {},
+  clearLocalBase: async () => {}
 });
 
 export const useSyncEngine = () => useContext(SyncEngineContext);
@@ -32,7 +34,7 @@ export const SyncEngineProvider = ({ children }) => {
 
   // Live count of unsynced learners (saved offline, not yet pushed to Supabase)
   const unsyncedLearnersCount = useLiveQuery(
-    () => db.learners.filter(l => l.synced === false).count(),
+    () => db.learners.filter(l => l.synced === false && !l.supabaseId).count(),
     [],
     0
   );
@@ -41,12 +43,7 @@ export const SyncEngineProvider = ({ children }) => {
   const pendingCount = (outboxPendingCount || 0) + (unsyncedLearnersCount || 0);
   const failedCount = outboxFailedCount || 0;
 
-  // On startup: only reset items stuck as 'processing' from a previously crashed session.
-  // NOTE: We do NOT call drainOutbox() here directly because the Supabase session may not
-  // be restored yet (race condition — auth initialisation is async). The actual drain is
-  // triggered safely by the INITIAL_SESSION event handler inside syncEngine.js, which
-  // fires AFTER the Supabase client has fully restored the session. This guarantees that
-  // getSession() will return a valid session when drainOutbox() checks for it.
+  // On startup: reset stuck items and reconcile learners that already exist in cloud
   useEffect(() => {
     const resetStuck = async () => {
       try {
@@ -58,6 +55,16 @@ export const SyncEngineProvider = ({ children }) => {
           await db.outbox
             .where('status').equals('processing')
             .modify({ status: 'pending' });
+        }
+
+        // Reconcile local learners that already have a cloud supabaseId
+        const unsyncedWithCloudId = await db.learners
+          .filter(l => l.synced === false && !!l.supabaseId)
+          .toArray();
+        if (unsyncedWithCloudId.length > 0) {
+          for (const l of unsyncedWithCloudId) {
+            await db.learners.update(l.id, { synced: true });
+          }
         }
       } catch (err) {
         console.warn('[SyncEngineProvider] Failed to reset stuck items:', err);
@@ -86,13 +93,23 @@ export const SyncEngineProvider = ({ children }) => {
     setIsSyncing(false);
   }, []);
 
+  const handleClearOutbox = useCallback(async () => {
+    await clearOutbox();
+  }, []);
+
+  const handleClearLocalBase = useCallback(async () => {
+    await clearLocalBase();
+  }, []);
+
   return (
     <SyncEngineContext.Provider value={{
       pendingCount,
       failedCount,
       isSyncing,
       retryFailed: handleRetryFailed,
-      forceDrain: handleForceDrain
+      forceDrain: handleForceDrain,
+      clearOutbox: handleClearOutbox,
+      clearLocalBase: handleClearLocalBase
     }}>
       {children}
     </SyncEngineContext.Provider>

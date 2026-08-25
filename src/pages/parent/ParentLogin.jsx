@@ -190,19 +190,19 @@ const ParentLogin = () => {
         }
 
         .login-input:focus {
-          border-color: #0d9488;
-          box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
+          border-color: #2563eb;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
           background: rgba(15, 23, 42, 0.8);
         }
 
         .login-input:focus + .input-icon {
-          color: #2dd4bf;
+          color: #2563eb;
         }
 
         .btn-submit {
           width: 100%;
           padding: 0.9rem;
-          background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+          background: #09090b;
           border: none;
           border-radius: 12px;
           color: #fff;
@@ -215,14 +215,15 @@ const ParentLogin = () => {
           justify-content: center;
           gap: 8px;
           transition: all 0.2s;
-          box-shadow: 0 4px 15px rgba(13, 148, 136, 0.25);
+          box-shadow: 0 4px 15px rgba(9, 9, 11, 0.25);
           margin-top: 1.5rem;
         }
 
         .btn-submit:hover:not(:disabled) {
+          background: #18181b;
           opacity: 0.95;
           transform: translateY(-1px);
-          box-shadow: 0 6px 20px rgba(13, 148, 136, 0.35);
+          box-shadow: 0 6px 20px rgba(9, 9, 11, 0.35);
         }
 
         .btn-submit:disabled {

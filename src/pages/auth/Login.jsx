@@ -8,17 +8,28 @@ const Login = () => {
   // Login States
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPasswordText, setShowPasswordText] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const navigate = useNavigate();
   const { login, user } = useAuth();
 
+  const [refCode, setRefCode] = useState('');
+
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('ref');
+    if (code) {
+      setRefCode(code.toUpperCase());
+      sessionStorage.setItem('labour_edu_ref_code', code.toUpperCase());
+    }
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
@@ -28,7 +39,12 @@ const Login = () => {
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      navigate('/');
+      const userEmail = (user.email || '').toLowerCase().trim();
+      if (userEmail === 'shrtgallery3@gmail.com' || user.role === 'platform_developer' || user.isPlatformDeveloper) {
+        navigate('/platform/operations');
+      } else {
+        navigate('/');
+      }
     }
   }, [user, navigate]);
 
@@ -65,29 +81,27 @@ const Login = () => {
 
       if (resetErr) throw resetErr;
 
-      setForgotSuccess('A secure password reset link has been sent to your email address! Please check your inbox and spam folder.');
+      setForgotSuccess('Recovery link sent! Please check your email inbox.');
       setForgotEmail('');
     } catch (err) {
-      setError(err.message || 'Failed to send password reset email. Please verify the email address.');
+      setError(err.message || 'Failed to send password reset email. Check email address.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ── standard Sign In Handler ──────────────────────────────────────
+  // ── Standard Sign In Handler ──────────────────────────────────────
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError('');
 
     try {
-      // Validate inputs before attempting login
       if (!email?.trim() || !password) {
-        setError('Please enter both email and password');
+        setError('Please enter both email and password.');
         setLoading(false);
         return;
       }
-      // Ensure email is trimmed and lower‑cased for Supabase
       const cleanedEmail = email.trim().toLowerCase();
       await login(cleanedEmail, password);
       navigate('/');
@@ -106,7 +120,6 @@ const Login = () => {
 
     setChecking(true);
     try {
-      // Invoke the plpgsql verify_unclaimed_teacher RLS-bypass function
       const { data, error: rpcErr } = await supabase.rpc('verify_unclaimed_teacher', {
         teacher_email: emailInput.toLowerCase().trim()
       });
@@ -114,16 +127,15 @@ const Login = () => {
       if (rpcErr) throw rpcErr;
 
       if (!data) {
-        throw new Error('No registered teacher found with this email. Please verify the spelling or check with your school administrator.');
+        throw new Error('No registered teacher found with this email.');
       }
 
       if (data.is_claimed) {
-        throw new Error('This teacher portal has already been activated. You can sign in directly.');
+        throw new Error('This teacher portal is already active. Please sign in directly.');
       }
 
-      // Auto-fill teacher registry metadata
       setTeacherProfile(data);
-      setActivationSuccess(`Registry found for ${data.full_name}! Enter your desired login password below to claim your portal.`);
+      setActivationSuccess(`Registry found for ${data.full_name}! Create your portal password below.`);
     } catch (err) {
       setError(err.message || 'Failed to verify email address.');
       setTeacherProfile(null);
@@ -138,12 +150,12 @@ const Login = () => {
     if (!teacherProfile) return;
 
     if (newPassword !== confirmPassword) {
-      setError('Passwords do not match. Please verify your entries.');
+      setError('Passwords do not match.');
       return;
     }
 
     if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters long.');
+      setError('Password must be at least 6 characters.');
       return;
     }
 
@@ -151,18 +163,13 @@ const Login = () => {
     setError('');
 
     try {
-      console.log('Activating teacher account and provisioning login credentials...');
-      // Invoke the plpgsql activate_teacher_account transaction function
       const { data: userId, error: rpcErr } = await supabase.rpc('activate_teacher_account', {
         teacher_email: teacherProfile.email,
         teacher_password: newPassword
       });
 
-      if (rpcErr) {
-        throw rpcErr;
-      }
+      if (rpcErr) throw rpcErr;
 
-      // Cache profile locally in Dexie IndexedDB
       const localRecord = {
         id: userId,
         fullName: teacherProfile.full_name,
@@ -175,29 +182,24 @@ const Login = () => {
       };
       await db.profiles.put(localRecord);
 
-      // Clean up the old temporary profile and cascade to assignments in local Dexie DB
       if (teacherProfile.id && teacherProfile.id !== userId) {
         try {
           await db.profiles.delete(teacherProfile.id);
-          
           const localAssigns = await db.teacherAssignments.where('teacherId').equals(teacherProfile.id).toArray();
           for (const a of localAssigns) {
             await db.teacherAssignments.update(a.id, { teacherId: userId });
           }
         } catch (dbErr) {
-          console.warn('Local Dexie DB cleanup/cascading warning:', dbErr);
+          console.warn('Local cleanup notice:', dbErr);
         }
       }
 
-      // Auto-login the user immediately!
       try {
         await login(teacherProfile.email, newPassword);
-        alert('Teacher Portal activated successfully! You have been logged in automatically.');
+        alert('Teacher Portal activated successfully!');
         navigate('/');
       } catch (loginErr) {
-        console.error('Auto-login failed after activation:', loginErr);
-        alert('Teacher Portal activated successfully! Please log in manually using the password you just created.');
-        // Auto-populate the email in login view and toggle back
+        alert('Portal activated! Please sign in with your new password.');
         setEmail(teacherProfile.email);
         setShowActivation(false);
         setTeacherProfile(null);
@@ -213,140 +215,127 @@ const Login = () => {
     }
   };
 
-  // ── RENDER PORTAL ACTIVATION SHEET ────────────────────────────────
+  // ── RENDER PORTAL ACTIVATION VIEW ─────────────────────────────────
   if (showActivation) {
     return (
-      <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
-        <div className="card fade-in" style={{ width: '100%', maxWidth: '450px', padding: '2.5rem' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{ width: '64px', height: '64px', background: 'var(--accent)', borderRadius: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(13, 148, 136, 0.3)' }}>
-              <i className="fas fa-key" style={{ color: 'white', fontSize: '2rem' }}></i>
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        minHeight: '100vh',
+        background: 'rgba(9, 9, 11, 0.75)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.5rem',
+        overflowY: 'auto'
+      }}>
+        <div style={{ width: '100%', maxWidth: '440px', background: '#FFFFFF', borderRadius: '24px', boxShadow: '0 25px 60px rgba(0, 0, 0, 0.3)', padding: '2.25rem', border: '1px solid #E4E4E7', margin: 'auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+            <div style={{ width: '56px', height: '56px', background: 'rgba(37, 99, 235, 0.1)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', color: '#2563eb', fontSize: '1.4rem', border: '1px solid rgba(37, 99, 235, 0.25)' }}>
+              <i className="fas fa-key" />
             </div>
-            <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Portal Activation</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Verify your email to create your login password</p>
+            <h2 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.4rem', color: '#09090b', fontWeight: 800, margin: '0 0 0.25rem' }}>Teacher Portal Activation</h2>
+            <p style={{ color: '#71717a', fontSize: '0.82rem', margin: 0 }}>Verify your email to set your portal password</p>
           </div>
 
           {error && (
-            <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-              <i className="fas fa-circle-exclamation" style={{ marginRight: '8px' }}></i>
-              {error}
+            <div style={{ background: '#FEF2F2', color: '#EF4444', padding: '0.75rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', fontSize: '0.82rem', border: '1px solid #FECACA', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-exclamation-circle" />
+              <span>{error}</span>
             </div>
           )}
 
           {activationSuccess && (
-            <div style={{ backgroundColor: 'rgba(13, 148, 136, 0.1)', color: 'var(--accent)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(13, 148, 136, 0.2)' }}>
-              <i className="fas fa-circle-check" style={{ marginRight: '8px' }}></i>
-              {activationSuccess}
+            <div style={{ background: '#ECFDF5', color: '#10B981', padding: '0.75rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', fontSize: '0.82rem', border: '1px solid #A7F3D0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-check-circle" />
+              <span>{activationSuccess}</span>
             </div>
           )}
 
           <form onSubmit={handleActivate}>
-            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label">Your Registered Email</label>
+            <div style={{ marginBottom: '1.25rem' }}>
+              <label style={{ display: 'block', color: '#18181b', fontWeight: 700, fontSize: '0.8rem', marginBottom: '0.4rem' }}>Registered Email</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <input 
                   type="email" 
-                  className="form-input" 
-                  placeholder="your-email@school.edu"
+                  placeholder="teacher@school.edu.gh"
                   value={activationEmail}
-                  onChange={(e) => {
-                    setActivationEmail(e.target.value);
-                    setTeacherProfile(null);
-                    setActivationSuccess('');
-                    setError('');
-                  }}
+                  onChange={(e) => { setActivationEmail(e.target.value); setError(''); setActivationSuccess(''); }}
                   required
-                  disabled={checking || loading}
-                  style={{ flex: 1 }}
+                  disabled={checking || !!teacherProfile}
+                  style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: '12px', border: '1.5px solid #E4E4E7', fontSize: '0.9rem', outline: 'none', color: '#18181b' }}
                 />
-                <button
-                  type="button"
-                  className="btn"
-                  style={{ background: 'var(--accent)', color: 'white', padding: '0 1.25rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
-                  onClick={() => verifyTeacher(activationEmail)}
-                  disabled={checking || loading || !activationEmail}
-                >
-                  {checking ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-search"></i>}
-                  <span>Verify</span>
-                </button>
+                {!teacherProfile && (
+                  <button 
+                    type="button" 
+                    onClick={() => verifyTeacher(activationEmail)}
+                    disabled={checking || !activationEmail.trim()}
+                    style={{ background: '#2563eb', color: 'white', fontWeight: 800, padding: '0 1.15rem', borderRadius: '12px', border: 'none', cursor: 'pointer', fontSize: '0.85rem' }}
+                  >
+                    {checking ? <i className="fas fa-spinner fa-spin" /> : 'Verify'}
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Auto-filled Metadata details */}
             {teacherProfile && (
-              <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1.5rem', background: 'var(--background)', padding: '1rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)' }}>
-                <div>
-                  <label className="form-label" style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '2px' }}>Full Name</label>
-                  <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.95rem' }}>{teacherProfile.full_name}</div>
+              <div style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', padding: '1rem', borderRadius: '14px', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '0.85rem' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800 }}>
+                    <i className="fas fa-user-check" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#09090b' }}>{teacherProfile.full_name}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#71717a' }}>Staff ID: {teacherProfile.staff_id || 'Active'}</div>
+                  </div>
                 </div>
-                <div>
-                  <label className="form-label" style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: '2px' }}>Staff ID</label>
-                  <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.95rem' }}>{teacherProfile.staff_id}</div>
-                </div>
-              </div>
-            )}
 
-            {teacherProfile && (
-              <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                <div className="form-group">
-                  <label className="form-label">Create Your Password</label>
+                <div style={{ marginBottom: '0.85rem' }}>
+                  <label style={{ display: 'block', color: '#18181b', fontWeight: 700, fontSize: '0.78rem', marginBottom: '0.35rem' }}>Create Password</label>
                   <input 
                     type="password" 
-                    className="form-input" 
-                    placeholder="Min 6 characters"
+                    placeholder="••••••••"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={6}
-                    disabled={loading}
+                    style={{ width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px', border: '1.5px solid #E4E4E7', fontSize: '0.9rem', outline: 'none', color: '#18181b' }}
                   />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Confirm Your Password</label>
+                <div>
+                  <label style={{ display: 'block', color: '#18181b', fontWeight: 700, fontSize: '0.78rem', marginBottom: '0.35rem' }}>Confirm Password</label>
                   <input 
                     type="password" 
-                    className="form-input" 
-                    placeholder="Re-enter password"
+                    placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    minLength={6}
-                    disabled={loading}
+                    style={{ width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px', border: '1.5px solid #E4E4E7', fontSize: '0.9rem', outline: 'none', color: '#18181b' }}
                   />
                 </div>
-
-                <button 
-                  type="submit" 
-                  className="btn btn-primary" 
-                  style={{ width: '100%', padding: '0.875rem', marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                  disabled={loading}
-                >
-                  {loading ? <i className="fas fa-spinner fa-spin"></i> : <>
-                    <i className="fas fa-circle-check"></i>
-                    <span>Activate Portal & Sign In</span>
-                  </>}
-                </button>
               </div>
+            )}
+
+            {teacherProfile && (
+              <button 
+                type="submit" 
+                disabled={loading}
+                style={{ width: '100%', padding: '0.85rem', background: '#09090b', color: 'white', fontWeight: 900, borderRadius: '14px', border: 'none', cursor: 'pointer', fontSize: '0.95rem', boxShadow: '0 4px 14px rgba(9, 9, 11, 0.3)' }}
+              >
+                {loading ? <i className="fas fa-spinner fa-spin" /> : 'Activate & Sign In'}
+              </button>
             )}
           </form>
 
-          {/* Go Back Link */}
           <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
             <button
               type="button"
-              onClick={() => {
-                setShowActivation(false);
-                setError('');
-                setTeacherProfile(null);
-                setActivationSuccess('');
-                setActivationEmail('');
-              }}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
-              onMouseEnter={e => e.target.style.color = 'var(--text)'}
-              onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
+              onClick={() => { setShowActivation(false); setError(''); setTeacherProfile(null); }}
+              style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 700 }}
             >
-              <i className="fas fa-arrow-left" style={{ marginRight: '6px' }}></i> Back to Sign In
+              <i className="fas fa-arrow-left" style={{ marginRight: '6px' }} /> Back to Sign In
             </button>
           </div>
         </div>
@@ -354,79 +343,75 @@ const Login = () => {
     );
   }
 
-  // ── RENDER FORGOT PASSWORD SHEET ──────────────────────────────────
+  // ── RENDER FORGOT PASSWORD VIEW ───────────────────────────────────
   if (showForgotPassword) {
     return (
-      <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
-        <div className="card fade-in" style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div style={{ width: '64px', height: '64px', background: 'var(--accent)', borderRadius: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(13, 148, 136, 0.3)' }}>
-              <i className="fas fa-paper-plane" style={{ color: 'white', fontSize: '2rem' }}></i>
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9999,
+        minHeight: '100vh',
+        background: 'rgba(9, 9, 11, 0.75)',
+        backdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '1.5rem',
+        overflowY: 'auto'
+      }}>
+        <div style={{ width: '100%', maxWidth: '420px', background: '#FFFFFF', borderRadius: '24px', boxShadow: '0 25px 60px rgba(0, 0, 0, 0.3)', padding: '2.25rem', border: '1px solid #E4E4E7', margin: 'auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+            <div style={{ width: '56px', height: '56px', background: 'rgba(37, 99, 235, 0.1)', color: '#2563eb', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', border: '1px solid rgba(37, 99, 235, 0.25)', fontSize: '1.3rem' }}>
+              <i className="fas fa-paper-plane" />
             </div>
-            <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Reset Password</h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Enter your email to receive a recovery link</p>
+            <h2 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.4rem', color: '#09090b', fontWeight: 800, margin: '0 0 0.25rem' }}>Reset Password</h2>
+            <p style={{ color: '#71717a', fontSize: '0.82rem', margin: 0 }}>Enter your email for a recovery link</p>
           </div>
 
           {error && (
-            <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-              <i className="fas fa-circle-exclamation" style={{ marginRight: '8px' }}></i>
-              {error}
+            <div style={{ background: '#FEF2F2', color: '#EF4444', padding: '0.75rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', fontSize: '0.82rem', border: '1px solid #FECACA', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-exclamation-circle" />
+              <span>{error}</span>
             </div>
           )}
 
           {forgotSuccess && (
-            <div style={{ backgroundColor: 'rgba(13, 148, 136, 0.1)', color: 'var(--accent)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(13, 148, 136, 0.2)' }}>
-              <i className="fas fa-circle-check" style={{ marginRight: '8px' }}></i>
-              {forgotSuccess}
+            <div style={{ background: '#ECFDF5', color: '#10B981', padding: '0.75rem 1rem', borderRadius: '12px', marginBottom: '1.25rem', fontSize: '0.82rem', border: '1px solid #A7F3D0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <i className="fas fa-check-circle" />
+              <span>{forgotSuccess}</span>
             </div>
           )}
 
           <form onSubmit={handleForgotPassword}>
-            <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-              <label className="form-label">Your Registered Email</label>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ display: 'block', color: '#18181b', fontWeight: 700, fontSize: '0.8rem', marginBottom: '0.4rem' }}>Registered Email</label>
               <input 
                 type="email" 
-                className="form-input" 
-                placeholder="name@school.edu"
+                placeholder="name@school.edu.gh"
                 value={forgotEmail}
-                onChange={(e) => {
-                  setForgotEmail(e.target.value);
-                  setError('');
-                  setForgotSuccess('');
-                }}
+                onChange={(e) => { setForgotEmail(e.target.value); setError(''); setForgotSuccess(''); }}
                 required
                 disabled={loading}
+                style={{ width: '100%', padding: '0.8rem 1rem', borderRadius: '12px', border: '1.5px solid #E4E4E7', fontSize: '0.9rem', outline: 'none', color: '#18181b' }}
               />
             </div>
 
             <button 
               type="submit" 
-              className="btn btn-primary" 
-              style={{ width: '100%', padding: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               disabled={loading}
+              style={{ width: '100%', padding: '0.85rem', background: '#09090b', color: 'white', fontWeight: 900, borderRadius: '14px', border: 'none', cursor: 'pointer', fontSize: '0.95rem', boxShadow: '0 4px 14px rgba(9, 9, 11, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
-              {loading ? <i className="fas fa-spinner fa-spin"></i> : <>
-                <i className="fas fa-paper-plane"></i>
-                <span>Send Recovery Link</span>
-              </>}
+              {loading ? <i className="fas fa-spinner fa-spin" /> : <><i className="fas fa-paper-plane" /> Send Recovery Link</>}
             </button>
           </form>
 
-          {/* Go Back Link */}
           <div style={{ marginTop: '1.5rem', textAlign: 'center' }}>
             <button
               type="button"
-              onClick={() => {
-                setShowForgotPassword(false);
-                setError('');
-                setForgotSuccess('');
-                setForgotEmail('');
-              }}
-              style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
-              onMouseEnter={e => e.target.style.color = 'var(--text)'}
-              onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
+              onClick={() => { setShowForgotPassword(false); setError(''); }}
+              style={{ background: 'none', border: 'none', color: '#71717a', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 700 }}
             >
-              <i className="fas fa-arrow-left" style={{ marginRight: '6px' }}></i> Back to Sign In
+              <i className="fas fa-arrow-left" style={{ marginRight: '6px' }} /> Back to Sign In
             </button>
           </div>
         </div>
@@ -434,130 +419,287 @@ const Login = () => {
     );
   }
 
-  // ── RENDER STANDARD SIGN IN SHEET ────────────────────────────────
+  // ── MAIN MINIMALIST & ELEGANT SIGN IN ─────────────────────────────
   return (
-    <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)' }}>
-      <div className="card fade-in" style={{ width: '100%', maxWidth: '400px', padding: '2.5rem' }}>
-        <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-          <div style={{ width: '70px', height: '70px', background: 'white', borderRadius: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(0, 0, 0, 0.15)', overflow: 'hidden', padding: '4px' }}>
-            <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      zIndex: 9999,
+      minHeight: '100vh',
+      width: '100vw',
+      background: 'radial-gradient(circle at center, #18181b 0%, #09090b 100%)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '1.5rem',
+      boxSizing: 'border-box',
+      overflowY: 'auto'
+    }}>
+      
+      {/* Background Ambient Glow Accent */}
+      <div style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: '500px',
+        height: '500px',
+        background: 'radial-gradient(circle, rgba(37, 99, 235, 0.12) 0%, rgba(0,0,0,0) 70%)',
+        pointerEvents: 'none'
+      }} />
+
+      {/* Main Container Card */}
+      <div style={{
+        width: '100%',
+        maxWidth: '430px',
+        background: '#FFFFFF',
+        borderRadius: '28px',
+        boxShadow: '0 25px 70px -15px rgba(0, 0, 0, 0.65)',
+        padding: '2.5rem 2.25rem',
+        border: '1px solid #27272a',
+        position: 'relative',
+        zIndex: 2,
+        margin: 'auto'
+      }}>
+        
+        {/* Header Branding */}
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            background: '#FFFFFF',
+            borderRadius: '18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1rem',
+            padding: '4px',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.08)',
+            border: '2px solid #2563eb'
+          }}>
+            <img src="/logo.png" alt="Labour Edu Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
           </div>
-          <h1 style={{ fontSize: '1.75rem', marginBottom: '0.25rem' }}>Labour Edu</h1>
-          <p style={{ color: 'var(--text-muted)', marginBottom: '0.75rem' }}>Report Management System</p>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 600, background: isOnline ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.15)', color: isOnline ? '#10b981' : '#f59e0b', border: `1px solid ${isOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)'}` }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: isOnline ? '#10b981' : '#f59e0b', boxShadow: isOnline ? '0 0 8px #10b981' : '0 0 8px #f59e0b' }}></span>
-            {isOnline ? 'Cloud Online' : 'Offline Mode Active'}
+
+          <h1 style={{
+            fontFamily: 'Outfit, sans-serif',
+            fontSize: '1.65rem',
+            fontWeight: 900,
+            color: '#09090b',
+            margin: '0 0 0.25rem',
+            letterSpacing: '-0.01em'
+          }}>
+            Labour Edu
+          </h1>
+          <p style={{ margin: 0, color: '#71717a', fontSize: '0.85rem', fontWeight: 600 }}>
+            Ghana School Management Portal
+          </p>
+
+          {/* Network Status Badge */}
+          <div style={{ marginTop: '0.85rem', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '4px 12px', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800, background: isOnline ? '#ECFDF5' : '#FFFBEB', color: isOnline ? '#10B981' : '#F59E0B', border: `1px solid ${isOnline ? '#A7F3D0' : '#FDE68A'}` }}>
+            <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: isOnline ? '#10B981' : '#F59E0B' }} />
+            {isOnline ? 'Cloud Online' : 'Offline Access Active'}
           </div>
         </div>
 
-        {error && (
-          <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-            <i className="fas fa-circle-exclamation" style={{ marginRight: '8px' }}></i>
-            {error}
+        {/* Alerts */}
+        {refCode && (
+          <div style={{ background: 'rgba(37, 99, 235, 0.08)', border: '1px solid rgba(37, 99, 235, 0.25)', borderRadius: '14px', padding: '0.75rem 1rem', marginBottom: '1.25rem', color: '#2563eb', fontSize: '0.8rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <i className="fas fa-gift" style={{ color: '#2563eb', fontSize: '1rem' }} />
+            <span>Referral <code style={{ background: 'rgba(37, 99, 235, 0.15)', padding: '2px 6px', borderRadius: '4px' }}>{refCode}</code> active</span>
           </div>
         )}
 
+        {error && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '14px', padding: '0.75rem 1rem', marginBottom: '1.25rem', color: '#EF4444', fontSize: '0.82rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fas fa-exclamation-circle" style={{ flexShrink: 0 }} />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Login Form */}
         <form onSubmit={handleLogin}>
-          <div className="form-group">
-            <label className="form-label">Email Address</label>
-            <input 
-              type="email" 
-              className="form-input" 
-              placeholder="name@school.edu"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-            />
+          
+          {/* Email Field */}
+          <div style={{ marginBottom: '1.15rem' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#18181b', marginBottom: '0.4rem' }}>
+              Email Address
+            </label>
+            <div style={{ position: 'relative' }}>
+              <i className="fas fa-envelope" style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a', fontSize: '0.9rem' }} />
+              <input
+                type="email"
+                required
+                placeholder="name@school.edu.gh"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.8rem 1rem 0.8rem 2.6rem',
+                  borderRadius: '14px',
+                  border: '1.5px solid #E4E4E7',
+                  fontSize: '0.92rem',
+                  color: '#18181b',
+                  fontWeight: 600,
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#FFFFFF'
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = '#2563eb'}
+                onBlur={e => e.currentTarget.style.borderColor = '#E4E4E7'}
+              />
+            </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Password</label>
-            <input 
-              type="password" 
-              className="form-input" 
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
+          {/* Password Field */}
+          <div style={{ marginBottom: '1.15rem' }}>
+            <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#18181b', marginBottom: '0.4rem' }}>
+              Password
+            </label>
+            <div style={{ position: 'relative' }}>
+              <i className="fas fa-lock" style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: '#71717a', fontSize: '0.9rem' }} />
+              <input
+                type={showPasswordText ? 'text' : 'password'}
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.8rem 2.6rem 0.8rem 2.6rem',
+                  borderRadius: '14px',
+                  border: '1.5px solid #E4E4E7',
+                  fontSize: '0.92rem',
+                  color: '#18181b',
+                  fontWeight: 600,
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#FFFFFF'
+                }}
+                onFocus={e => e.currentTarget.style.borderColor = '#2563eb'}
+                onBlur={e => e.currentTarget.style.borderColor = '#E4E4E7'}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasswordText(!showPasswordText)}
+                style={{
+                  position: 'absolute',
+                  right: '0.85rem',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#71717a',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                <i className={`fas ${showPasswordText ? 'fa-eye-slash' : 'fa-eye'}`} />
+              </button>
+            </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.875rem', color: 'var(--text-muted)', cursor: 'pointer' }}>
-              <input type="checkbox" style={{ accentColor: 'var(--accent)' }} />
+          {/* Form Options Bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#71717a', cursor: 'pointer', fontWeight: 600 }}>
+              <input type="checkbox" style={{ accentColor: '#2563eb', width: '16px', height: '16px', borderRadius: '4px' }} />
               Remember me
             </label>
-            <button 
-              type="button" 
-              onClick={() => {
-                setShowForgotPassword(true);
-                setError('');
-                setForgotSuccess('');
-              }}
-              style={{ background: 'none', border: 'none', fontSize: '0.875rem', color: 'var(--accent)', cursor: 'pointer', fontWeight: 500, padding: 0 }}
+            <button
+              type="button"
+              onClick={() => { setShowForgotPassword(true); setError(''); setForgotSuccess(''); }}
+              style={{ background: 'transparent', border: 'none', fontSize: '0.82rem', color: '#2563eb', fontWeight: 800, cursor: 'pointer', padding: 0 }}
             >
               Forgot password?
             </button>
           </div>
 
-          <button 
-            type="submit" 
-            className="btn btn-primary" 
-            style={{ width: '100%', padding: '0.875rem' }}
+          {/* Main Submit Button */}
+          <button
+            type="submit"
             disabled={loading}
+            style={{
+              width: '100%',
+              padding: '0.9rem',
+              borderRadius: '14px',
+              background: '#09090b',
+              border: 'none',
+              color: '#FFFFFF',
+              fontWeight: 900,
+              fontSize: '0.95rem',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              boxShadow: '0 6px 20px rgba(9, 9, 11, 0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              transition: 'transform 0.15s ease, background 0.15s ease'
+            }}
           >
             {loading ? (
-              <i className="fas fa-spinner fa-spin"></i>
+              <i className="fas fa-spinner fa-spin" />
             ) : (
               <>
                 <span>Sign In</span>
-                <i className="fas fa-arrow-right"></i>
+                <i className="fas fa-arrow-right" />
               </>
             )}
           </button>
+
         </form>
 
-        <div style={{ marginTop: '1rem', textAlign: 'center' }}>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            <i className="fas fa-wifi-slash" style={{ marginRight: '6px' }}></i>
-            Offline login supported
-          </p>
-        </div>
-
-        {/* Portal Activation for pre-registered teachers */}
-        <div style={{ marginTop: '1.25rem', paddingTop: '1.25rem', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginBottom: '.6rem' }}>Are you a Teacher?</p>
+        {/* Quick Portal Action Buttons */}
+        <div style={{ marginTop: '1.75rem', paddingTop: '1.25rem', borderTop: '1px solid #E4E4E7', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          
+          {/* Teacher Portal Activation */}
           <button
             type="button"
-            onClick={() => {
-              setShowActivation(true);
-              setError('');
+            onClick={() => { setShowActivation(true); setError(''); }}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              borderRadius: '12px',
+              background: 'rgba(37, 99, 235, 0.08)',
+              border: '1px solid rgba(37, 99, 235, 0.25)',
+              color: '#2563eb',
+              fontWeight: 800,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px',
+              transition: 'all 0.15s ease'
             }}
-            className="btn"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '.85rem', fontWeight: 700, color: 'var(--accent)', background: 'transparent', border: '1.5px solid var(--accent)', borderRadius: 10, padding: '.5rem 1.2rem', cursor: 'pointer', width: '100%', justifyContent: 'center' }}
-            onMouseEnter={e => { e.currentTarget.style.background='var(--accent)'; e.currentTarget.style.color='white'; }}
-            onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--accent)'; }}
           >
-            <i className="fas fa-key"></i> Activate Your Portal
+            <i className="fas fa-key" style={{ color: '#2563eb' }} />
+            <span>Teacher? Activate Your Portal</span>
           </button>
-        </div>
 
-        {/* Register new school */}
-        <div style={{ marginTop: '0.75rem', textAlign: 'center' }}>
+          {/* Register New School */}
           <Link
             to="/onboarding"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: '.82rem', fontWeight: 600, color: 'var(--text-muted)', textDecoration: 'none' }}
-            onMouseEnter={e => e.currentTarget.style.color='var(--text)'}
-            onMouseLeave={e => e.currentTarget.style.color='var(--text-muted)'}
+            style={{
+              textAlign: 'center',
+              fontSize: '0.82rem',
+              fontWeight: 700,
+              color: '#2563eb',
+              textDecoration: 'none',
+              padding: '0.4rem'
+            }}
           >
-            <i className="fas fa-school"></i> New school? Register here
+            <i className="fas fa-school" style={{ marginRight: '6px' }} />
+            New school? Register your institution
           </Link>
+
         </div>
+
+        {/* Footer Text Below Login Page */}
+        <div style={{ marginTop: '1.25rem', textAlign: 'center', fontSize: '0.78rem', color: '#A1A1AA', fontWeight: 600 }}>
+          &copy; 2026 Labour Edu System &bull; Ghana Basic
+        </div>
+
       </div>
-      
-      <footer style={{ marginTop: '2.5rem', color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem', textAlign: 'center' }}>
-        &copy; 2024 Labour Edu Report System • Ghana Basic Schools
-      </footer>
+
     </div>
   );
 };

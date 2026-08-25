@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
 import { useSyncEngine } from '../../store/SyncEngineProvider';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -9,8 +11,15 @@ const Sidebar = ({ isOpen, onClose }) => {
   const { pendingCount, failedCount, isSyncing, retryFailed, forceDrain } = useSyncEngine();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'super_admin';
+  const [logoError, setLogoError] = useState(false);
 
+  const schoolInfo = useLiveQuery(
+    () => user?.schoolId ? db.schools.get(user.schoolId) : null,
+    [user?.schoolId]
+  );
 
+  // Reset logo error whenever logoUrl changes
+  useEffect(() => { setLogoError(false); }, [schoolInfo?.logoUrl]);
 
   const handleLogout = async () => {
     await logout();
@@ -21,7 +30,7 @@ const Sidebar = ({ isOpen, onClose }) => {
     if (window.innerWidth <= 768) onClose();
   };
 
-  // Categorized Nav Groups
+  // Categorized Nav Groups with concise wording
   const adminNavSections = [
     {
       title: 'Overview',
@@ -30,32 +39,31 @@ const Sidebar = ({ isOpen, onClose }) => {
       ]
     },
     {
-      title: 'Students & Academics',
+      title: 'Academics',
       links: [
-        { to: '/learners', icon: 'fa-user-graduate', label: 'Learners Directory' },
-        { to: '/promotions', icon: 'fa-level-up-alt', label: 'Class Promotions' },
-        { to: '/reports', icon: 'fa-file-invoice', label: 'Reports & Broadsheets' },
-        { to: '/score-diagnostic', icon: 'fa-stethoscope', label: 'Score Sync Diagnostic' }
+        { to: '/learners', icon: 'fa-user-graduate', label: 'Learners' },
+        { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
+        { to: '/reports', icon: 'fa-file-invoice', label: 'Reports' },
+        { to: '/promotions', icon: 'fa-level-up-alt', label: 'Promotions' },
+        { to: '/all-scores', icon: 'fa-list-check', label: 'Audit' }
       ]
     },
     {
-      title: 'Staff & Teaching',
+      title: 'People',
       links: [
-        { to: '/teachers', icon: 'fa-chalkboard-teacher', label: 'Teachers Directory' }
+        { to: '/teachers', icon: 'fa-chalkboard-teacher', label: 'Teachers' },
+        { to: '/messages', icon: 'fa-comments', label: 'Messages' }
       ]
     },
     {
-      title: 'Management & Finance',
-      links: [
-        { to: '/messages', icon: 'fa-comments', label: 'Parent Messages' },
-        { to: '/financials', icon: 'fa-wallet', label: 'Financials & Fees' }
-      ]
-    },
-    {
-      title: 'System Setup',
+      title: 'Management',
       links: [
         { to: '/setup', icon: 'fa-school', label: 'School Setup' },
-        { to: '/settings', icon: 'fa-sliders-h', label: 'System Settings' }
+        { to: '/financials', icon: 'fa-wallet', label: 'Top Up & Billing' },
+        { to: '/settings', icon: 'fa-sliders-h', label: 'Settings' },
+        { to: '/recycle-bin', icon: 'fa-trash-can', label: 'Recycle Bin' },
+        { to: '/manuals', icon: 'fa-book-open', label: 'User Manuals' },
+        { to: '/support', icon: 'fa-headset', label: 'Support & Help' }
       ]
     }
   ];
@@ -68,16 +76,18 @@ const Sidebar = ({ isOpen, onClose }) => {
       ]
     },
     {
-      title: 'Classroom & Marks',
+      title: 'Classroom',
       links: [
         { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
-        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Class Remarks' }
+        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Remarks' }
       ]
     },
     {
       title: 'System',
       links: [
-        { to: '/settings', icon: 'fa-sliders-h', label: 'Profile & Settings' }
+        { to: '/settings', icon: 'fa-sliders-h', label: 'Settings' },
+        { to: '/manuals', icon: 'fa-book-open', label: 'User Manuals' },
+        { to: '/support', icon: 'fa-headset', label: 'Support & Help' }
       ]
     }
   ];
@@ -91,13 +101,59 @@ const Sidebar = ({ isOpen, onClose }) => {
     <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       {/* Logo Header */}
       <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '38px', height: '38px', minWidth: '38px', background: 'white', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.15)', padding: '2px' }}>
-            <img src="/logo.png" alt="Logo" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+          {/* School logo */}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <div style={{ width: '42px', height: '42px', background: 'white', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.2)', padding: '2px', border: '1px solid var(--accent)' }}>
+              {schoolInfo?.logoUrl && !logoError ? (
+                <img
+                  src={schoolInfo.logoUrl}
+                  alt="School Logo"
+                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                <i className="fas fa-school" style={{ fontSize: '1.25rem', color: 'var(--primary)' }}></i>
+              )}
+            </div>
+            {/* Sync status dot — bottom-right of logo */}
+            <span
+              title={isSyncing ? 'Syncing…' : hasFailed ? 'Sync issue' : hasPending ? 'Sync pending' : 'All synced'}
+              style={{
+                position: 'absolute',
+                bottom: '-2px',
+                right: '-2px',
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                border: '2px solid #09090b',
+                background: isSyncing
+                  ? '#2563eb'
+                  : hasFailed
+                    ? '#EF4444'
+                    : hasPending
+                      ? '#F59E0B'
+                      : '#10B981',
+                boxShadow: isSyncing
+                  ? '0 0 6px rgba(37,99,235,0.8)'
+                  : hasFailed
+                    ? '0 0 6px rgba(239,68,68,0.8)'
+                    : hasPending
+                      ? '0 0 6px rgba(245,158,11,0.8)'
+                      : '0 0 5px rgba(16,185,129,0.6)',
+                animation: (isSyncing || hasPending) ? 'syncDotPulse 1.4s ease-in-out infinite' : 'none',
+                transition: 'background 0.4s ease',
+                cursor: 'default',
+              }}
+            />
           </div>
-          <div>
-            <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '1rem', color: 'white', letterSpacing: '0.02em' }}>Labour Edu</div>
-            <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.5)', marginTop: '1px' }}>Report Management</div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 700, fontSize: '0.95rem', color: 'white', letterSpacing: '0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {schoolInfo?.name || 'School Portal'}
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.6)', marginTop: '1px' }}>
+              {isAdmin ? 'Headteacher Portal' : 'Teacher Portal'}
+            </div>
           </div>
         </div>
         <button
@@ -109,49 +165,8 @@ const Sidebar = ({ isOpen, onClose }) => {
         </button>
       </div>
 
-      {/* Sync Status Bar */}
-      {(hasPending || hasFailed || isSyncing) && (
-        <div style={{
-          margin: '0.75rem 1rem 0.25rem',
-          padding: '0.6rem 0.75rem',
-          borderRadius: '10px',
-          background: hasFailed
-            ? 'rgba(239, 68, 68, 0.12)'
-            : isSyncing
-              ? 'rgba(59, 130, 246, 0.12)'
-              : 'rgba(245, 158, 11, 0.12)',
-          border: `1px solid ${hasFailed ? 'rgba(239,68,68,0.25)' : isSyncing ? 'rgba(59,130,246,0.25)' : 'rgba(245,158,11,0.25)'}`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px'
-        }}>
-          <i
-            className={`fas ${isSyncing ? 'fa-sync fa-spin' : hasFailed ? 'fa-triangle-exclamation' : 'fa-cloud-arrow-up'}`}
-            style={{
-              fontSize: '0.8rem',
-              color: hasFailed ? '#f87171' : isSyncing ? '#60a5fa' : '#fbbf24'
-            }}
-          />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.68rem', fontWeight: 700, color: hasFailed ? '#fca5a5' : isSyncing ? '#93c5fd' : '#fde68a' }}>
-              {isSyncing
-                ? 'Syncing to cloud...'
-                : hasFailed
-                  ? `${failedCount} sync failed`
-                  : `${pendingCount} pending sync`
-              }
-            </div>
-            {hasFailed && !isSyncing && (
-              <button
-                onClick={retryFailed}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#fca5a5', fontSize: '0.62rem', fontWeight: 600, padding: 0, marginTop: '2px', fontFamily: 'inherit', textDecoration: 'underline' }}
-              >
-                Retry failed items
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Sync dot pulse keyframe injected inline once */}
+      <style>{`@keyframes syncDotPulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.55;transform:scale(1.3)} }`}</style>
 
       {/* Nav Groups */}
       <nav style={{ flex: 1, padding: '0.75rem 1rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -169,6 +184,7 @@ const Sidebar = ({ isOpen, onClose }) => {
                   <NavLink
                     to={link.to}
                     end={link.to === '/'}
+                    data-tour={`sidebar-${link.to.replace('/', '') || 'dashboard'}`}
                     className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
                     onClick={handleNavClick}
                   >
@@ -183,7 +199,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       </nav>
 
       {/* User Profile Footer */}
-      <div style={{ padding: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+      <div style={{ padding: '1rem', borderTop: '1px solid #27272a', position: 'sticky', bottom: 0, background: '#09090b', zIndex: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '0.75rem' }}>
           <div style={{ width: '38px', height: '38px', minWidth: '38px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
             <i className="fas fa-user" style={{ color: 'white', fontSize: '0.9rem' }}></i>
@@ -197,37 +213,41 @@ const Sidebar = ({ isOpen, onClose }) => {
             </div>
           </div>
         </div>
-        {/* Force Sync + Logout */}
+        {/* Force Sync — icon only button */}
         <button
           onClick={forceDrain}
           disabled={isSyncing}
+          title={isSyncing ? 'Syncing…' : hasFailed ? 'Sync issue — tap to retry' : hasPending ? 'Tap to sync now' : 'All data synced'}
           style={{
             width: '100%',
-            padding: '0.6rem',
+            padding: '0.55rem',
             marginBottom: '0.5rem',
-            background: isSyncing ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.15)',
-            border: '1px solid rgba(99,102,241,0.25)',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.07)',
             borderRadius: 'var(--radius-md)',
-            color: isSyncing ? 'rgba(165,180,252,0.5)' : '#a5b4fc',
             cursor: isSyncing ? 'not-allowed' : 'pointer',
-            fontSize: '0.78rem',
-            fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '7px',
+            gap: '8px',
             transition: 'var(--transition)',
-            fontFamily: 'inherit'
+            fontFamily: 'inherit',
           }}
-          title="Force a full sync of all local data to the cloud"
         >
-          <i className={`fas ${isSyncing ? 'fa-sync fa-spin' : 'fa-cloud-upload-alt'}`}></i>
-          <span>{isSyncing ? 'Syncing...' : 'Force Sync Now'}</span>
-          {(pendingCount > 0 || failedCount > 0) && !isSyncing && (
-            <span style={{ background: failedCount > 0 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)', color: failedCount > 0 ? '#fca5a5' : '#fde68a', borderRadius: '10px', fontSize: '0.6rem', padding: '0.1rem 0.4rem', fontWeight: 700 }}>
-              {failedCount > 0 ? `${failedCount} failed` : `${pendingCount} pending`}
-            </span>
-          )}
+          {/* Inline dot */}
+          <span style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            flexShrink: 0,
+            background: isSyncing ? '#2563eb' : hasFailed ? '#EF4444' : hasPending ? '#F59E0B' : '#10B981',
+            boxShadow: isSyncing ? '0 0 6px rgba(37,99,235,0.9)' : hasFailed ? '0 0 6px rgba(239,68,68,0.9)' : hasPending ? '0 0 6px rgba(245,158,11,0.8)' : '0 0 5px rgba(16,185,129,0.6)',
+            animation: (isSyncing || hasPending) ? 'syncDotPulse 1.4s ease-in-out infinite' : 'none',
+          }} />
+          <i
+            className={`fas ${isSyncing ? 'fa-arrows-rotate' : 'fa-cloud-arrow-up'}`}
+            style={{ fontSize: '0.8rem', color: isSyncing ? '#2563eb' : hasFailed ? '#EF4444' : hasPending ? '#F59E0B' : 'rgba(255,255,255,0.4)', transition: 'color 0.3s' }}
+          />
         </button>
         <button
           onClick={handleLogout}

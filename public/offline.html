@@ -13,15 +13,17 @@
   
   <style>
     :root {
-      --primary: #0f766e;
-      --accent: #10b981;
-      --surface: #ffffff;
-      --background: #f8fafc;
-      --text: #0f172a;
-      --text-muted: #64748b;
+      --primary: #09090b;
+      --accent: #2563eb;
+      --accent-hover: #1d4ed8;
+      --surface: #FFFFFF;
+      --background: #FAFAFA;
+      --text: #18181b;
+      --text-muted: #71717a;
+      --border: #E4E4E7;
       --radius-xl: 24px;
       --radius-lg: 16px;
-      --shadow: 0 10px 25px -5px rgba(15, 118, 110, 0.1), 0 8px 10px -6px rgba(15, 118, 110, 0.1);
+      --shadow: 0 10px 25px -5px rgba(9, 9, 11, 0.08), 0 8px 10px -6px rgba(9, 9, 11, 0.04);
     }
 
     * {
@@ -49,7 +51,7 @@
       width: 400px;
       height: 400px;
       border-radius: 50%;
-      background: radial-gradient(circle, rgba(16, 185, 129, 0.08) 0%, rgba(13, 148, 136, 0) 70%);
+      background: radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, rgba(9, 9, 11, 0) 70%);
       z-index: 1;
       animation: float 8s ease-in-out infinite alternate;
     }
@@ -78,7 +80,7 @@
       padding: 3rem 2rem;
       text-align: center;
       box-shadow: var(--shadow);
-      border: 1px solid rgba(15, 118, 110, 0.08);
+      border: 1px solid var(--border);
       animation: slideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
     }
 
@@ -100,13 +102,14 @@
       width: 48px;
       height: 48px;
       background: white;
-      border-radius: 12px;
+      border-radius: 14px;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       overflow: hidden;
       padding: 3px;
+      border: 1.5px solid var(--border);
     }
 
     .logo-icon img {
@@ -115,19 +118,14 @@
       object-fit: contain;
     }
 
-    .logo-icon i {
-      color: white;
-      font-size: 1.3rem;
-    }
-
     .logo-text {
       font-family: 'Outfit', sans-serif;
       font-weight: 800;
       font-size: 1.4rem;
-      background: linear-gradient(135deg, var(--primary), var(--accent));
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: var(--primary);
+    }
+    .logo-text span {
+      color: var(--accent);
     }
 
     /* Illustrative offline icon */
@@ -146,7 +144,7 @@
       width: 100%;
       height: 100%;
       border-radius: 50%;
-      background: rgba(15, 118, 110, 0.05);
+      background: rgba(37, 99, 235, 0.06);
       animation: pulse 2.5s infinite;
     }
 
@@ -161,13 +159,13 @@
       z-index: 2;
       width: 80px;
       height: 80px;
-      background: #f0fdf4;
-      border: 2px solid #bbf7d0;
+      background: rgba(37, 99, 235, 0.08);
+      border: 2px solid rgba(37, 99, 235, 0.25);
       border-radius: 50%;
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 8px 16px rgba(16, 185, 129, 0.1);
+      box-shadow: 0 8px 16px rgba(37, 99, 235, 0.12);
     }
 
     .icon-wrapper i {
@@ -207,19 +205,20 @@
       padding: 1rem;
       border-radius: 12px;
       border: none;
-      background: linear-gradient(135deg, var(--primary), var(--accent));
+      background: var(--primary);
       color: white;
       font-family: inherit;
       font-weight: 700;
       font-size: 0.95rem;
       cursor: pointer;
-      box-shadow: 0 4px 15px rgba(15, 118, 110, 0.3);
+      box-shadow: 0 4px 15px rgba(9, 9, 11, 0.25);
       transition: all 0.2s ease;
     }
 
     .btn-retry:hover {
+      background: #18181b;
       transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(15, 118, 110, 0.4);
+      box-shadow: 0 6px 20px rgba(9, 9, 11, 0.35);
     }
 
     .btn-retry:active {
@@ -237,7 +236,7 @@
     }
 
     .footer i {
-      color: var(--accent);
+      color: #10B981;
     }
   </style>
 </head>
@@ -250,9 +249,10 @@
     <!-- Logo -->
     <div class="logo-container">
       <div class="logo-icon">
-        <img src="/logo.png" alt="Logo">
+        <img src="/logo.png" alt="Logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+        <i class="fas fa-graduation-cap" style="display:none; color: #2563eb; font-size: 1.3rem;"></i>
       </div>
-      <div class="logo-text">Labour Edu</div>
+      <div class="logo-text">Labour <span>Edu</span></div>
     </div>
 
     <!-- Illustration -->

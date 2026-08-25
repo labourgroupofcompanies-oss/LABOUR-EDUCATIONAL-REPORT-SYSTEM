@@ -4,17 +4,21 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  server: {
+    host: true,
+    port: 5173,
+  },
   plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['pwa-192x192.png', 'pwa-512x512.png', 'offline.html'],
+      includeAssets: ['logo.png', 'favicon.png', 'app-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'apple-touch-icon.png', 'offline.html'],
       manifest: {
         name: 'Labour Edu Report System',
         short_name: 'Labour Edu',
         description: 'School report card management system for Ghana basic schools.',
-        theme_color: '#0d9488',
-        background_color: '#0f172a',
+        theme_color: '#09090b',
+        background_color: '#09090b',
         display: 'standalone',
         orientation: 'any',
         scope: '/',
@@ -39,7 +43,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,svg,mp4,webm,woff,woff2}'],
         navigateFallback: '/index.html',
         skipWaiting: true,
         clientsClaim: true,

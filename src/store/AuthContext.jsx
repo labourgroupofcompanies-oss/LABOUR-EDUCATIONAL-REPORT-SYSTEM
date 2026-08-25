@@ -26,7 +26,7 @@ export const AuthProvider = ({ children }) => {
             (async () => {
               try {
                 const authUser = await ensureAuth();
-                if (authUser && !currentUser.schoolId) {
+                if (authUser && !currentUser.schoolId && currentUser.role !== 'super_admin' && currentUser.role !== 'developer' && currentUser.id !== 'super-admin-platform-developer') {
                   healProfileFromSupabase(currentUser, setUser);
                 }
               } catch (authErr) {
@@ -59,7 +59,7 @@ export const AuthProvider = ({ children }) => {
 
     // Post-login self-heal: if schoolId is missing from the profile, re-fetch
     // from Supabase now that the session token is fresh and JWT is populated.
-    if (!profile.schoolId && navigator.onLine) {
+    if (!profile.schoolId && profile.role !== 'super_admin' && profile.role !== 'developer' && profile.id !== 'super-admin-platform-developer' && navigator.onLine) {
       healProfileFromSupabase(profile, setUser);
     }
   };
@@ -74,8 +74,47 @@ export const AuthProvider = ({ children }) => {
     setUser(prev => prev ? { ...prev, ...updatedFields } : null);
   };
 
+  const startImpersonation = (targetSchoolId, targetSchoolName, targetRole = 'headteacher', extraMeta = {}) => {
+    if (!user) return;
+    const backupSession = localStorage.getItem('labour_edu_admin_backup_session');
+    if (!backupSession) {
+      localStorage.setItem('labour_edu_admin_backup_session', JSON.stringify(user));
+    }
+    const impersonatedUser = {
+      ...user,
+      schoolId: String(targetSchoolId),
+      schoolName: targetSchoolName || 'School',
+      role: targetRole,
+      isImpersonating: true,
+      originalAdminName: user.fullName || 'Super Admin',
+      ...extraMeta
+    };
+    authService.saveSession(impersonatedUser);
+    setUser(impersonatedUser);
+  };
+
+  const stopImpersonation = () => {
+    const backup = localStorage.getItem('labour_edu_admin_backup_session');
+    if (backup) {
+      try {
+        const originalUser = JSON.parse(backup);
+        authService.saveSession(originalUser);
+        setUser(originalUser);
+      } catch (err) {
+        console.error('Error restoring session:', err);
+      } finally {
+        localStorage.removeItem('labour_edu_admin_backup_session');
+      }
+    } else if (user) {
+      const restored = { ...user, isImpersonating: false };
+      delete restored.schoolId;
+      authService.saveSession(restored);
+      setUser(restored);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, updateProfile, startImpersonation, stopImpersonation }}>
       {children}
     </AuthContext.Provider>
   );
@@ -86,13 +125,25 @@ export const AuthProvider = ({ children }) => {
 // may have schoolId = null. This function re-fetches the full profile from Supabase
 // after the JWT session is established and updates the user state.
 async function healProfileFromSupabase(currentProfile, setUser) {
+  if (!currentProfile || currentProfile.role === 'super_admin' || currentProfile.role === 'developer' || currentProfile.id === 'super-admin-platform-developer') {
+    return;
+  }
+
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
   try {
     console.log('[AuthContext] Healing profile from Supabase (schoolId missing)...');
-    const { data: profile, error } = await supabase
-      .from('report_profiles')
-      .select('*')
-      .eq('id', currentProfile.id)
-      .maybeSingle();
+    let q = supabase.from('report_profiles').select('*');
+
+    if (currentProfile.id && uuidRegex.test(String(currentProfile.id).trim())) {
+      q = q.eq('id', String(currentProfile.id).trim());
+    } else if (currentProfile.email) {
+      q = q.eq('email', String(currentProfile.email).trim().toLowerCase());
+    } else {
+      return;
+    }
+
+    const { data: profile, error } = await q.maybeSingle();
 
     if (profile && !error) {
       const healed = {
@@ -109,34 +160,37 @@ async function healProfileFromSupabase(currentProfile, setUser) {
       console.log('[AuthContext] Profile healed successfully. schoolId:', healed.schoolId);
     }
   } catch (err) {
-    console.warn('[AuthContext] Profile heal failed (will retry on next login):', err.message);
+    console.warn('[AuthContext] Profile heal notice:', err.message);
   }
 }
+
+import LogoPreloader from '../components/common/LogoPreloader';
 
 export const useAuth = () => useContext(AuthContext);
 
 export const ProtectedRoute = ({ children, role }) => {
   const { user, loading } = useAuth();
 
-  if (loading) return <div>Loading...</div>; // Could be a splash screen
+  if (loading) return <LogoPreloader />;
+
 
   if (!user) {
     // Bypass redirecting to login if we are processing a Supabase recovery or oauth hash callback
     const hash = window.location.hash || '';
     if (hash.includes('access_token=') || hash.includes('error_description=') || hash.includes('type=recovery')) {
-      return (
-        <div style={{ display: 'flex', minHeight: '100vh', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', color: 'white', fontFamily: 'sans-serif' }}>
-          <div style={{ textAlign: 'center' }}>
-            <i className="fas fa-spinner fa-spin" style={{ fontSize: '2rem', marginBottom: '1rem', color: '#0d9488' }}></i>
-            <div style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Processing secure link...</div>
-          </div>
-        </div>
-      );
+      return <LogoPreloader fullScreen={true} size="lg" />;
     }
     return <Navigate to="/login" />;
   }
 
-  if (role && user.role !== role) return <Navigate to="/" />;
+  if (role) {
+    const isHeadteacherRole = ['super_admin', 'headteacher', 'head_teacher', 'admin', 'school_admin'].includes(user.role);
+    if (role === 'super_admin' && !isHeadteacherRole) {
+      return <Navigate to="/" />;
+    } else if (role !== 'super_admin' && user.role !== role) {
+      return <Navigate to="/" />;
+    }
+  }
 
   return children;
 };

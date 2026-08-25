@@ -1,98 +1,171 @@
 /**
- * SyncEngine — Offline Outbox Pattern
- * 
- * Provides a structured queue (Dexie outbox table) that stores cloud mutations
- * made while offline. When connectivity is restored, the engine drains the
- * queue sequentially, retrying failed items up to 5 times.
+ * SyncEngine — Offline Outbox Pattern (v2 — Zero Stuck Items)
+ *
+ * Key guarantees:
+ *  1. Network errors (Failed to fetch / offline) NEVER increment retryCount or
+ *     mark items as failed — they simply wait until online.
+ *  2. Coming back online immediately resets ALL items (including previously
+ *     "failed" ones) to pending and drains the outbox.
+ *  3. A 30-second heartbeat replaces the 2-minute interval, giving near-instant
+ *     sync recovery.
+ *  4. Items are deduplicated at enqueue time: for 'update' and 'delete_insert'
+ *     operations on the same table+filter, only the latest payload is kept.
+ *  5. Schema / bad-payload errors auto-discard the item — they will never succeed.
  *
  * Supported operations:
  *   - 'insert'        : supabase.from(table).insert(payload)
  *   - 'update'        : supabase.from(table).update(data).eq/in filters
  *   - 'delete'        : supabase.from(table).delete().eq/in filters
  *   - 'delete_insert' : delete matching rows then bulk insert (used for scores)
+ *   - 'upsert'        : supabase.from(table).upsert(payload)
  */
 
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { ensureAuth } from '../lib/authUtils';
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 8;     // Only for true server-side errors, not network errors
 let _isSyncing = false;
+let _drainQueued = false;  // Prevents thundering-herd on reconnect
 
 // ─── Public Getters ───────────────────────────────────────────────────────────
 
 export const getIsSyncing = () => _isSyncing;
 
-// ─── Enqueue a cloud mutation ─────────────────────────────────────────────────
+// ─── Network error detection ──────────────────────────────────────────────────
 /**
- * Adds a mutation to the local outbox queue.
- * If the device is currently online, draining starts immediately.
- *
- * @param {string} operation  - 'insert' | 'update' | 'delete' | 'delete_insert'
- * @param {string} tableName  - Supabase table name (e.g. 'report_scores')
- * @param {object|Array} payload - Data for the operation. For 'update' and 'delete',
- *                                  use { filter: {}, data: {} }. For 'delete_insert',
- *                                  use { deleteFilter: {}, insertData: [] }.
- * @param {string} [schoolId] - The school ID for scoping (optional but recommended)
+ * Returns true if the error is purely a network/connectivity error
+ * (not a Supabase/Postgres server error). These should NEVER count as retries.
  */
+const isNetworkError = (err) => {
+  if (!err) return false;
+  const msg = String(err?.message || err).toLowerCase();
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network request failed') ||
+    msg.includes('load failed') ||
+    msg.includes('typeerror: failed') ||
+    !navigator.onLine
+  );
+};
+
+// ─── Deduplication helper ─────────────────────────────────────────────────────
+/**
+ * For update / delete_insert operations, if an identical pending item already
+ * exists for the same table+operation, replace its payload with the newer one
+ * instead of adding another item. Prevents queue bloat from repeated saves.
+ */
+const deduplicateOrEnqueue = async (operation, tableName, payload, schoolId) => {
+  if (operation === 'update' || operation === 'delete_insert' || operation === 'delete' || operation === 'upsert') {
+    // Build a stable key from operation + table + filter fields
+    let filterKey = '';
+    try {
+      if (operation === 'update' && payload?.filter) {
+        filterKey = JSON.stringify(payload.filter);
+      } else if (operation === 'delete_insert' && payload?.deleteFilter) {
+        filterKey = JSON.stringify(payload.deleteFilter);
+      } else if (operation === 'delete' && payload?.filter) {
+        filterKey = JSON.stringify(payload.filter);
+      } else if (operation === 'upsert' && (tableName === 'report_schools' || tableName === 'report_settings')) {
+        filterKey = tableName;
+      }
+    } catch (_) {}
+
+    if (filterKey) {
+      const existing = await db.outbox
+        .where('status').anyOf(['pending', 'processing'])
+        .filter(item =>
+          item.operation === operation &&
+          item.table === tableName &&
+          (filterKey === tableName || item.payload.includes(filterKey.slice(1, -1).substring(0, 40)))
+        )
+        .first();
+
+      if (existing) {
+        // Replace payload of existing item — no new row needed
+        await db.outbox.update(existing.id, {
+          payload: JSON.stringify(payload),
+          status: 'pending',
+          retryCount: 0,
+          errorMessage: null,
+          nextAttemptAt: null,
+        });
+        return; // Skip adding new row
+      }
+    }
+  }
+
+  // Default: add new outbox item
+  await db.outbox.add({
+    operation,
+    table: tableName,
+    payload: JSON.stringify(payload),
+    schoolId,
+    status: 'pending',
+    retryCount: 0,
+    errorMessage: null,
+    createdAt: new Date().toISOString(),
+    nextAttemptAt: null,
+  });
+};
+
+// ─── Enqueue a cloud mutation ─────────────────────────────────────────────────
 export const enqueueSync = async (operation, tableName, payload, schoolId = null) => {
   try {
-    await db.outbox.add({
-      operation,
-      table: tableName,
-      payload: JSON.stringify(payload),
-      schoolId,
-      status: 'pending',
-      retryCount: 0,
-      errorMessage: null,
-      createdAt: new Date().toISOString()
-    });
+    await deduplicateOrEnqueue(operation, tableName, payload, schoolId);
 
     // Immediately attempt to drain if we are online
     if (navigator.onLine) {
-      drainOutbox();
+      scheduleDrain();
     }
   } catch (err) {
     console.error('[SyncEngine] Failed to enqueue mutation:', err);
   }
 };
 
+// ─── Debounced drain scheduler ────────────────────────────────────────────────
+// Prevents multiple simultaneous drains from being triggered in quick succession
+let _drainTimer = null;
+const scheduleDrain = (immediate = false) => {
+  if (_drainQueued) return;
+  if (immediate) {
+    _drainQueued = true;
+    setTimeout(() => {
+      _drainQueued = false;
+      drainOutbox();
+    }, 20);
+  } else {
+    clearTimeout(_drainTimer);
+    _drainTimer = setTimeout(() => {
+      drainOutbox();
+    }, 100);
+  }
+};
+
 // ─── Drain the outbox ─────────────────────────────────────────────────────────
-/**
- * Processes all pending outbox items sequentially.
- * Safe to call multiple times — locks via _isSyncing flag.
- */
 export const drainOutbox = async (ignoreOnlineCheck = false) => {
-  if (_isSyncing || (!ignoreOnlineCheck && !navigator.onLine)) return;
+  if (_isSyncing) return;
+  if (!ignoreOnlineCheck && !navigator.onLine) return;
 
   _isSyncing = true;
-  console.log('[SyncEngine] Draining outbox...');
 
   try {
-    // Use getUser() – it will automatically refresh the JWT via the refresh token (valid for ~1 year).
+    // Get auth
     let authUser = null;
     try {
       authUser = await ensureAuth();
     } catch (e) {
       const hasCustomSession = !!localStorage.getItem('labour_edu_session');
       if (hasCustomSession) {
-        console.warn('[SyncEngine] ⚠️ Auth session fully expired – user must re‑login to restore sync.');
+        console.warn('[SyncEngine] ⚠️ Auth session fully expired — user must re‑login.');
         window.dispatchEvent(new CustomEvent('sync-auth-expired'));
-      } else {
-        console.log('[SyncEngine] Not logged in – skipping drain.');
       }
       _isSyncing = false;
       return;
     }
-    console.log('[SyncEngine] Auth OK – school_id from token:',
-      authUser.user_metadata?.school_id ?? '(not in token – will use DB fallback)'
-    );
 
-    // Diagnostic: log full outbox state before processing
-    const allItems = await db.outbox.toArray();
-    const statusSummary = allItems.reduce((acc, i) => { acc[i.status] = (acc[i.status] || 0) + 1; return acc; }, {});
-    console.log('[SyncEngine] Outbox state:', statusSummary, '| Total:', allItems.length);
-
+    // Load pending items (skip ones with a future nextAttemptAt)
     const now = new Date().toISOString();
     const pending = (await db.outbox
       .where('status').equals('pending')
@@ -100,517 +173,512 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
       .filter(item => !item.nextAttemptAt || item.nextAttemptAt <= now);
 
     if (pending.length === 0) {
-      console.log('[SyncEngine] No pending items due for retry — drain complete.');
       _isSyncing = false;
       return;
     }
 
-    console.log(`[SyncEngine] Found ${pending.length} pending item(s):`, pending.map(i => `${i.operation}→${i.table}`));
+    console.log(`[SyncEngine] Syncing ${pending.length} item(s) in high-speed parallel chunks:`, pending.map(i => `${i.operation}→${i.table}`));
 
-
-    for (const item of pending) {
-      // Mark as processing to prevent double-processing
-      await db.outbox.update(item.id, { status: 'processing' });
-
-      try {
-        const payload = JSON.parse(item.payload);
-        let opError = null;
-
-        switch (item.operation) {
-
-          case 'insert': {
-            const rows = Array.isArray(payload) ? payload : [payload];
-            let q = supabase.from(item.table).insert(rows);
-            // Select the inserted rows so we get the database-generated IDs/UUIDs
-            q = q.select();
-            let { data, error } = await q;
-
-            // Self-heal: If database hasn't run the migration yet, strip exclude_from_pdf and retry
-            if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
-              console.warn('[SyncEngine] database does not have exclude_from_pdf column. Stripping and retrying...');
-              const stripped = rows.map(r => {
-                const copy = { ...r };
-                delete copy.exclude_from_pdf;
-                return copy;
-              });
-              const retry = await supabase.from(item.table).insert(stripped).select();
-              data = retry.data;
-              error = retry.error;
-            }
-
-            opError = error;
-
-            if (!error && data) {
-              for (const row of data) {
-                try {
-                  if (item.table === 'report_learners') {
-                    const local = await db.learners
-                      .where('schoolId').equals(row.school_id)
-                      .filter(l => l.regNumber === row.reg_number)
-                      .first();
-                    if (local) {
-                      await db.learners.update(local.id, { supabaseId: row.id, synced: true });
-                      console.log(`[SyncEngine] Reconciled local learner "${local.fullName}" with remote UUID "${row.id}"`);
-                    }
-                  } else if (item.table === 'report_payments') {
-                    const local = await db.payments
-                      .where('schoolId').equals(row.school_id)
-                      .filter(p => p.learnerId === row.learner_id && Number(p.amount) === Number(row.amount) && p.reference === row.reference)
-                      .first();
-                    if (local) {
-                      await db.payments.update(local.id, { supabaseId: row.id, synced: true });
-                      console.log(`[SyncEngine] Reconciled local payment reference "${local.reference}" with remote ID "${row.id}"`);
-                    }
-                  } else if (item.table === 'report_announcements') {
-                    const local = await db.announcements
-                      .where('schoolId').equals(row.school_id)
-                      .filter(a => a.title === row.title)
-                      .first();
-                    if (local) {
-                      await db.announcements.update(local.id, { supabaseId: row.id, synced: true });
-                      console.log(`[SyncEngine] Reconciled local announcement "${local.title}" with remote ID "${row.id}"`);
-                    }
-                  } else if (item.table === 'report_teacher_assignments') {
-                    const local = await db.teacherAssignments
-                      .where('schoolId').equals(row.school_id)
-                      .filter(a => a.teacherId === row.teacher_id && a.classId === row.class_id && a.subjectId === row.subject_id)
-                      .first();
-                    if (local) {
-                      await db.teacherAssignments.update(local.id, { supabaseId: row.id, synced: true });
-                      console.log(`[SyncEngine] Reconciled local teacher assignment with remote ID "${row.id}"`);
-                    }
-                  } else if (item.table === 'report_class_subjects') {
-                    const local = await db.classSubjects
-                      .where('schoolId').equals(row.school_id)
-                      .filter(cs => cs.classId === row.class_id && cs.subjectId === row.subject_id)
-                      .first();
-                    if (local) {
-                      await db.classSubjects.update(local.id, { supabaseId: row.id, synced: true });
-                      console.log(`[SyncEngine] Reconciled local class-subject mapping with remote ID "${row.id}"`);
-                    }
-                  } else if (item.table === 'report_summaries') {
-                    const local = await db.reportSummaries
-                      .where('schoolId').equals(row.school_id)
-                      .filter(s => s.learnerId === row.learner_id && s.academicYear === row.academic_year && s.term === row.term)
-                      .first();
-                    if (local) {
-                      await db.reportSummaries.update(local.id, { supabaseId: row.id, synced: true });
-                      console.log(`[SyncEngine] Reconciled local report summary with remote ID "${row.id}"`);
-                    }
-                  } else if (item.table === 'report_profiles') {
-                    const local = await db.profiles
-                      .where('schoolId').equals(row.school_id)
-                      .filter(p => p.email === row.email)
-                      .first();
-                    if (local) {
-                      await db.profiles.update(local.id, { synced: true });
-                      console.log(`[SyncEngine] Reconciled local profile with remote ID "${row.id}"`);
-                    }
-                  }
-                } catch (bindErr) {
-                  console.warn(`[SyncEngine] Failed to bind local ID for table ${item.table}:`, bindErr);
-                }
-              }
-            }
-            break;
-          }
-
-          case 'update': {
-            // payload = { filter: { col: val }, data: { col: val } }
-            let q = supabase.from(item.table).update(payload.data);
-            if (payload.filter) {
-              Object.entries(payload.filter).forEach(([k, v]) => {
-                q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
-              });
-            }
-            let { error } = await q;
-
-            // Self-heal: If database hasn't run the migration yet, strip exclude_from_pdf and retry
-            if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
-              console.warn('[SyncEngine] database does not have exclude_from_pdf column. Stripping and retrying...');
-              const strippedData = { ...payload.data };
-              delete strippedData.exclude_from_pdf;
-              let retryQ = supabase.from(item.table).update(strippedData);
-              if (payload.filter) {
-                Object.entries(payload.filter).forEach(([k, v]) => {
-                  retryQ = Array.isArray(v) ? retryQ.in(k, v) : retryQ.eq(k, v);
-                });
-              }
-              const retry = await retryQ;
-              error = retry.error;
-            }
-
-            opError = error;
-            break;
-          }
-
-          case 'delete': {
-            // payload = { filter: { col: val | val[] } }
-            let q = supabase.from(item.table).delete();
-            if (payload.filter) {
-              Object.entries(payload.filter).forEach(([k, v]) => {
-                q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
-              });
-            }
-            const { error } = await q;
-            opError = error;
-            break;
-          }
-
-          case 'delete_insert': {
-            // payload = { deleteFilter: {}, insertData: [] }
-            // Used for score saves: delete existing rows then re-insert
-            let delQ = supabase.from(item.table).delete();
-            Object.entries(payload.deleteFilter).forEach(([k, v]) => {
-              delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
-            });
-            await delQ; // intentionally ignore delete errors — rows may not exist
-
-            const { error } = await supabase.from(item.table).insert(payload.insertData);
-            opError = error;
-            break;
-          }
-
-          case 'upsert': {
-            const rows = Array.isArray(payload) ? payload : [payload];
-            const { error } = await supabase.from(item.table).upsert(rows);
-            opError = error;
-            break;
-          }
-
-          default:
-            console.warn(`[SyncEngine] Unknown operation: ${item.operation}`);
-            await db.outbox.delete(item.id);
-            continue;
-        }
-
-        if (opError && (opError.code === '23505' || String(opError.message).toLowerCase().includes('unique constraint') || String(opError.message).toLowerCase().includes('duplicate key'))) {
-          console.log(`[SyncEngine] 🔄 Unique key conflict (23505) detected on ${item.table} for insert operation. Attempting automatic self-healing reconciliation...`);
-          
-          try {
-            if (item.table === 'report_summaries') {
-              const { data: existingSummary } = await supabase
-                .from('report_summaries')
-                .select('id')
-                .eq('school_id', payload.school_id)
-                .eq('learner_id', payload.learner_id)
-                .eq('academic_year', payload.academic_year)
-                .eq('term', payload.term)
-                .maybeSingle();
-
-              if (existingSummary?.id) {
-                console.log(`[SyncEngine] 🔄 Found existing remote summary ID ${existingSummary.id}. Upgrading insert to update.`);
-                
-                // Update remote row with current payload
-                const { error: updErr } = await supabase
-                  .from('report_summaries')
-                  .update(payload)
-                  .eq('id', existingSummary.id);
-                  
-                if (!updErr) {
-                  opError = null; // Mark operation as successful!
-                  
-                  // Update local Dexie record to bind supabaseId & synced = true
-                  const local = await db.reportSummaries
-                    .where('schoolId').equals(payload.school_id)
-                    .filter(s => s.learnerId === payload.learner_id && s.academicYear === payload.academic_year && s.term === payload.term)
-                    .first();
-                    
-                  if (local) {
-                    await db.reportSummaries.update(local.id, { supabaseId: existingSummary.id, synced: true });
-                    console.log(`[SyncEngine] ✅ Successfully self-healed local summary ID ${local.id} with supabaseId ${existingSummary.id}`);
-                  }
-                } else {
-                  opError = updErr;
-                }
-              }
-            } else if (item.table === 'report_profiles') {
-              const email = payload.email;
-              if (email) {
-                console.log(`[SyncEngine] 🔄 Querying Supabase for existing profile with email: ${email}`);
-                const { data: existingProfile } = await supabase
-                  .from('report_profiles')
-                  .select('id')
-                  .eq('email', email)
-                  .maybeSingle();
-
-                if (existingProfile?.id) {
-                  console.log(`[SyncEngine] 🔄 Found existing remote profile ID ${existingProfile.id}. Upgrading insert to update.`);
-                  
-                  // Update remote row with payload metadata
-                  const { error: updErr } = await supabase
-                    .from('report_profiles')
-                    .update({
-                      school_id: payload.school_id,
-                      full_name: payload.full_name,
-                      role: payload.role,
-                      staff_id: payload.staff_id
-                    })
-                    .eq('id', existingProfile.id);
-
-                  if (!updErr) {
-                    opError = null; // Mark operation as successful!
-                    
-                    // 1. Re-route any local teacherAssignments to use the correct remote ID
-                    const assignments = await db.teacherAssignments
-                      .where('teacherId').equals(payload.id)
-                      .toArray();
-                    for (const ass of assignments) {
-                      await db.teacherAssignments.update(ass.id, { teacherId: existingProfile.id });
-                    }
-                    console.log(`[SyncEngine] 🔄 Re-routed ${assignments.length} local teacher assignment(s) to reconciled profile ID ${existingProfile.id}`);
-
-                    // 2. Scan pending outbox items and rewrite references to the old temporary profile ID
-                    const pendingOutbox = await db.outbox.toArray();
-                    let rewriteCount = 0;
-                    for (const outboxItem of pendingOutbox) {
-                      if (outboxItem.payload && outboxItem.payload.includes(payload.id)) {
-                        const updatedPayload = outboxItem.payload.replaceAll(payload.id, existingProfile.id);
-                        await db.outbox.update(outboxItem.id, { payload: updatedPayload });
-                        rewriteCount++;
-                      }
-                    }
-                    if (rewriteCount > 0) {
-                      console.log(`[SyncEngine] 🔄 Rewrote ${rewriteCount} outbox item payload(s) referencing old temporary profile ID.`);
-                    }
-
-                    // 3. Delete the old temporary profile locally and insert/update under the correct remote ID
-                    await db.profiles.delete(payload.id);
-                    await db.profiles.put({
-                      id: existingProfile.id,
-                      schoolId: payload.school_id,
-                      fullName: payload.full_name,
-                      role: payload.role,
-                      email: payload.email,
-                      staffId: payload.staff_id,
-                      isClaimed: payload.is_claimed || false,
-                      createdAt: payload.created_at || new Date().toISOString()
-                    });
-                    console.log(`[SyncEngine] ✅ Successfully self-healed local profile ID ${payload.id} to remote ID ${existingProfile.id}`);
-                  } else {
-                    opError = updErr;
-                  }
-                }
-              }
-            } else if (item.table === 'report_learners') {
-              const targetSchoolId = payload.school_id || (payload.data && payload.data.school_id);
-              const targetRegNumber = payload.reg_number || (payload.data && payload.data.reg_number);
-              const targetId = payload.id || (payload.filter && payload.filter.id);
-
-              if (targetSchoolId && targetRegNumber) {
-                // 1. Query Supabase for the learner currently holding this registration number
-                const { data: duplicateLearner } = await supabase
-                  .from('report_learners')
-                  .select('id, full_name')
-                  .eq('school_id', targetSchoolId)
-                  .eq('reg_number', targetRegNumber)
-                  .maybeSingle();
-
-                if (duplicateLearner) {
-                  if (duplicateLearner.id === targetId || item.operation === 'insert') {
-                    // Match: Re-save of same student (ID matches or inserting duplicate). Upgrade insert to update.
-                    console.log(`[SyncEngine] 🔄 Found existing remote learner ID ${duplicateLearner.id}. Upgrading insert to update.`);
-                    
-                    const { error: updErr } = await supabase
-                      .from('report_learners')
-                      .update(item.operation === 'insert' ? payload : payload.data)
-                      .eq('id', duplicateLearner.id);
-                      
-                    if (!updErr) {
-                      opError = null; // Mark operation as successful!
-                      
-                      const local = await db.learners
-                        .where('schoolId').equals(targetSchoolId)
-                        .filter(l => l.regNumber === targetRegNumber)
-                        .first();
-                        
-                      if (local) {
-                        await db.learners.update(local.id, { supabaseId: duplicateLearner.id, synced: true });
-                        console.log(`[SyncEngine] ✅ Successfully self-healed local learner ID ${local.id} with supabaseId ${duplicateLearner.id}`);
-                      }
-                    } else {
-                      opError = updErr;
-                    }
-                  } else {
-                    // Conflict: Different student has this registration number. Check if they are a ghost student!
-                    console.log(`[SyncEngine] 🔄 Conflicting remote learner "${duplicateLearner.full_name}" (ID: ${duplicateLearner.id}) holding registration number "${targetRegNumber}". Checking local status...`);
-                    
-                    const existsLocally = await db.learners.where('supabaseId').equals(duplicateLearner.id).first();
-                    
-                    if (!existsLocally) {
-                      // Conflicting student does NOT exist locally in Dexie (Ghost Student). Automatically purge!
-                      console.log(`[SyncEngine] 🧹 Conflicting student is not found locally. Automatically purging ghost student from Supabase...`);
-                      
-                      const { error: purgeErr } = await supabase
-                        .from('report_learners')
-                        .delete()
-                        .eq('id', duplicateLearner.id);
-                        
-                      if (!purgeErr) {
-                        console.log(`[SyncEngine] ✅ Purged ghost student from Supabase. Retrying original update...`);
-                        
-                        // Retry the original operation
-                        if (item.operation === 'insert') {
-                          const rows = Array.isArray(payload) ? payload : [payload];
-                          const { error: retryErr } = await supabase.from(item.table).insert(rows);
-                          opError = retryErr;
-                        } else if (item.operation === 'update') {
-                          let q = supabase.from(item.table).update(payload.data);
-                          if (payload.filter) {
-                            Object.entries(payload.filter).forEach(([k, v]) => {
-                              q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
-                            });
-                          }
-                          const { error: retryErr } = await q;
-                          opError = retryErr;
-                        }
-                      } else {
-                        console.warn(`[SyncEngine] Failed to purge conflicting ghost student:`, purgeErr.message);
-                        opError = purgeErr;
-                      }
-                    } else {
-                      console.log(`[SyncEngine] Conflicting student exists locally. This is a legitimate duplicate registration conflict — user must resolve.`);
-                    }
-                  }
-                }
-              }
-            }
-          } catch (reconcileErr) {
-            console.error('[SyncEngine] Reconcile error:', reconcileErr);
-          }
-        }
-
-        if (opError && (opError.code === '23502' || String(opError.message || opError).toLowerCase().includes('not-null') || String(opError.message || opError).toLowerCase().includes('23502'))) {
-          console.log(`[SyncEngine] ⚠️ Not-null constraint violation (23502) detected on ${item.table}. Attempting automated self-healing...`);
-          try {
-            if (item.table === 'report_schools') {
-              const schoolId = payload.id || (payload.filter && payload.filter.id);
-              if (schoolId) {
-                const school = await db.schools.get(schoolId);
-                const schoolName = school?.name || 'My School';
-                console.log(`[SyncEngine] 🔄 Healing report_schools payload by injecting name: "${schoolName}"`);
-                
-                if (item.operation === 'upsert') {
-                  const updatedPayload = Array.isArray(payload) 
-                    ? payload.map(p => ({ ...p, name: p.name || schoolName }))
-                    : { ...payload, name: payload.name || schoolName };
-                  
-                  const rows = Array.isArray(updatedPayload) ? updatedPayload : [updatedPayload];
-                  const { error: retryErr } = await supabase.from(item.table).upsert(rows);
-                  if (!retryErr) {
-                    opError = null; // Mark operation as successful!
-                  } else {
-                    opError = retryErr;
-                  }
-                }
-              }
-            }
-          } catch (reconcileErr) {
-            console.error('[SyncEngine] Reconcile error:', reconcileErr);
-          }
-        }
-
-        if (opError && (opError.code === '23503' || String(opError.message || opError).toLowerCase().includes('foreign key constraint') || String(opError.message || opError).toLowerCase().includes('23503'))) {
-          console.log(`[SyncEngine] ⚠️ Foreign key constraint violation (23503) detected on ${item.table}. Attempting automated self-healing...`);
-          
-          try {
-            if (item.table === 'report_scores' && item.operation === 'delete_insert') {
-              // For bulk score saves, filter out any rows that violate the learner foreign key
-              if (Array.isArray(payload.insertData)) {
-                console.log('[SyncEngine] Filtering out score rows referencing non-existent learners...');
-                const validRows = [];
-                for (const row of payload.insertData) {
-                  const lId = row.learner_id;
-                  if (lId) {
-                    // Check if this student exists on Supabase report_learners
-                    const { data } = await supabase
-                      .from('report_learners')
-                      .select('id')
-                      .eq('id', lId)
-                      .maybeSingle();
-                      
-                    if (data?.id) {
-                      validRows.push(row);
-                    } else {
-                      console.log(`[SyncEngine] Dropped score row for deleted/non-existent learner: ${lId}`);
-                    }
-                  }
-                }
-                
-                if (validRows.length === 0) {
-                  // If all rows are invalid, mark the operation as successful (since all reference deleted students)
-                  console.log('[SyncEngine] All score rows are invalid. Skipping this outbox item.');
-                  opError = null;
-                } else {
-                  // Re-run the delete_insert with only the valid score rows
-                  console.log(`[SyncEngine] Retrying scores sync with ${validRows.length} valid rows...`);
-                  let delQ = supabase.from(item.table).delete();
-                  Object.entries(payload.deleteFilter).forEach(([k, v]) => {
-                    delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
-                  });
-                  await delQ;
-                  
-                  const { error: retryErr } = await supabase.from(item.table).insert(validRows);
-                  opError = retryErr;
-                }
-              }
-            } else if (item.table === 'report_scores' || item.table === 'report_summaries') {
-              // For individual scores or summaries, check if the learner exists
-              const lId = payload.learner_id || (payload.data && payload.data.learner_id);
-              if (lId) {
-                const { data } = await supabase
-                  .from('report_learners')
-                  .select('id')
-                  .eq('id', lId)
-                  .maybeSingle();
-                  
-                if (!data?.id) {
-                  console.log(`[SyncEngine] Purging outbox item for deleted/non-existent learner: ${lId}`);
-                  opError = null; // Mark as successful to discard it from outbox
-                }
-              }
-            }
-          } catch (reconcileErr) {
-            console.error('[SyncEngine] FK Reconcile error:', reconcileErr);
-          }
-        }
-
-        if (opError && (opError.code === '22P02' || String(opError.message || opError).toLowerCase().includes('invalid input syntax for type uuid'))) {
-          console.warn(`[SyncEngine] ⚠️ Invalid UUID syntax in outbox item for ${item.table} (local numeric ID used instead of UUID). Discarding invalid outbox item:`, item.payload);
-          opError = null; // Discard invalid outbox item cleanly
-        }
-
-        if (opError) {
-          throw new Error(opError.message || 'Supabase operation failed');
-        }
-
-        // ✅ Success — remove from outbox
-        await db.outbox.delete(item.id);
-        console.log(`[SyncEngine] ✅ Synced: ${item.operation} → ${item.table}`);
-
-      } catch (err) {
-        const retries = (item.retryCount || 0) + 1;
-        const newStatus = retries >= MAX_RETRIES ? 'failed' : 'pending';
-        
-        // Exponential backoff: 2^retryCount * 2000 milliseconds (e.g. 2s, 4s, 8s, 16s, 32s)
-        const delayMs = Math.pow(2, retries) * 2000;
-        const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
-
-        await db.outbox.update(item.id, {
-          status: newStatus,
-          retryCount: retries,
-          errorMessage: err.message,
-          nextAttemptAt: newStatus === 'pending' ? nextAttemptAt : null
-        });
-        console.warn(`[SyncEngine] ⚠️ Item ${item.id} failed (attempt ${retries}), retrying in ${delayMs / 1000}s:`, err.message);
-      }
+    const BATCH_SIZE = 4;
+    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+      const chunk = pending.slice(i, i + BATCH_SIZE);
+      await Promise.allSettled(chunk.map(item => processSingleItem(item)));
     }
+
   } catch (err) {
     console.error('[SyncEngine] drainOutbox crashed:', err);
   } finally {
     _isSyncing = false;
-    console.log('[SyncEngine] Drain complete.');
   }
+};
+
+// ─── Execute a single outbox operation ────────────────────────────────────────
+async function processSingleItem(item) {
+  // Mark as processing
+  await db.outbox.update(item.id, { status: 'processing' });
+
+  try {
+    const payload = JSON.parse(item.payload);
+    let opError = null;
+
+    // ── Execute operation ─────────────────────────────────────────────────
+    switch (item.operation) {
+
+      case 'insert': {
+        const rows = (Array.isArray(payload) ? payload : [payload]).map(r => {
+          if (item.table === 'report_referrals' && (!r.id || r.id === null)) {
+            return {
+              ...r,
+              id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined
+            };
+          }
+          return r;
+        });
+        let q = supabase.from(item.table).insert(rows).select();
+        let { data, error } = await q;
+
+        // Self-heal: missing UUID id on table with not-null constraint
+        if (error && error.message?.includes('null value in column "id"') && item.table === 'report_referrals') {
+          const rowsWithIds = rows.map(r => ({
+            ...r,
+            id: r.id || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : undefined)
+          }));
+          const retry = await supabase.from(item.table).insert(rowsWithIds).select();
+          data = retry.data;
+          error = retry.error;
+        }
+
+        // Self-heal: strip unknown columns and retry
+        if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
+          const stripped = rows.map(r => { const c = { ...r }; delete c.exclude_from_pdf; return c; });
+          const retry = await supabase.from(item.table).insert(stripped).select();
+          data = retry.data;
+          error = retry.error;
+        }
+
+        // Self-heal: missing report_referrals table in Supabase
+        if (error && item.table === 'report_referrals' && (error.code === '42P01' || error.message?.includes('404') || error.message?.includes('not found') || error.code === 'PGRST204')) {
+          console.warn('[SyncEngine] Table report_referrals does not exist in remote Supabase — keeping in local IndexedDB.');
+          error = null;
+        }
+
+        opError = error;
+
+        if (!error && data) {
+          for (const row of data) {
+            try {
+              await reconcileInsertedRow(item.table, row, payload);
+            } catch (bindErr) {
+              console.warn(`[SyncEngine] Bind error for ${item.table}:`, bindErr);
+            }
+          }
+        }
+        break;
+      }
+
+      case 'update': {
+        let q = supabase.from(item.table).update(payload.data);
+        if (payload.filter) {
+          Object.entries(payload.filter).forEach(([k, v]) => {
+            q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
+          });
+        }
+        let { error } = await q;
+
+        // Self-heal: strip unknown columns and retry
+        if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
+          const strippedData = { ...payload.data };
+          delete strippedData.exclude_from_pdf;
+          let retryQ = supabase.from(item.table).update(strippedData);
+          if (payload.filter) {
+            Object.entries(payload.filter).forEach(([k, v]) => {
+              retryQ = Array.isArray(v) ? retryQ.in(k, v) : retryQ.eq(k, v);
+            });
+          }
+          const retry = await retryQ;
+          error = retry.error;
+        }
+
+        // Self-heal: missing report_referrals table in Supabase
+        if (error && item.table === 'report_referrals' && (error.code === '42P01' || error.message?.includes('404') || error.message?.includes('not found') || error.code === 'PGRST204')) {
+          console.warn('[SyncEngine] Table report_referrals does not exist in remote Supabase — keeping in local IndexedDB.');
+          error = null;
+        }
+
+        opError = error;
+        break;
+      }
+
+      case 'delete': {
+        let q = supabase.from(item.table).delete();
+        if (payload.filter) {
+          Object.entries(payload.filter).forEach(([k, v]) => {
+            q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
+          });
+        }
+        const { error } = await q;
+        opError = error;
+        break;
+      }
+
+      case 'delete_insert': {
+        // Delete existing rows
+        let delQ = supabase.from(item.table).delete();
+        Object.entries(payload.deleteFilter).forEach(([k, v]) => {
+          delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
+        });
+        const { error: delErr } = await delQ;
+
+        if (Array.isArray(payload.insertData) && payload.insertData.length > 0) {
+          const { error: insErr } = await supabase.from(item.table).insert(payload.insertData);
+          opError = insErr;
+        } else {
+          opError = delErr;
+        }
+        break;
+      }
+
+      case 'upsert': {
+        const rows = Array.isArray(payload) ? payload : [payload];
+        const { error } = await supabase.from(item.table).upsert(rows);
+        opError = error;
+        break;
+      }
+
+      default:
+        console.warn(`[SyncEngine] Unknown operation: ${item.operation}`);
+        await db.outbox.delete(item.id);
+        return true;
+    }
+
+    // ── Self-heal: Unique key conflicts ──────────────────────────────────
+    opError = await healUniqueConflict(opError, item, payload);
+
+    // ── Self-heal: Not-null constraint ───────────────────────────────────
+    opError = await healNotNull(opError, item, payload);
+
+    // ── Self-heal: Foreign key constraint ────────────────────────────────
+    opError = await healForeignKey(opError, item, payload);
+
+    // ── Auto-discard: Invalid UUID / bad schema column ───────────────────
+    if (opError && (
+      opError.code === '22P02' ||
+      String(opError.message || opError).toLowerCase().includes('invalid input syntax for type uuid')
+    )) {
+      console.warn(`[SyncEngine] ⚠️ Invalid UUID in ${item.table} — discarding.`);
+      opError = null;
+    }
+
+    if (opError && (
+      opError.code === 'PGRST204' ||
+      String(opError.message || opError).toLowerCase().includes('schema cache') ||
+      String(opError.message || opError).toLowerCase().includes('could not find the')
+    )) {
+      console.warn(`[SyncEngine] ⚠️ Schema cache / unknown column in ${item.table} — discarding.`);
+      opError = null;
+    }
+
+    if (opError) {
+      throw opError; // Hand off to catch block
+    }
+
+    // ✅ Success — remove from outbox
+    await db.outbox.delete(item.id);
+    console.log(`[SyncEngine] ✅ ${item.operation} → ${item.table}`);
+    return true;
+
+  } catch (err) {
+    // ── Network errors: DO NOT count as a retry failure ──────────────────
+    if (isNetworkError(err)) {
+      console.log(`[SyncEngine] 📶 Offline — item ${item.id} queued for when network returns.`);
+      await db.outbox.update(item.id, {
+        status: 'pending',
+      });
+      return false;
+    }
+
+    // ── Server/logic error: apply exponential backoff ────────────────────
+    const retries = (item.retryCount || 0) + 1;
+    const newStatus = retries >= MAX_RETRIES ? 'failed' : 'pending';
+    const delayMs = Math.min(Math.pow(2, retries) * 2000, 60 * 1000); // cap at 60s
+    const nextAttemptAt = newStatus === 'pending'
+      ? new Date(Date.now() + delayMs).toISOString()
+      : null;
+
+    await db.outbox.update(item.id, {
+      status: newStatus,
+      retryCount: retries,
+      errorMessage: err?.message || String(err),
+      nextAttemptAt,
+    });
+
+    if (newStatus === 'failed') {
+      console.warn(`[SyncEngine] ❌ Item ${item.id} (${item.operation}→${item.table}) permanently failed after ${retries} attempts:`, err?.message);
+    } else {
+      console.warn(`[SyncEngine] ⚠️ Item ${item.id} failed (attempt ${retries}/${MAX_RETRIES}), retry in ${delayMs / 1000}s:`, err?.message);
+    }
+    return false;
+  }
+};
+
+// ─── Self-healing: reconcile successfully inserted rows with local Dexie ──────
+const reconcileInsertedRow = async (table, row, payload) => {
+  if (table === 'report_learners') {
+    const cleanReg = row.reg_number ? String(row.reg_number).trim().toUpperCase() : '';
+    const cleanName = (row.full_name || '').trim().toLowerCase();
+
+    let local = null;
+    if (cleanReg) {
+      local = await db.learners.filter(l =>
+        (String(l.schoolId) === String(row.school_id) || String(l.school_id || '') === String(row.school_id)) &&
+        l.regNumber && String(l.regNumber).trim().toUpperCase() === cleanReg
+      ).first();
+    }
+    if (!local && cleanName) {
+      local = await db.learners.filter(l =>
+        (String(l.schoolId) === String(row.school_id) || String(l.school_id || '') === String(row.school_id)) &&
+        l.fullName && l.fullName.trim().toLowerCase() === cleanName
+      ).first();
+    }
+    if (local) {
+      await db.learners.update(local.id, { 
+        supabaseId: row.id, 
+        synced: true,
+        status: row.status || local.status || 'Active'
+      });
+    }
+
+  } else if (table === 'report_payments') {
+    const local = await db.payments
+      .where('schoolId').equals(row.school_id)
+      .filter(p => p.learnerId === row.learner_id && Number(p.amount) === Number(row.amount) && p.reference === row.reference)
+      .first();
+    if (local) await db.payments.update(local.id, { supabaseId: row.id, synced: true });
+
+  } else if (table === 'report_announcements') {
+    const local = await db.announcements
+      .where('schoolId').equals(row.school_id)
+      .filter(a => a.title === row.title)
+      .first();
+    if (local) await db.announcements.update(local.id, { supabaseId: row.id, synced: true });
+
+  } else if (table === 'report_teacher_assignments') {
+    const locals = await db.teacherAssignments
+      .where('schoolId').equals(row.school_id)
+      .filter(a => Number(a.teacherId) === Number(row.teacher_id) && Number(a.classId) === Number(row.class_id) && (a.subjectId === row.subject_id || Number(a.subjectId) === Number(row.subject_id)))
+      .toArray();
+    if (locals.length > 0) {
+      await db.teacherAssignments.update(locals[0].id, { supabaseId: row.id, synced: true });
+      for (let i = 1; i < locals.length; i++) {
+        await db.teacherAssignments.delete(locals[i].id);
+      }
+    }
+
+  } else if (table === 'report_class_subjects') {
+    const locals = await db.classSubjects
+      .where('schoolId').equals(row.school_id)
+      .filter(cs => Number(cs.classId) === Number(row.class_id) && Number(cs.subjectId) === Number(row.subject_id))
+      .toArray();
+    if (locals.length > 0) {
+      await db.classSubjects.update(locals[0].id, { supabaseId: row.id, synced: true });
+      for (let i = 1; i < locals.length; i++) {
+        await db.classSubjects.delete(locals[i].id);
+      }
+    }
+
+  } else if (table === 'report_summaries') {
+    const local = await db.reportSummaries
+      .where('schoolId').equals(row.school_id)
+      .filter(s => s.learnerId === row.learner_id && s.academicYear === row.academic_year && s.term === row.term)
+      .first();
+    if (local) await db.reportSummaries.update(local.id, { supabaseId: row.id, synced: true });
+
+  } else if (table === 'report_profiles') {
+    const local = await db.profiles
+      .where('schoolId').equals(row.school_id)
+      .filter(p => p.email === row.email)
+      .first();
+    if (local) await db.profiles.update(local.id, { synced: true });
+  }
+};
+
+// ─── Self-healing: unique key conflicts (23505) ───────────────────────────────
+const healUniqueConflict = async (opError, item, payload) => {
+  if (!opError) return opError;
+  const isUniqueErr = opError.code === '23505' ||
+    String(opError.message).toLowerCase().includes('unique constraint') ||
+    String(opError.message).toLowerCase().includes('duplicate key');
+  if (!isUniqueErr) return opError;
+
+  console.log(`[SyncEngine] 🔄 Unique conflict on ${item.table} — attempting self-heal...`);
+
+  try {
+    if (item.table === 'report_summaries') {
+      const { data: existing } = await supabase
+        .from('report_summaries').select('id')
+        .eq('school_id', payload.school_id).eq('learner_id', payload.learner_id)
+        .eq('academic_year', payload.academic_year).eq('term', payload.term)
+        .maybeSingle();
+      if (existing?.id) {
+        const { error: updErr } = await supabase.from('report_summaries').update(payload).eq('id', existing.id);
+        if (!updErr) {
+          const local = await db.reportSummaries.where('schoolId').equals(payload.school_id)
+            .filter(s => s.learnerId === payload.learner_id && s.academicYear === payload.academic_year && s.term === payload.term).first();
+          if (local) await db.reportSummaries.update(local.id, { supabaseId: existing.id, synced: true });
+          return null;
+        }
+        return updErr;
+      }
+    }
+
+    if (item.table === 'report_profiles') {
+      if (payload.email) {
+        const { data: existing } = await supabase.from('report_profiles').select('id').eq('email', payload.email).maybeSingle();
+        if (existing?.id) {
+          const { error: updErr } = await supabase.from('report_profiles').update({
+            school_id: payload.school_id, full_name: payload.full_name, role: payload.role, staff_id: payload.staff_id
+          }).eq('id', existing.id);
+          if (!updErr) {
+            // Reroute assignments
+            const assignments = await db.teacherAssignments.where('teacherId').equals(payload.id).toArray();
+            for (const a of assignments) await db.teacherAssignments.update(a.id, { teacherId: existing.id });
+            // Rewrite outbox references
+            const outboxAll = await db.outbox.toArray();
+            for (const o of outboxAll) {
+              if (o.payload?.includes(payload.id)) {
+                await db.outbox.update(o.id, { payload: o.payload.replaceAll(payload.id, existing.id) });
+              }
+            }
+            await db.profiles.delete(payload.id);
+            await db.profiles.put({
+              id: existing.id, schoolId: payload.school_id, fullName: payload.full_name,
+              role: payload.role, email: payload.email, staffId: payload.staff_id,
+              isClaimed: payload.is_claimed || false, createdAt: payload.created_at || new Date().toISOString()
+            });
+            return null;
+          }
+          return updErr;
+        }
+      }
+    }
+
+    if (item.table === 'report_learners') {
+      const targetSchoolId = payload.school_id;
+      const targetRegNumber = payload.reg_number;
+      if (targetSchoolId && targetRegNumber) {
+        const { data: dup } = await supabase.from('report_learners').select('id, full_name')
+          .eq('school_id', targetSchoolId).eq('reg_number', targetRegNumber).maybeSingle();
+        if (dup) {
+          const { error: updErr } = await supabase.from('report_learners')
+            .update(item.operation === 'insert' ? payload : payload.data).eq('id', dup.id);
+          if (!updErr) {
+            const local = await db.learners.where('schoolId').equals(targetSchoolId)
+              .filter(l => l.regNumber === targetRegNumber).first();
+            if (local) await db.learners.update(local.id, { supabaseId: dup.id, synced: true });
+            return null;
+          }
+          return updErr;
+        }
+      }
+    }
+
+    if (item.table === 'report_class_subjects') {
+      const { school_id, class_id, subject_id } = payload;
+      if (school_id && class_id && subject_id) {
+        const { data: existing } = await supabase
+          .from('report_class_subjects').select('id')
+          .eq('school_id', school_id)
+          .eq('class_id', class_id)
+          .eq('subject_id', subject_id)
+          .maybeSingle();
+        if (existing?.id) {
+          const local = await db.classSubjects.where('schoolId').equals(school_id)
+            .filter(cs => cs.classId === class_id && cs.subjectId === subject_id).first();
+          if (local) await db.classSubjects.update(local.id, { supabaseId: existing.id, synced: true });
+          return null;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[SyncEngine] Unique conflict heal error:', e);
+  }
+  return opError;
+};
+
+// ─── Self-healing: not-null constraint (23502) ────────────────────────────────
+const healNotNull = async (opError, item, payload) => {
+  if (!opError) return opError;
+  const isNotNull = opError.code === '23502' ||
+    String(opError.message || opError).toLowerCase().includes('not-null') ||
+    String(opError.message || opError).toLowerCase().includes('23502');
+  if (!isNotNull) return opError;
+
+  try {
+    if (item.table === 'report_schools' && item.operation === 'upsert') {
+      const schoolId = payload.id || payload?.filter?.id;
+      if (schoolId) {
+        const school = await db.schools.get(schoolId);
+        const schoolName = school?.name || 'My School';
+        const patched = Array.isArray(payload)
+          ? payload.map(p => ({ ...p, name: p.name || schoolName }))
+          : { ...payload, name: payload.name || schoolName };
+        const rows = Array.isArray(patched) ? patched : [patched];
+        const { error: retryErr } = await supabase.from(item.table).upsert(rows);
+        if (!retryErr) return null;
+        return retryErr;
+      }
+    }
+  } catch (e) {
+    console.error('[SyncEngine] Not-null heal error:', e);
+  }
+  return opError;
+};
+
+// ─── Self-healing: foreign key constraint (23503) ────────────────────────────
+const healForeignKey = async (opError, item, payload) => {
+  if (!opError) return opError;
+  const isFkErr = opError.code === '23503' ||
+    String(opError.message || opError).toLowerCase().includes('foreign key') ||
+    String(opError.message || opError).toLowerCase().includes('23503');
+  if (!isFkErr) return opError;
+
+  try {
+    if (item.table === 'report_scores' && item.operation === 'delete_insert') {
+      if (Array.isArray(payload.insertData)) {
+        const validRows = [];
+        for (const row of payload.insertData) {
+          if (row.learner_id) {
+            const { data } = await supabase.from('report_learners').select('id').eq('id', row.learner_id).maybeSingle();
+            if (data?.id) validRows.push(row);
+          }
+        }
+        if (validRows.length === 0) {
+          console.log('[SyncEngine] All score rows invalid — discarding.');
+          return null;
+        }
+        let delQ = supabase.from(item.table).delete();
+        Object.entries(payload.deleteFilter).forEach(([k, v]) => {
+          delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
+        });
+        await delQ;
+        const { error: retryErr } = await supabase.from(item.table).insert(validRows);
+        return retryErr || null;
+      }
+    }
+
+    if ((item.table === 'report_scores' || item.table === 'report_summaries')) {
+      const lId = payload.learner_id || payload.data?.learner_id;
+      if (lId) {
+        const { data } = await supabase.from('report_learners').select('id').eq('id', lId).maybeSingle();
+        if (!data?.id) {
+          console.log(`[SyncEngine] Discarding item for deleted learner: ${lId}`);
+          return null;
+        }
+      }
+    }
+
+    if (item.table === 'report_class_subjects') {
+      const subId = payload.subject_id;
+      const clsId = payload.class_id;
+      if (subId) {
+        const { data: subData } = await supabase.from('report_subjects').select('id').eq('id', subId).maybeSingle();
+        if (!subData?.id) {
+          console.log(`[SyncEngine] ⚠️ Discarding report_class_subjects assignment for non-existent subject ID: ${subId}`);
+          return null;
+        }
+      }
+      if (clsId) {
+        const { data: clsData } = await supabase.from('report_classes').select('id').eq('id', clsId).maybeSingle();
+        if (!clsData?.id) {
+          console.log(`[SyncEngine] ⚠️ Discarding report_class_subjects assignment for non-existent class ID: ${clsId}`);
+          return null;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('[SyncEngine] FK heal error:', e);
+  }
+  return opError;
 };
 
 // ─── Retry all failed items ───────────────────────────────────────────────────
@@ -622,66 +690,116 @@ export const retryFailed = async () => {
 };
 
 // ─── Force drain: reset ALL non-pending items then drain ─────────────────────
-// Use this when you want to force a full sync regardless of current item state.
 export const forceDrain = async () => {
-  console.log('[SyncEngine] 🔄 Force drain requested — resetting all stuck/failed items...');
+  console.log('[SyncEngine] 🔄 Force drain requested...');
   await db.outbox
     .where('status').anyOf(['failed', 'processing'])
     .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
+
+  try {
+    const unsyncedWithCloudId = await db.learners
+      .filter(l => l.synced === false && !!l.supabaseId)
+      .toArray();
+    if (unsyncedWithCloudId.length > 0) {
+      for (const l of unsyncedWithCloudId) {
+        await db.learners.update(l.id, { synced: true });
+      }
+    }
+  } catch (_) {}
+
   await drainOutbox(true);
 };
 
-// ─── Promote any 'processing' items stuck from a previous crashed session ────
-// If the app was killed mid-sync, items can be stuck as 'processing' forever.
+// ─── Promote stuck 'processing' items ────────────────────────────────────────
 export const resetStuckItems = async () => {
   await db.outbox
     .where('status').equals('processing')
     .modify({ status: 'pending', nextAttemptAt: null });
 };
 
-// ─── Register the online listener (module-level, fires once) ─────────────────
+// ─── Clear outbox queue ──────────────────────────────────────────────────────
+export const clearOutbox = async () => {
+  const count = await db.outbox.count();
+  await db.outbox.clear();
+  console.log(`[SyncEngine] 🗑️ Cleared ${count} item(s) from outbox sync queue.`);
+  return count;
+};
+
+// ─── Clear local database ───────────────────────────────────────────────────
+export const clearLocalBase = async () => {
+  console.log('[Database] 🗑️ Wiping local IndexedDB database...');
+  await db.delete();
+  console.log('[Database] ✅ Local IndexedDB deleted.');
+};
+
+// ─── Global event listeners (module-level) ───────────────────────────────────
 if (typeof window !== 'undefined') {
+  // Console helper methods
+  window.clearOutbox = async () => {
+    const count = await db.outbox.count();
+    await db.outbox.clear();
+    console.log(`[SyncEngine] 🗑️ Outbox sync queue cleared (${count} items removed).`);
+    return `Cleared ${count} sync queue item(s).`;
+  };
+
+  window.clearLocalBase = async () => {
+    console.log('[Database] 🗑️ Wiping local IndexedDB database...');
+    await db.delete();
+    console.log('[Database] ✅ Local IndexedDB deleted! Reloading page...');
+    window.location.reload();
+    return 'Local IndexedDB database deleted. Page reloading...';
+  };
+
+  // ── Reconnect: reset EVERYTHING and drain immediately ─────────────────────
   window.addEventListener('online', async () => {
-    console.log('[SyncEngine] Network online — resetting stuck items and draining outbox...');
-    await resetStuckItems();
-    // Also reset failed items so they get another chance when coming back online
-    await db.outbox
-      .where('status').equals('failed')
-      .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
-    drainOutbox();
+    console.log('[SyncEngine] 📶 Network online — resetting all items and syncing...');
+    try {
+      // Reset stuck, failed, and pending-with-future-delay items all at once
+      await db.outbox
+        .where('status').anyOf(['failed', 'processing', 'pending'])
+        .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
+    } catch (e) {
+      console.warn('[SyncEngine] Failed to reset items on reconnect:', e);
+    }
+    scheduleDrain(true);
   });
 
-  // Listen for ALL relevant auth events to automatically trigger outbox drain.
+  // ── Disconnect: log only, no state changes needed ────────────────────────
+  window.addEventListener('offline', () => {
+    console.log('[SyncEngine] 📵 Network offline — syncing paused.');
+  });
+
+  // ── Auth state: drain on sign-in / token refresh ──────────────────────────
   supabase.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
-      if (!session) return; // INITIAL_SESSION fires with null when logged out — skip
-      console.log(`[SyncEngine] Auth event (${event}) — resetting failed items and draining outbox...`);
+      if (!session) return;
+      console.log(`[SyncEngine] Auth event (${event}) — resetting & draining...`);
       try {
         await db.outbox
-          .where('status').equals('failed')
+          .where('status').anyOf(['failed', 'processing'])
           .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
-        await db.outbox
-          .where('status').equals('processing')
-          .modify({ status: 'pending', nextAttemptAt: null });
-      } catch (err) {
-        console.warn('[SyncEngine] Failed to reset outbox items:', err);
+      } catch (e) {
+        console.warn('[SyncEngine] Failed to reset outbox on auth event:', e);
       }
-      drainOutbox();
+      scheduleDrain(true);
     }
   });
 
-  // Periodically retry failed items every 2 minutes while the app is open and online
+  // ── Heartbeat: every 30 seconds, retry any lingering items ───────────────
   setInterval(async () => {
-    if (navigator.onLine) {
-      const failedCount = await db.outbox.where('status').equals('failed').count();
-      const pendingCount = await db.outbox.where('status').equals('pending').count();
-      if (failedCount > 0 || pendingCount > 0) {
-        console.log(`[SyncEngine] Periodic retry: ${failedCount} failed, ${pendingCount} pending item(s)...`);
+    if (!navigator.onLine) return;
+    try {
+      const total = await db.outbox.where('status').anyOf(['pending', 'failed']).count();
+      if (total > 0) {
+        console.log(`[SyncEngine] ♻️ Heartbeat: ${total} item(s) waiting — draining...`);
+        // Reset failed items on every heartbeat so they always get another chance
         await db.outbox
           .where('status').equals('failed')
           .modify({ status: 'pending', retryCount: 0, errorMessage: null, nextAttemptAt: null });
-        drainOutbox();
+        scheduleDrain(true);
       }
+    } catch (e) {
+      console.warn('[SyncEngine] Heartbeat error:', e);
     }
-  }, 2 * 60 * 1000); // every 2 minutes
+  }, 30 * 1000); // every 30 seconds
 }

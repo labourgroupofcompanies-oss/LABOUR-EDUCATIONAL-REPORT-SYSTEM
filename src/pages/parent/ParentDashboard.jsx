@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
@@ -7,6 +7,8 @@ import authService from '../../services/authService';
 import { downloadImageAsBlob } from '../../utils/imageUtils';
 import { startParentSync } from '../../services/syncDown';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
+import HeadteacherGuideModal from '../../components/common/HeadteacherGuideModal';
+import LogoPreloader from '../../components/common/LogoPreloader';
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
@@ -182,21 +184,28 @@ const ParentDashboard = () => {
             .maybeSingle();
 
           if (remoteSchool && !schoolError) {
+            const existing = await db.schools.get(sId);
+            const remoteLogo = remoteSchool.logo_url;
+            const isRemoteValid = remoteLogo && typeof remoteLogo === 'string' && !remoteLogo.startsWith('blob:');
+            const isLocalValid = existing?.logoUrl && typeof existing.logoUrl === 'string' && !existing.logoUrl.startsWith('blob:');
+            const finalLogoUrl = isRemoteValid ? remoteLogo : (isLocalValid ? existing.logoUrl : '');
+
             await db.schools.put({
+              ...existing,
               id: sId,
-              name: remoteSchool.name || '',
-              location: remoteSchool.location || '',
-              district: remoteSchool.district || '',
-              region: remoteSchool.region || '',
-              circuit: remoteSchool.circuit || '',
-              motto: remoteSchool.motto || '',
-              logoUrl: remoteSchool.logo_url || '',
-              currentAcademicYear: remoteSchool.current_academic_year || '',
-              currentTerm: remoteSchool.current_term || 'Term 1',
-              vacationDate: remoteSchool.vacation_date || '',
-              nextTermBegins: remoteSchool.next_term_begins || '',
-              phone: remoteSchool.phone || '',
-              email: remoteSchool.email || ''
+              name: remoteSchool.name || existing?.name || '',
+              location: remoteSchool.location || existing?.location || '',
+              district: remoteSchool.district || existing?.district || '',
+              region: remoteSchool.region || existing?.region || '',
+              circuit: remoteSchool.circuit || existing?.circuit || '',
+              motto: remoteSchool.motto || existing?.motto || '',
+              logoUrl: finalLogoUrl,
+              currentAcademicYear: remoteSchool.current_academic_year || existing?.currentAcademicYear || '',
+              currentTerm: remoteSchool.current_term || existing?.currentTerm || 'Term 1',
+              vacationDate: remoteSchool.vacation_date || existing?.vacationDate || '',
+              nextTermBegins: remoteSchool.next_term_begins || existing?.nextTermBegins || '',
+              phone: remoteSchool.phone || existing?.phone || '',
+              email: remoteSchool.email || existing?.email || ''
             });
           }
         }
@@ -239,56 +248,102 @@ const ParentDashboard = () => {
     [schoolId]
   );
 
-  // Sibling's average grade reactively from db.scores
+  // Sibling's average grade reactively from db.scores (multi-key matching)
   const gradeAverage = useLiveQuery(async () => {
-    if (!activeSibling || !schoolInfo) return null;
-    const year = schoolInfo.currentAcademicYear || '';
-    const term = schoolInfo.currentTerm || 'Term 1';
-    
-    const termScores = await db.scores
-      .filter(s =>
-        (s.learnerId === activeSibling.id || s.learnerId === String(activeSibling.id) || (activeSibling.supabaseId && s.learnerId === activeSibling.supabaseId)) &&
-        s.term === term &&
-        s.academicYear === year
-      )
-      .toArray();
-      
-    if (!termScores || termScores.length === 0) return null;
-    
-    const validScores = termScores.filter(s => s.totalScore !== undefined && s.totalScore !== null && !isNaN(s.totalScore) && s.totalScore !== '');
+    if (!activeSibling) return null;
+    const year = schoolInfo?.currentAcademicYear || '';
+    const term = schoolInfo?.currentTerm || '';
+
+    // Fix #1: Only show grade average if the report for this term is released
+    if (year && term) {
+      const allSummaries = await db.reportSummaries.toArray();
+      const lKeysForRelease = [
+        String(activeSibling.id || '').trim(),
+        String(activeSibling.supabaseId || '').trim()
+      ].filter(Boolean);
+      const termSummary = allSummaries.find(s => {
+        const sLId = String(s.learnerId || s.learner_id || '').trim();
+        return lKeysForRelease.includes(sLId) &&
+          String(s.academicYear || '').trim().toLowerCase() === String(year).trim().toLowerCase() &&
+          String(s.term || '').trim().toLowerCase() === String(term).trim().toLowerCase();
+      });
+      if (!termSummary || !(termSummary.isReleased || termSummary.is_released)) {
+        return null; // Report not released — hide grade average
+      }
+    }
+
+    const lKeys = [
+      String(activeSibling.id || '').trim(),
+      String(activeSibling.supabaseId || '').trim(),
+      String(activeSibling.regNumber || '').trim(),
+      String(activeSibling.enrollmentCode || '').trim()
+    ].filter(Boolean);
+
+    const allScores = await db.scores.toArray();
+    const targetScores = allScores.filter(s => {
+      const sLId = String(s.learnerId || s.learner_id || '').trim();
+      const matchLearner = lKeys.includes(sLId);
+      if (!matchLearner) return false;
+
+      if (year && s.academicYear && s.academicYear !== year) return false;
+      if (term && s.term && s.term !== term) return false;
+      return true;
+    });
+
+    // Fix #4: No fallback to all-time scores — only show current term data
+    if (!targetScores || targetScores.length === 0) return null;
+
+    const validScores = targetScores.filter(s => s.totalScore !== undefined && s.totalScore !== null && !isNaN(Number(s.totalScore)) && String(s.totalScore) !== '');
     if (validScores.length === 0) return null;
-    
+
     const sum = validScores.reduce((acc, s) => acc + Number(s.totalScore), 0);
     return (sum / validScores.length).toFixed(1);
   }, [activeSibling, schoolInfo]);
 
-  // â”€â”€ Smart Background Pull Sync (Parent Portal) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Uses syncDown.js which diffs cloud vs local before writing to Dexie.
-  // This prevents useLiveQuery from triggering re-renders when nothing changed,
-  // eliminating the "just reloaded" visual flash on background refresh.
-  // Also re-triggers instantly whenever the device comes back online.
+  // Smart Background Pull Sync (Parent Portal)
   useEffect(() => {
     return startParentSync({ parent, schoolId, activeSibling, siblings });
   }, [schoolId, activeSibling?.id, parent?.phone_number]);
+
   // Sibling stats / academic reports
   const siblingSummary = useLiveQuery(async () => {
-    if (!activeSibling || !schoolInfo) return null;
-    const year = schoolInfo.currentAcademicYear || '';
-    const term = schoolInfo.currentTerm || 'Term 1';
+    if (!activeSibling) return null;
+    const year = schoolInfo?.currentAcademicYear || '';
+    const term = schoolInfo?.currentTerm || '';
+
+    const allSummaries = await db.reportSummaries.toArray();
     
-    return await db.reportSummaries
-      .filter(s =>
-        (s.learnerId === activeSibling.id || s.learnerId === String(activeSibling.id) || (activeSibling.supabaseId && s.learnerId === activeSibling.supabaseId)) &&
-        s.academicYear === year &&
-        s.term === term
-      )
-      .first();
+    // Find summaries matching this active sibling using all candidate keys
+    const studentKeys = [
+      String(activeSibling.id || '').trim(),
+      String(activeSibling.supabaseId || '').trim(),
+      String(activeSibling.regNumber || '').trim(),
+      String(activeSibling.enrollmentCode || '').trim()
+    ].filter(Boolean);
+
+    const matched = allSummaries.filter(s => {
+      const sLId = String(s.learnerId || s.learner_id || '').trim();
+      const matchLearner = studentKeys.includes(sLId);
+      if (!matchLearner) return false;
+
+      if (year && s.academicYear && String(s.academicYear).trim().toLowerCase() !== String(year).trim().toLowerCase()) return false;
+      if (term && s.term && String(s.term).trim().toLowerCase() !== String(term).trim().toLowerCase()) return false;
+      return true;
+    });
+
+    if (matched.length > 0) {
+      // Prioritize any record where isReleased / is_released is true!
+      return matched.find(m => m.isReleased || m.is_released) || matched[0];
+    }
+
+    // No fallback — return null when current term data is not yet available
+    return null;
   }, [activeSibling, schoolInfo]);
 
-  const isReportReleased = siblingSummary && (siblingSummary.isReleased || siblingSummary.is_released);
+  const isReportReleased = Boolean(siblingSummary && (siblingSummary.isReleased || siblingSummary.is_released));
 
   const attendanceRate = React.useMemo(() => {
-    if (!siblingSummary?.attendanceTotal || siblingSummary.attendanceTotal <= 0) return 'â€”';
+    if (!siblingSummary?.attendanceTotal || siblingSummary.attendanceTotal <= 0) return '—';
     const present = Number(siblingSummary.attendancePresent || 0);
     const total = Number(siblingSummary.attendanceTotal || 0);
     return `${Math.round((present / total) * 100)}%`;
@@ -917,10 +972,10 @@ const ParentDashboard = () => {
           align-items: center;
           gap: 8px;
         }
-        .notif-drop-title i { color: #0d9488; }
+        .notif-drop-title i { color: #2563eb; }
         .btn-mark-read {
           font-size: 0.7rem;
-          color: #64748b;
+          color: #71717a;
           background: none;
           border: none;
           cursor: pointer;
@@ -929,7 +984,7 @@ const ParentDashboard = () => {
           transition: color 0.2s;
           padding: 0;
         }
-        .btn-mark-read:hover { color: #2dd4bf; }
+        .btn-mark-read:hover { color: #2563eb; }
         .notif-list {
           max-height: 380px;
           overflow-y: auto;
@@ -948,7 +1003,7 @@ const ParentDashboard = () => {
         }
         .notif-item:last-child { border-bottom: none; }
         .notif-item:hover { background: rgba(255,255,255,0.03); }
-        .notif-item.unread { background: rgba(13,148,136,0.06); }
+        .notif-item.unread { background: rgba(37,99,235,0.08); }
         .notif-type-icon {
           width: 34px;
           height: 34px;
@@ -960,8 +1015,8 @@ const ParentDashboard = () => {
           flex-shrink: 0;
           margin-top: 1px;
         }
-        .notif-icon-broadcast { background: rgba(13,148,136,0.15); color: #2dd4bf; }
-        .notif-icon-direct    { background: rgba(59,130,246,0.15);  color: #60a5fa; }
+        .notif-icon-broadcast { background: rgba(37,99,235,0.15); color: #2563eb; }
+        .notif-icon-direct    { background: rgba(37,99,235,0.15);  color: #2563eb; }
         .notif-text-block { flex: 1; min-width: 0; }
         .notif-item-title {
           font-size: 0.82rem;
@@ -974,21 +1029,21 @@ const ParentDashboard = () => {
         }
         .notif-item-body {
           font-size: 0.75rem;
-          color: #64748b;
+          color: #71717a;
           line-height: 1.45;
           word-wrap: break-word;
           white-space: pre-wrap;
         }
         .notif-item-time {
           font-size: 0.65rem;
-          color: #334155;
+          color: #A1A1AA;
           margin-top: 4px;
           font-weight: 600;
         }
         .notif-unread-dot {
           width: 7px;
           height: 7px;
-          background: #0d9488;
+          background: #2563eb;
           border-radius: 50%;
           flex-shrink: 0;
           margin-top: 6px;
@@ -1131,26 +1186,26 @@ const ParentDashboard = () => {
           word-break: break-word;
         }
         .msg-row.from-parent .msg-bubble {
-          background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+          background: #2563eb;
           color: #fff;
           border-bottom-right-radius: 5px;
-          box-shadow: 0 4px 18px rgba(13,148,136,0.32);
+          box-shadow: 0 4px 18px rgba(37,99,235,0.32);
         }
         .msg-row.from-school .msg-bubble {
-          background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+          background: #09090b;
           color: #e2e8f0;
           border-bottom-left-radius: 5px;
           border: 1px solid rgba(255,255,255,0.07);
         }
         .msg-meta {
           font-size: 0.64rem;
-          color: #334155;
+          color: #71717a;
           margin-top: 3px;
           display: flex;
           align-items: center;
           gap: 5px;
         }
-        .msg-pending { color: #f59e0b; }
+        .msg-pending { color: #F59E0B; }
 
         /* Chat input */
         .chat-input-area {
@@ -1179,10 +1234,10 @@ const ParentDashboard = () => {
           transition: border-color 0.2s;
           line-height: 1.45;
         }
-        .chat-textarea::placeholder { color: #334155; }
-        .chat-textarea:focus { border-color: rgba(13,148,136,0.45); }
+        .chat-textarea::placeholder { color: #71717a; }
+        .chat-textarea:focus { border-color: #2563eb; }
         .btn-send-msg {
-          background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+          background: #2563eb;
           border: none;
           color: #fff;
           width: 44px;
@@ -1194,17 +1249,18 @@ const ParentDashboard = () => {
           cursor: pointer;
           font-size: 0.9rem;
           transition: all 0.22s;
-          box-shadow: 0 4px 16px rgba(13,148,136,0.32);
+          box-shadow: 0 4px 16px rgba(37,99,235,0.32);
           flex-shrink: 0;
         }
         .btn-send-msg:hover:not(:disabled) {
+          background: #1d4ed8;
           transform: scale(1.06);
-          box-shadow: 0 6px 22px rgba(13,148,136,0.48);
+          box-shadow: 0 6px 22px rgba(37,99,235,0.48);
         }
         .btn-send-msg:disabled { opacity: 0.45; cursor: not-allowed; }
 
         .chat-toast-banner {
-          background: rgba(13, 148, 136, 0.95);
+          background: #2563eb;
           backdrop-filter: blur(12px);
           -webkit-backdrop-filter: blur(12px);
           border-bottom: 1px solid rgba(255, 255, 255, 0.15);
@@ -1347,9 +1403,7 @@ const ParentDashboard = () => {
         .landing-title {
           font-size: 2.15rem;
           font-weight: 900;
-          background: linear-gradient(135deg, #0f172a 40%, #0d9488 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          color: #09090b;
           margin: 0 0 0.5rem;
           letter-spacing: -0.03em;
         }
@@ -1725,10 +1779,10 @@ const ParentDashboard = () => {
         }
 
         .sibling-pill.active {
-          background: #0d9488;
-          border-color: #0d9488;
+          background: #09090b;
+          border-color: #09090b;
           color: #fff;
-          box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+          box-shadow: 0 4px 12px rgba(9, 9, 11, 0.25);
         }
 
         /* Virtual Student ID Card */
@@ -1937,8 +1991,8 @@ const ParentDashboard = () => {
         }
 
         .metric-grade .metric-icon {
-          background: rgba(13, 148, 136, 0.1);
-          color: #0d9488;
+          background: rgba(37, 99, 235, 0.1);
+          color: #2563eb;
         }
 
         .metric-balance .metric-icon {
@@ -2015,27 +2069,27 @@ const ParentDashboard = () => {
         }
 
         .qa-btn-report {
-          background: linear-gradient(135deg, rgba(13, 148, 136, 0.04) 0%, rgba(13, 148, 136, 0.01) 100%);
-          border-color: rgba(13, 148, 136, 0.15);
+          background: #FAFAFA;
+          border-color: #E4E4E7;
         }
 
         .qa-btn-report:hover {
           transform: translateY(-4px);
-          background: #0d9488;
-          border-color: #0d9488;
-          box-shadow: 0 12px 30px rgba(13, 148, 136, 0.2);
+          background: #2563eb;
+          border-color: #2563eb;
+          box-shadow: 0 12px 30px rgba(37, 99, 235, 0.2);
         }
 
         .qa-btn-fees {
-          background: linear-gradient(135deg, rgba(59, 130, 246, 0.04) 0%, rgba(59, 130, 246, 0.01) 100%);
-          border-color: rgba(59, 130, 246, 0.15);
+          background: #FAFAFA;
+          border-color: #E4E4E7;
         }
 
         .qa-btn-fees:hover {
           transform: translateY(-4px);
-          background: #3b82f6;
-          border-color: #3b82f6;
-          box-shadow: 0 12px 30px rgba(59, 130, 246, 0.2);
+          background: #09090b;
+          border-color: #09090b;
+          box-shadow: 0 12px 30px rgba(9, 9, 11, 0.2);
         }
 
         .qa-btn-main {
@@ -2057,8 +2111,8 @@ const ParentDashboard = () => {
         }
 
         .qa-btn-report .qa-btn-icon {
-          background: rgba(13, 148, 136, 0.1);
-          color: #0d9488;
+          background: rgba(37, 99, 235, 0.1);
+          color: #2563eb;
         }
 
         .qa-btn-report:hover .qa-btn-icon {
@@ -2067,8 +2121,8 @@ const ParentDashboard = () => {
         }
 
         .qa-btn-fees .qa-btn-icon {
-          background: rgba(59, 130, 246, 0.1);
-          color: #3b82f6;
+          background: rgba(9, 9, 11, 0.08);
+          color: #09090b;
         }
 
         .qa-btn-fees:hover .qa-btn-icon {
@@ -2077,20 +2131,20 @@ const ParentDashboard = () => {
         }
 
         .qa-btn-chat {
-          background: linear-gradient(135deg, rgba(139, 92, 246, 0.04) 0%, rgba(139, 92, 246, 0.01) 100%);
-          border-color: rgba(139, 92, 246, 0.15);
+          background: #FAFAFA;
+          border-color: #E4E4E7;
         }
 
         .qa-btn-chat:hover {
           transform: translateY(-4px);
-          background: #8b5cf6;
-          border-color: #8b5cf6;
-          box-shadow: 0 12px 30px rgba(139, 92, 246, 0.2);
+          background: #2563eb;
+          border-color: #2563eb;
+          box-shadow: 0 12px 30px rgba(37, 99, 235, 0.2);
         }
 
         .qa-btn-chat .qa-btn-icon {
-          background: rgba(139, 92, 246, 0.1);
-          color: #a78bfa;
+          background: rgba(37, 99, 235, 0.1);
+          color: #2563eb;
         }
 
         .qa-btn-chat:hover .qa-btn-icon {
@@ -2099,7 +2153,7 @@ const ParentDashboard = () => {
         }
 
         .qa-btn-chat .qa-btn-action-indicator {
-          color: #a78bfa;
+          color: #2563eb;
         }
 
         .qa-btn-text {
@@ -2109,7 +2163,7 @@ const ParentDashboard = () => {
         .qa-btn-title {
           font-weight: 850;
           font-size: 1.05rem;
-          color: #0f172a;
+          color: #09090b;
           transition: color 0.2s;
         }
 
@@ -2119,7 +2173,7 @@ const ParentDashboard = () => {
 
         .qa-btn-desc {
           font-size: 0.8rem;
-          color: #64748b;
+          color: #71717a;
           line-height: 1.45;
           margin-top: 0.35rem;
           font-weight: 500;
@@ -2143,7 +2197,7 @@ const ParentDashboard = () => {
         }
 
         .qa-btn-report .qa-btn-action-indicator {
-          color: #0d9488;
+          color: #2563eb;
         }
 
         .qa-btn-fees .qa-btn-action-indicator {
@@ -2177,8 +2231,8 @@ const ParentDashboard = () => {
           width: 38px;
           height: 38px;
           border-radius: 10px;
-          background: rgba(13, 148, 136, 0.1);
-          color: #0d9488;
+          background: rgba(37, 99, 235, 0.1);
+          color: #2563eb;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2188,7 +2242,7 @@ const ParentDashboard = () => {
         .contact-title {
           font-size: 0.85rem;
           font-weight: 700;
-          color: #1e293b;
+          color: #09090b;
         }
 
         .contact-detail-row {
@@ -2197,11 +2251,11 @@ const ParentDashboard = () => {
           gap: 10px;
           margin-bottom: 0.6rem;
           font-size: 0.8rem;
-          color: #475569;
+          color: #71717a;
         }
 
         .contact-detail-row i {
-          color: #0d9488;
+          color: #2563eb;
           width: 18px;
           text-align: center;
           font-size: 0.85rem;
@@ -2213,7 +2267,7 @@ const ParentDashboard = () => {
           border-radius: 20px;
           padding: 2rem;
           box-shadow: 0 4px 20px rgba(15, 23, 42, 0.03);
-          border: 1px solid #e2e8f0;
+          border: 1px solid #E4E4E7;
           height: fit-content;
         }
 
@@ -2222,21 +2276,21 @@ const ParentDashboard = () => {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 1.5rem;
-          border-bottom: 2.5px solid #f1f5f9;
+          border-bottom: 2.5px solid #FAFAFA;
           padding-bottom: 0.85rem;
         }
 
         .feed-title {
           font-size: 1.25rem;
           font-weight: 800;
-          color: #0f172a;
+          color: #09090b;
           display: flex;
           align-items: center;
           gap: 10px;
         }
 
         .feed-title i {
-          color: #0d9488;
+          color: #2563eb;
         }
 
         .feed-status-badge {
@@ -2250,13 +2304,13 @@ const ParentDashboard = () => {
         }
 
         .feed-status-online {
-          background: rgba(16, 185, 129, 0.1);
-          color: #059669;
+          background: #ECFDF5;
+          color: #10B981;
         }
 
         .feed-status-offline {
-          background: rgba(245, 158, 11, 0.1);
-          color: #d97706;
+          background: #FFFBEB;
+          color: #F59E0B;
         }
 
         .feed-items {
@@ -2278,14 +2332,14 @@ const ParentDashboard = () => {
           top: 4px;
           bottom: 4px;
           width: 3px;
-          background: #0d9488;
+          background: #2563eb;
           border-radius: 4px;
         }
 
         .announcement-date {
           font-size: 0.72rem;
           font-weight: 700;
-          color: #94a3b8;
+          color: #A1A1AA;
           margin-bottom: 0.35rem;
           text-transform: uppercase;
           letter-spacing: 0.05em;
@@ -2294,13 +2348,13 @@ const ParentDashboard = () => {
         .announcement-headline {
           font-size: 0.98rem;
           font-weight: 800;
-          color: #1e293b;
+          color: #09090b;
           margin: 0 0 0.5rem;
         }
 
         .announcement-body {
           font-size: 0.88rem;
-          color: #475569;
+          color: #18181b;
           line-height: 1.5;
           margin: 0;
           white-space: pre-wrap;
@@ -2309,12 +2363,12 @@ const ParentDashboard = () => {
         .empty-feed {
           text-align: center;
           padding: 3rem 1.5rem;
-          color: #94a3b8;
+          color: #A1A1AA;
         }
 
         .empty-feed i {
           font-size: 2.5rem;
-          color: #e2e8f0;
+          color: #E4E4E7;
           margin-bottom: 1rem;
         }
 
@@ -2325,7 +2379,7 @@ const ParentDashboard = () => {
 
         /* Term Countdown widget */
         .countdown-widget {
-          background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+          background: #09090b;
           border-radius: 20px;
           padding: 1.25rem;
           color: #fff;
@@ -2333,7 +2387,7 @@ const ParentDashboard = () => {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          box-shadow: 0 8px 20px rgba(13, 148, 136, 0.15);
+          box-shadow: 0 8px 20px rgba(9, 9, 11, 0.15);
         }
 
         .countdown-info h4 {
@@ -2504,19 +2558,19 @@ const ParentDashboard = () => {
         }
 
         .modal-input:focus {
-          border-color: #0d9488;
-          box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+          border-color: #2563eb;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
           background: rgba(15, 23, 42, 0.8);
         }
 
         .modal-input:focus + .modal-input-icon {
-          color: #2dd4bf;
+          color: #2563eb;
         }
 
         .btn-modal-submit {
           width: 100%;
           padding: 0.85rem;
-          background: linear-gradient(135deg, #0d9488 0%, #0f766e 100%);
+          background: #09090b;
           border: none;
           border-radius: 12px;
           color: #fff;
@@ -2529,14 +2583,15 @@ const ParentDashboard = () => {
           justify-content: center;
           gap: 8px;
           transition: all 0.2s;
-          box-shadow: 0 4px 15px rgba(13, 148, 136, 0.25);
+          box-shadow: 0 4px 15px rgba(9, 9, 11, 0.25);
           margin-top: 1.5rem;
         }
 
         .btn-modal-submit:hover:not(:disabled) {
+          background: #18181b;
           opacity: 0.95;
           transform: translateY(-1px);
-          box-shadow: 0 6px 20px rgba(13, 148, 136, 0.35);
+          box-shadow: 0 6px 20px rgba(9, 9, 11, 0.35);
         }
 
         .btn-modal-submit:disabled {
@@ -2839,7 +2894,7 @@ const ParentDashboard = () => {
       )}
 
       {/* â”€â”€ Sticky Header â”€â”€ */}
-      <div className="dashboard-header">
+      <div className="dashboard-header" data-tour="parent-dashboard">
         <div className="header-content">
           <div className="welcome-title" onClick={() => setSelectedIdx(null)} style={{ cursor: 'pointer' }} title="Go to Student Selection">
             <h2>Hello, {activeSibling ? activeSibling.guardianName : parentName}</h2>
@@ -2863,7 +2918,18 @@ const ParentDashboard = () => {
           </div>
 
           <div className="header-right-actions" ref={notifPanelRef}>
-            {/* Notification Bell â€” only shown when a sibling is selected */}
+            {/* Guide Button for Parents */}
+            <button
+              className="btn-notif-bell"
+              data-tour="parent-notices"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-parent-guide'))}
+              title="Open Parent Portal Guide"
+              style={{ background: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: '1px solid rgba(56, 189, 248, 0.3)' }}
+            >
+              <i className="fas fa-compass"></i>
+            </button>
+
+            {/* Notification Bell — only shown when a sibling is selected */}
             {activeSibling && (
               <button
                 className={`btn-notif-bell ${unreadNotifCount > 0 ? 'has-unread' : ''}`}
@@ -2967,7 +3033,7 @@ const ParentDashboard = () => {
 
       {selectedIdx === null ? (
         /* â”€â”€ SIBLING CARDS GRID VIEW â”€â”€ */
-        <div className="selector-landing-container">
+        <div className="selector-landing-container" data-tour="parent-children">
           <div className="selector-landing-card">
             <h3 className="landing-title">Registered Learners</h3>
             <p className="landing-subtitle">Please select a student below to access their academic performance profiles and financial ledger details.</p>
@@ -3074,7 +3140,7 @@ const ParentDashboard = () => {
                     </div>
                     <div className="id-row">
                       <span className="id-lbl">Grade Average</span>
-                      <span className="id-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : 'â€”'}</span>
+                      <span className="id-val">{gradeAverage !== null ? `${gradeAverage}%` : '—'}</span>
                     </div>
                   </div>
                 </div>
@@ -3084,9 +3150,8 @@ const ParentDashboard = () => {
                 </div>
               </div>
             ) : (
-              <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
-                <i className="fas fa-spinner fa-spin" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}></i>
-                <p>Loading sibling data...</p>
+              <div style={{ padding: '1rem 0' }}>
+                <LogoPreloader fullScreen={false} size="sm" />
               </div>
             )}
           </div>
@@ -3099,20 +3164,8 @@ const ParentDashboard = () => {
                     <div className="metric-icon"><i className="fas fa-graduation-cap"></i></div>
                     <div className="metric-details">
                       <span className="metric-lbl">Academic Average</span>
-                      <h3 className="metric-val">{isReportReleased && gradeAverage !== null ? `${gradeAverage}%` : 'â€”'}</h3>
-                      <span className="metric-sub">{isReportReleased ? `${schoolInfo?.currentTerm || 'Term 1'} Performance` : 'Awaiting Official Release'}</span>
-                    </div>
-                  </div>
-                  <div className="metric-card metric-balance">
-                    <div className="metric-icon"><i className="fas fa-wallet"></i></div>
-                    <div className="metric-details">
-                      <span className="metric-lbl">Outstanding Balance</span>
-                      <h3 className="metric-val" style={{ color: parseFloat(siblingSummary?.feesOwed) > 0 ? '#ef4444' : '#10b981' }}>
-                        {siblingSummary?.feesOwed !== undefined && siblingSummary?.feesOwed !== null && !isNaN(parseFloat(siblingSummary.feesOwed))
-                          ? `GHÂ¢ ${parseFloat(siblingSummary.feesOwed).toFixed(2)}`
-                          : 'GHÂ¢ 0.00'}
-                      </h3>
-                      <span className="metric-sub">Sibling Account Ledger</span>
+                      <h3 className="metric-val">{gradeAverage !== null ? `${gradeAverage}%` : '—'}</h3>
+                      <span className="metric-sub">{gradeAverage !== null ? `${schoolInfo?.currentTerm || 'Term 1'} Performance` : 'Awaiting Marks Entry'}</span>
                     </div>
                   </div>
                   <div className="metric-card metric-attendance">
@@ -3130,11 +3183,12 @@ const ParentDashboard = () => {
                 <div className="dashboard-sub-grid">
                   <div className="portals-sub-column">
                     <h3 className="section-title">
-                      <i className="fas fa-link" style={{ color: '#0d9488', fontSize: '0.9rem' }}></i> Sibling Quick Portals
+                      <i className="fas fa-link" style={{ color: '#2563eb', fontSize: '0.9rem' }}></i> Sibling Quick Portals
                     </h3>
                     <div className="quick-actions-grid">
                       <button 
                         className="qa-grid-btn qa-btn-report" 
+                        data-tour="parent-results"
                         onClick={() => {
                           if (isReportReleased) {
                             navigate(`/parent/report/${activeSibling.id}`);
@@ -3170,16 +3224,6 @@ const ParentDashboard = () => {
                         <div className="qa-btn-action-indicator" style={{ color: !isReportReleased ? '#64748b' : undefined }}>
                           {!isReportReleased ? <>Locked <i className="fas fa-lock" /></> : <>Enter Portal <i className="fas fa-arrow-right" /></>}
                         </div>
-                      </button>
-                      <button className="qa-grid-btn qa-btn-fees" onClick={() => navigate(`/parent/fees/${activeSibling.id}`)}>
-                        <div className="qa-btn-main">
-                          <div className="qa-btn-icon"><i className="fas fa-wallet"></i></div>
-                          <div className="qa-btn-text">
-                            <div className="qa-btn-title">Financial Ledger</div>
-                            <div className="qa-btn-desc">Review tuition bills, outstanding arrears, and bank guidelines.</div>
-                          </div>
-                        </div>
-                        <div className="qa-btn-action-indicator">Enter Portal <i className="fas fa-arrow-right"></i></div>
                       </button>
                       {/* â”€â”€ Chat with Head Teacher â”€â”€ */}
                       <button
@@ -3252,6 +3296,7 @@ const ParentDashboard = () => {
           )}
         </div>
       )}
+      <HeadteacherGuideModal />
     </div>
   );
 };

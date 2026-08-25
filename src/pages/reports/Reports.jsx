@@ -8,18 +8,22 @@ import LearnerPhoto from '../../components/common/LearnerPhoto';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { calculateCaTotal, calculateExamTotal, calculateTotal } from '../../lib/grading';
+import subscriptionService from '../../services/subscriptionService';
+import TopUpWalletModal from '../../components/subscription/TopUpWalletModal';
+import { calculateBest6Aggregate } from '../../lib/beceAggregateEngine';
+import { filterSubjectsForLearner, getLanguageLabel, formatSubjectNameForLearner } from '../../utils/languageUtils';
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 const DEFAULT_GRADING_SCALE = [
-  { min: 90, max: 100, grade: 'A1', remark: 'Excellent' },
-  { min: 80, max: 89,  grade: 'B2', remark: 'Very Good' },
-  { min: 70, max: 79,  grade: 'B3', remark: 'Good' },
-  { min: 60, max: 69,  grade: 'C4', remark: 'Credit' },
-  { min: 55, max: 59,  grade: 'C5', remark: 'Credit' },
-  { min: 50, max: 54,  grade: 'C6', remark: 'Credit' },
-  { min: 45, max: 49,  grade: 'D7', remark: 'Pass' },
-  { min: 40, max: 44,  grade: 'E8', remark: 'Pass' },
-  { min: 0,  max: 39,  grade: 'F9', remark: 'Fail' },
+  { min: 80, max: 100, grade: '1', remark: 'HIGHEST' },
+  { min: 70, max: 79,  grade: '2', remark: 'HIGHER' },
+  { min: 60, max: 69,  grade: '3', remark: 'HIGH' },
+  { min: 55, max: 59,  grade: '4', remark: 'HIGH AVERAGE' },
+  { min: 50, max: 54,  grade: '5', remark: 'AVERAGE' },
+  { min: 40, max: 49,  grade: '6', remark: 'LOW AVERAGE' },
+  { min: 35, max: 39,  grade: '7', remark: 'LOW' },
+  { min: 30, max: 34,  grade: '8', remark: 'LOWER' },
+  { min: 0,  max: 29,  grade: '9', remark: 'LOWEST' },
 ];
 
 function getGrade(total, scale) {
@@ -293,55 +297,69 @@ const STYLES = `
   .rc-canvas-header {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    border-bottom: 2px double #b45309;
-    padding-bottom: 1rem;
-    margin-bottom: 1.5rem;
-    flex-wrap: wrap;
+    gap: 0.6rem;
+    border-bottom: 1.5px solid #1E3A8A;
+    padding-bottom: 0.55rem;
+    margin-bottom: 0.85rem;
+    flex-wrap: nowrap;
   }
 
   .rc-school-logo {
-    width: 68px; height: 68px;
-    border-radius: 50%;
-    border: 2px solid #b45309;
-    object-fit: cover;
+    width: 56px; height: 56px;
+    border-radius: 10px;
+    border: 2px solid #1E3A8A;
+    outline: 1px solid #D97706;
+    object-fit: contain;
+    background: #ffffff;
+    padding: 3px;
     flex-shrink: 0;
+    box-shadow: 0 3px 8px rgba(30, 58, 138, 0.12);
   }
   .rc-school-logo-ph {
-    width: 68px; height: 68px;
-    border-radius: 50%;
-    border: 2px solid #b45309;
-    background: #f8fafc;
+    width: 56px; height: 56px;
+    border-radius: 10px;
+    border: 2px solid #1E3A8A;
+    outline: 1px solid #D97706;
+    background: rgba(30, 58, 138, 0.05);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #b45309;
-    font-size: 1.75rem;
+    color: #D97706;
+    font-size: 1.4rem;
     flex-shrink: 0;
+    box-shadow: 0 3px 8px rgba(30, 58, 138, 0.10);
   }
   .rc-student-photo {
-    width: 72px; height: 84px;
-    border-radius: 8px;
-    border: 2px solid #e2e8f0;
+    width: 85px;
+    height: 104px;
+    border-radius: 9px;
+    border: 2px solid #1E3A8A;
     object-fit: cover;
+    object-position: center top;
+    background: #ffffff;
+    padding: 2px;
     flex-shrink: 0;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    font-size: 1.25rem;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+    margin-right: 18px;
   }
   .rc-student-photo-ph {
-    width: 72px; height: 84px;
-    border-radius: 8px;
-    border: 2px dashed #e2e8f0;
+    width: 85px;
+    height: 104px;
+    border-radius: 9px;
+    border: 1.5px dashed #cbd5e1;
     background: #f8fafc;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #94a3b8;
-    font-size: 0.5rem;
+    color: #1E3A8A;
+    font-size: 0.65rem;
     font-weight: 700;
     text-transform: uppercase;
-    gap: 4px;
+    gap: 2px;
     flex-shrink: 0;
+    margin-right: 18px;
   }
 
   .rc-title-row {
@@ -423,9 +441,12 @@ const STYLES = `
     font-size: 0.67rem; color: #64748b; align-items: center;
   }
 
-  .rc-sig-strip { display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 1rem; gap: 1rem; }
-  .rc-sig-block { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 120px; font-size: 0.7rem; font-weight: 700; text-align: center; color: #0f172a; }
-  .rc-sig-line { width: 100%; height: 1px; background: #94a3b8; margin-bottom: 5px; margin-top: 28px; }
+  .rc-sig-strip { display: flex; justify-content: space-between; border-top: 2px solid #0f172a; padding-top: 0.75rem; gap: 1rem; margin-top: 0.85rem; }
+  .rc-sig-block { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 120px; font-size: 0.72rem; font-weight: 700; text-align: center; color: #0f172a; }
+  .rc-sig-img-wrap { height: 46px; display: flex; align-items: flex-end; justify-content: center; width: 100%; }
+  .rc-sig-img { max-height: 44px; max-width: 130px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.18)); }
+  .rc-sig-placeholder { height: 44px; }
+  .rc-sig-line { width: 100%; height: 1.5px; background: #0f172a; margin-top: 4px; margin-bottom: 4px; }
 
   /* ── Remark editor ── */
   .rc-editor {
@@ -643,7 +664,7 @@ const STYLES = `
     flex-wrap: wrap;
   }
   .btn-dispatch {
-    background: #0d9488;
+    background: #09090b;
     color: white !important;
     border: none;
     border-radius: 12px;
@@ -654,7 +675,7 @@ const STYLES = `
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.3);
+    box-shadow: 0 4px 14px rgba(9, 9, 11, 0.25);
     transition: all 0.2s;
   }
   .btn-dispatch:hover {
@@ -810,9 +831,9 @@ const STYLES = `
     gap: 4px;
   }
   .rc-badge-published {
-    background: rgba(13, 148, 136, 0.08);
-    color: #0d9488;
-    border: 1px solid rgba(13, 148, 136, 0.2);
+    background: #ECFDF5;
+    color: #10B981;
+    border: 1px solid #A7F3D0;
     padding: 4px 10px;
     border-radius: 6px;
     font-weight: 700;
@@ -882,6 +903,20 @@ const Reports = () => {
   const [generateMode,  setGenerateMode]  = useState('all'); // 'all' | 'individual'
   const [selectedIndividualId, setSelectedIndividualId] = useState('');
   const [excludePortalAccess, setExcludePortalAccess] = useState(true);
+
+  const [subStatus, setSubStatus] = useState(null);
+  const [showTopUpModal, setShowTopUpModal] = useState(false);
+
+  const loadSubStatus = React.useCallback(async () => {
+    if (schoolId) {
+      const res = await subscriptionService.getSchoolSubscriptionStatus(schoolId, academicYear, selectedTerm);
+      setSubStatus(res);
+    }
+  }, [schoolId, academicYear, selectedTerm]);
+
+  useEffect(() => {
+    loadSubStatus();
+  }, [loadSubStatus]);
   const classes            = useLiveQuery(
     () => schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
@@ -895,12 +930,12 @@ const Reports = () => {
     [schoolId]
   );
   const learners           = useLiveQuery(
-    () => schoolId ? db.learners.where('schoolId').equals(schoolId).toArray() : [],
+    () => schoolId ? db.learners.filter(l => String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId)).toArray() : [],
     [schoolId]
   );
 
   const reportSummaries    = useLiveQuery(
-    () => schoolId ? db.reportSummaries.where('schoolId').equals(schoolId).toArray() : [],
+    () => schoolId ? db.reportSummaries.filter(r => String(r.schoolId) === String(schoolId) || String(r.school_id || '') === String(schoolId)).toArray() : [],
     [schoolId]
   );
   const teacherAssignments = useLiveQuery(
@@ -1153,7 +1188,7 @@ const Reports = () => {
           next_term_begins: s.nextTermBegins || '',
           fees_owed: s.feesOwed || '',
           next_term_bill: s.nextTermBill || '',
-          is_released: s.isReleased || s.is_released || false,
+          is_released: Boolean(s.isReleased || s.is_released),
           class_average: s.classAverage !== undefined ? s.classAverage : null,
           class_rank: s.classRank !== undefined ? s.classRank : null,
           total_graded: s.totalGraded !== undefined ? s.totalGraded : 0,
@@ -1162,12 +1197,27 @@ const Reports = () => {
         };
 
         if (s.supabaseId) {
-          await enqueueSync('update', 'report_summaries', { filter: { id: s.supabaseId }, data: cloud }, user.schoolId);
-        } else {
-          await enqueueSync('insert', 'report_summaries', cloud, user.schoolId);
+          cloud.id = s.supabaseId;
         }
 
-        await db.reportSummaries.update(s.id, { synced: true });
+        // Direct cloud upsert for immediate availability in parent portal
+        const { data: upsertData, error: upsertErr } = await supabase
+          .from('report_summaries')
+          .upsert([cloud])
+          .select('id')
+          .single();
+
+        if (!upsertErr) {
+          await db.reportSummaries.update(s.id, { synced: true, supabaseId: upsertData?.id || s.supabaseId });
+        } else {
+          // Outbox queue fallback if direct upsert returned notice
+          if (s.supabaseId) {
+            await enqueueSync('update', 'report_summaries', { filter: { id: s.supabaseId }, data: cloud }, user.schoolId).catch(() => null);
+          } else {
+            await enqueueSync('insert', 'report_summaries', cloud, user.schoolId).catch(() => null);
+          }
+          await db.reportSummaries.update(s.id, { synced: true });
+        }
       }
     } catch (err) {
       console.warn('Failed to sync unsynced summaries:', err);
@@ -1350,13 +1400,14 @@ const Reports = () => {
   // Active grades
   const activeGrades = useMemo(() => {
     if (!activeLearnerId || !activeLearner || !classSubjectList.length || !scores) return [];
+    const filteredSubjects = filterSubjectsForLearner(classSubjectList, activeLearner);
     const ls = scores.filter(s => 
       (s.learnerId === activeLearnerId || s.learnerId === String(activeLearnerId) || (activeLearner.supabaseId && s.learnerId === activeLearner.supabaseId)) && 
       s.classId === Number(selectedClass) && 
       s.term === selectedTerm && 
       s.academicYear === academicYear
     );
-    return classSubjectList.map(subj => {
+    return filteredSubjects.map(subj => {
       const rec  = ls.find(s => s.subjectId === subj.id);
       const hasCa = rec?.caScores && Array.isArray(rec.caScores) && rec.caScores.some(score => score !== undefined && score !== null && score !== '');
       const hasExam = rec?.examScore !== undefined && rec.examScore !== null && rec.examScore !== '';
@@ -1364,9 +1415,12 @@ const Reports = () => {
       const exam = hasExam ? calculateExamTotal(rec.examScore, globalSettings) : null;
       const total = (hasCa || hasExam) ? calculateTotal(ca || 0, exam || 0) : null;
       const { grade, remark } = getGrade(total, gradingScale);
-      return { subjectName: subj.name, ca, exam, total, grade, remark };
+      return { 
+        subjectName: formatSubjectNameForLearner(subj.name, activeLearner), 
+        ca, exam, total, grade, remark 
+      };
     });
-  }, [activeLearnerId, classSubjectList, scores, selectedClass, selectedTerm, academicYear, gradingScale, globalSettings]);
+  }, [activeLearnerId, activeLearner, classSubjectList, scores, selectedClass, selectedTerm, academicYear, gradingScale, globalSettings]);
 
   // Can preview
   const canPreview = selectedClass && academicYear && selectedTerm && (generateMode === 'all' || selectedIndividualId);
@@ -1489,11 +1543,51 @@ const Reports = () => {
 
     setIsReleasing(true);
     try {
-      const localSummaries = await db.reportSummaries
-        .filter(s => s.classId === Number(selectedClass) && s.academicYear === academicYear && s.term === selectedTerm)
-        .toArray();
+      // Loop over every learner in the class to create or update their summary record
+      for (const l of classLearners) {
+        const resolvedLearnerId = l.supabaseId || l.id;
+        const avg = learnerAverages[l.id];
+        const rank = learnerRankings[l.id];
 
-      // Enqueue the bulk update in the sync engine outbox (resilient for online & offline)
+        let summary = await db.reportSummaries
+          .filter(s =>
+            (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) &&
+            s.academicYear === academicYear &&
+            s.term === selectedTerm
+          )
+          .first();
+
+        if (!summary) {
+          await db.reportSummaries.add({
+            schoolId: user.schoolId,
+            learnerId: resolvedLearnerId,
+            classId: Number(selectedClass),
+            academicYear,
+            term: selectedTerm,
+            attendancePresent: 0,
+            attendanceTotal: 0,
+            conduct: '—',
+            attitude: '—',
+            teacherRemark: '—',
+            headteacherRemark: '—',
+            isReleased: releaseStatus,
+            classAverage: (avg !== undefined && avg !== null) ? Number(avg) : null,
+            classRank: (rank !== undefined && rank !== null) ? Number(rank) : null,
+            totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : 0,
+            synced: false
+          });
+        } else {
+          await db.reportSummaries.update(summary.id, {
+            isReleased: releaseStatus,
+            classAverage: (avg !== undefined && avg !== null) ? Number(avg) : (summary.classAverage || null),
+            classRank: (rank !== undefined && rank !== null) ? Number(rank) : (summary.classRank || null),
+            totalGraded: (gradedCount !== undefined && gradedCount !== null) ? Number(gradedCount) : (summary.totalGraded || 0),
+            synced: false
+          });
+        }
+      }
+
+      // Enqueue the bulk update in the sync engine outbox
       await enqueueSync('update', 'report_summaries', {
         filter: {
           school_id: user.schoolId,
@@ -1505,15 +1599,10 @@ const Reports = () => {
           is_released: releaseStatus,
           updated_at: new Date().toISOString()
         }
-      }, user.schoolId);
+      }, user.schoolId).catch(() => null);
 
-      // Proactively update local db records to match
-      for (const s of localSummaries) {
-        await db.reportSummaries.update(s.id, { isReleased: releaseStatus, synced: false });
-      }
-
-      // Also trigger a background sync run to ensure any previously unsynced local summaries are created
-      syncUnsyncedReportSummaries().catch(err => console.warn('Failed to run summary sync:', err));
+      // Trigger immediate cloud sync for unsynced summaries
+      await syncUnsyncedReportSummaries().catch(err => console.warn('Failed to run summary sync:', err));
 
       alert(`Report cards successfully ${releaseStatus ? 'released' : 'revoked'} for all students in this class!`);
     } catch (err) {
@@ -1759,13 +1848,14 @@ const Reports = () => {
 
     const grades = (() => {
       if (!scores || !classSubjectList.length) return [];
+      const filteredSubjects = filterSubjectsForLearner(classSubjectList, learner);
       const ls = scores.filter(s => 
         (s.learnerId === lId || s.learnerId === String(lId) || (learner.supabaseId && s.learnerId === learner.supabaseId)) && 
         s.classId === Number(selectedClass) && 
         s.term === selectedTerm && 
         s.academicYear === academicYear
       );
-      return classSubjectList.map(subj => {
+      return filteredSubjects.map(subj => {
         const rec   = ls.find(s => s.subjectId === subj.id);
         const hasCa = rec?.caScores && Array.isArray(rec.caScores) && rec.caScores.some(score => score !== undefined && score !== null && score !== '');
         const hasExam = rec?.examScore !== undefined && rec.examScore !== null && rec.examScore !== '';
@@ -1773,9 +1863,14 @@ const Reports = () => {
         const exam = hasExam ? calculateExamTotal(rec.examScore, globalSettings) : null;
         const total = (hasCa || hasExam) ? calculateTotal(ca || 0, exam || 0) : null;
         const { grade, remark } = getGrade(total, gradingScale);
-        return { subjectName: subj.name, ca, exam, total, grade, remark };
+        return { 
+          subjectName: formatSubjectNameForLearner(subj.name, learner), 
+          ca, exam, total, grade, remark 
+        };
       });
     })();
+
+    const beceResult = calculateBest6Aggregate(grades, globalSettings);
 
     // Use form values only for the actively-selected learner; else use saved summary
     const conduct   = isActive ? (form.conduct           || summary?.conduct           || '—') : (summary?.conduct           || '—');
@@ -1805,7 +1900,7 @@ const Reports = () => {
           <div className="no-print" style={{
             position: 'absolute',
             top: 0, left: 0, right: 0,
-            background: isReleased ? '#0d9488' : '#f59e0b',
+            background: isReleased ? '#10B981' : '#F59E0B',
             color: '#fff',
             fontSize: '0.72rem',
             fontWeight: 800,
@@ -1827,8 +1922,13 @@ const Reports = () => {
         )}
         {/* Header */}
         <div className="rc-canvas-header">
-          {schoolInfo?.logoUrl
-            ? <img src={schoolInfo.logoUrl} alt="logo" className="rc-school-logo" />
+          {schoolInfo?.logoUrl && !schoolInfo.logoUrl.startsWith('blob:')
+            ? <img
+                src={schoolInfo.logoUrl}
+                alt="logo"
+                className="rc-school-logo"
+                onError={(e) => { e.target.style.display = 'none'; }}
+              />
             : <div className="rc-school-logo-ph"><i className="fas fa-school" /></div>}
           <div style={{ flex: 1 }}>
             <h1 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 900, textTransform: 'uppercase', color: '#0f172a', letterSpacing: '0.4px' }}>
@@ -1855,8 +1955,8 @@ const Reports = () => {
         <div className="rc-title-row">
           <span className="rc-doc-badge">Terminal Report Card</span>
           <div className="rc-kpis">
-            <div className="rc-kpi" style={{ background: '#f0fdfa', border: '2px solid #0d9488' }}>
-              <span className="rc-kpi-lbl" style={{ color: '#0d9488' }}>Avg</span>
+            <div className="rc-kpi" style={{ background: 'rgba(37, 99, 235, 0.06)', border: '2px solid #2563eb' }}>
+              <span className="rc-kpi-lbl" style={{ color: '#2563eb' }}>Avg</span>
               <span className="rc-kpi-val">{avg !== null && avg !== undefined ? `${avg}%` : '—'}</span>
             </div>
             <div className="rc-kpi" style={{ background: '#fdf2f8', border: '2px solid #db2777' }}>
@@ -1867,6 +1967,12 @@ const Reports = () => {
               <span className="rc-kpi-lbl" style={{ color: '#ca8a04' }}>Of</span>
               <span className="rc-kpi-val">{gradedCount}</span>
             </div>
+            {beceResult?.enabled && beceResult?.aggregate_score !== null && (
+              <div className="rc-kpi" style={{ background: beceResult.performance_level.bg, border: `2px solid ${beceResult.performance_level.color}` }}>
+                <span className="rc-kpi-lbl" style={{ color: beceResult.performance_level.color }}>BECE Agg</span>
+                <span className="rc-kpi-val" style={{ color: beceResult.performance_level.color }}>{beceResult.aggregate_score}</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1875,6 +1981,7 @@ const Reports = () => {
           <div className="rc-bio-item"><strong>Name:</strong>{learner.fullName}</div>
           <div className="rc-bio-item"><strong>Reg No:</strong>{learner.regNumber || '—'}</div>
           <div className="rc-bio-item"><strong>Gender:</strong>{learner.gender || '—'}</div>
+          <div className="rc-bio-item"><strong>Language:</strong>{getLanguageLabel(learner.ghanaianLanguage || learner.ghanaian_language)}</div>
           <div className="rc-bio-item"><strong>Class:</strong>{selectedClassInfo?.name || '—'}</div>
           <div className="rc-bio-item"><strong>Academic Year:</strong>{academicYear || '—'}</div>
           <div className="rc-bio-item"><strong>Term:</strong>{selectedTerm}</div>
@@ -1882,35 +1989,59 @@ const Reports = () => {
 
         {/* Grades table */}
         {grades.length > 0 ? (
-          <div className="rc-table-wrap">
-            <table className="rc-table">
-              <thead>
-                <tr>
-                  <th>Subject</th>
-                  <th className="c">CA</th>
-                  <th className="c">Exam</th>
-                  <th className="c">Total</th>
-                  <th className="c">Grade</th>
-                  <th>Remark</th>
-                </tr>
-              </thead>
-              <tbody>
-                {grades.map((g, i) => {
-                  const gc = gradeColor(g.grade);
-                  return (
-                    <tr key={i}>
-                      <td style={{ fontWeight: 600 }}>{g.subjectName}</td>
-                      <td className="c">{g.ca !== null ? Number(g.ca).toFixed(1) : '—'}</td>
-                      <td className="c">{g.exam !== null ? Number(g.exam).toFixed(1) : '—'}</td>
-                      <td className="c" style={{ fontWeight: 700, color: '#0f172a' }}>{g.total !== null ? Number(g.total).toFixed(1) : '—'}</td>
-                      <td className="c"><span className="rc-gbadge" style={{ background: gc.bg, color: gc.text }}>{g.grade}</span></td>
-                      <td style={{ color: gc.text, fontWeight: 600 }}>{g.remark}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="rc-table-wrap">
+              <table className="rc-table">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th className="c">CA</th>
+                    <th className="c">Exam</th>
+                    <th className="c">Total</th>
+                    <th className="c">Grade</th>
+                    <th>Remark</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grades.map((g, i) => {
+                    const gc = gradeColor(g.grade);
+                    return (
+                      <tr key={i}>
+                        <td style={{ fontWeight: 600 }}>{g.subjectName}</td>
+                        <td className="c">{g.ca !== null ? Number(g.ca).toFixed(1) : '—'}</td>
+                        <td className="c">{g.exam !== null ? Number(g.exam).toFixed(1) : '—'}</td>
+                        <td className="c" style={{ fontWeight: 700, color: '#0f172a' }}>{g.total !== null ? Number(g.total).toFixed(1) : '—'}</td>
+                        <td className="c"><span className="rc-gbadge" style={{ background: gc.bg, color: gc.text }}>{g.grade}</span></td>
+                        <td style={{ color: gc.text, fontWeight: 600 }}>{g.remark}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* BECE Best 6 Performance Breakdown Card */}
+            {beceResult?.enabled && (
+              <div style={{ margin: '0.85rem 0 1.25rem', padding: '0.85rem 1.15rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#09090b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    <i className="fas fa-graduation-cap" style={{ color: '#2563eb', marginRight: '6px' }} />
+                    Projected BECE Aggregate (Best 6): <strong style={{ color: beceResult.performance_level.color, fontSize: '0.92rem' }}>Aggregate {beceResult.aggregate_score || '—'} ({beceResult.performance_level.label})</strong>
+                  </span>
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, color: '#64748b', background: '#e2e8f0', padding: '2px 8px', borderRadius: '999px' }}>
+                    Best 6 Total Marks: {beceResult.best6_total_marks} / 600
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: '#475569', display: 'flex', flexWrap: 'wrap', gap: '8px', lineHeight: 1.5 }}>
+                  <div><strong>4 Core Subjects:</strong> {beceResult.core_subjects.map(c => `${c.subjectName} (${c.gradePoint}pts)`).join(', ') || 'None'}</div>
+                  <div>&bull; <strong>Best 2 Electives:</strong> {beceResult.elective_subjects.map(e => `${e.subjectName} (${e.gradePoint}pts)`).join(', ') || 'None'}</div>
+                </div>
+                <div style={{ fontSize: '0.65rem', color: '#94a3b8', fontStyle: 'italic', marginTop: '6px' }}>
+                  * {beceResult.disclaimer}
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div style={{ textAlign: 'center', padding: '2rem', border: '1px dashed #e2e8f0', borderRadius: '10px', color: '#94a3b8', marginBottom: '1.25rem', fontSize: '0.8rem' }}>
             No subjects linked to this class yet.
@@ -1944,49 +2075,11 @@ const Reports = () => {
             <p><strong>Vacation Date:</strong> {vDate}</p>
             <p><strong>Resumes:</strong> {nDate}</p>
             {promoted && (
-              <p style={{ color: '#0d9488', fontWeight: 'bold', margin: '4px 0' }}>
+              <p style={{ color: '#2563eb', fontWeight: 'bold', margin: '4px 0' }}>
                 <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
                 Decision: Promoted to {getPromotedClassName(promoted)}
               </p>
             )}
-            {(() => {
-              const numFees = parseFloat(fees) || 0;
-              const numBill = parseFloat(bill) || 0;
-              
-              const learnerPayments = payments?.filter(pay => 
-                (pay.learnerId === learner.id || pay.learnerId === String(learner.id) || (learner.supabaseId && pay.learnerId === learner.supabaseId)) &&
-                pay.academicYear === academicYear &&
-                pay.term === selectedTerm
-              ) || [];
-              const totalPaid = learnerPayments.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-              
-              const totalBilled = numFees + numBill;
-              const balanceDue = totalBilled - totalPaid;
-              
-              if (totalBilled > 0 || totalPaid > 0) {
-                return (
-                  <div style={{ marginTop: '6px', paddingTop: '6px', borderTop: '1px dashed #e2e8f0', fontSize: '0.65rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Previous Arrears:</span>
-                      <strong>GH¢ {numFees.toFixed(2)}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Next Term Bill:</span>
-                      <strong>GH¢ {numBill.toFixed(2)}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>Total Paid This Term:</span>
-                      <strong style={{ color: '#10b981' }}>GH¢ {totalPaid.toFixed(2)}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid #e2e8f0' }}>
-                      <span style={{ color: 'var(--text-muted)', fontWeight: 800 }}>BALANCE DUE:</span>
-                      <strong style={{ color: balanceDue > 0 ? '#ef4444' : '#10b981', fontSize: '0.75rem' }}>GH¢ {balanceDue.toFixed(2)}</strong>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })()}
           </div>
 
           {/* Remarks */}
@@ -2001,45 +2094,88 @@ const Reports = () => {
 
         {/* Signatures */}
         <div className="rc-sig-strip">
-          <div className="rc-sig-block" style={{ position: 'relative' }}>
-            {advisorSigSrc && (
-              <img src={advisorSigSrc} alt="Advisor Signature" style={{ position: 'absolute', bottom: '18px', maxHeight: '42px', maxWidth: '100px', objectFit: 'contain' }} />
-            )}
+          <div className="rc-sig-block">
+            <div className="rc-sig-img-wrap">
+              {advisorSigSrc ? (
+                <img src={advisorSigSrc} alt="Advisor Signature" className="rc-sig-img" />
+              ) : <div className="rc-sig-placeholder" />}
+            </div>
             <div className="rc-sig-line" />
-            Class Advisor's Signature
+            <span>Class Advisor's Signature</span>
           </div>
           <div className="rc-sig-block">
+            <div className="rc-sig-img-wrap">
+              <div className="rc-sig-placeholder" />
+            </div>
             <div className="rc-sig-line" />
-            School Stamp &amp; Date
+            <span>School Stamp &amp; Date</span>
           </div>
-          <div className="rc-sig-block" style={{ position: 'relative' }}>
-            {headteacherSigSrc && (
-              <img src={headteacherSigSrc} alt="Headteacher Signature" style={{ position: 'absolute', bottom: '18px', maxHeight: '42px', maxWidth: '100px', objectFit: 'contain' }} />
-            )}
+          <div className="rc-sig-block">
+            <div className="rc-sig-img-wrap">
+              {headteacherSigSrc ? (
+                <img src={headteacherSigSrc} alt="Headteacher Signature" className="rc-sig-img" />
+              ) : <div className="rc-sig-placeholder" />}
+            </div>
             <div className="rc-sig-line" />
-            Headteacher's Signature
+            <span>Headteacher's Signature</span>
           </div>
         </div>
+
+        {/* ── Labour Educational App Branding ── */}
+        <div style={{
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+          gap: '5px',
+          marginTop: '10px',
+          paddingTop: '6px',
+          borderTop: '1px solid #e2e8f0',
+        }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="11" fill="#1e40af" />
+            <text x="12" y="16" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold" fontFamily="serif">L</text>
+          </svg>
+          <span style={{
+            fontSize: '0.6rem',
+            color: '#94a3b8',
+            fontFamily: 'sans-serif',
+            letterSpacing: '0.02em',
+          }}>
+            Powered by <strong style={{ color: '#64748b' }}>Labour Educational App</strong>
+          </span>
+        </div>
+
       </div>
     );
+
   };
 
   // ── Access guard ──────────────────────────────────────────────────────────
   if (advisedClasses.length === 0 && classes !== undefined) {
     return (
       <Layout title="Report Cards">
-        <div style={{ textAlign: 'center', padding: '5rem 2rem', background: 'var(--surface)', borderRadius: '16px', border: '1px solid var(--border)', maxWidth: '580px', margin: '2rem auto', boxShadow: 'var(--shadow-md)' }}>
-          <div style={{ width: '76px', height: '76px', borderRadius: '50%', background: 'rgba(239,68,68,0.08)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', marginBottom: '1.5rem' }}>
-            <i className="fas fa-file-shield" style={{ fontSize: '2.25rem' }} />
+        <div style={{ textAlign: 'center', padding: '4rem 2rem', background: 'var(--surface)', borderRadius: '16px', border: '1px solid var(--border)', maxWidth: '520px', margin: '2rem auto', boxShadow: 'var(--shadow-md)' }}>
+          <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: isAdmin ? 'rgba(37,99,235,0.1)' : 'rgba(239,68,68,0.08)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: isAdmin ? '#2563eb' : '#ef4444', marginBottom: '1.25rem' }}>
+            <i className={`fas ${isAdmin ? 'fa-school' : 'fa-file-shield'}`} style={{ fontSize: '1.75rem' }} />
           </div>
-          <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text)', margin: '0 0 0.5rem' }}>No Class Assigned</h2>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.6, maxWidth: '400px', margin: '0 auto 1.5rem' }}>
-            You haven't been assigned as a Class Advisor. Only class advisors can compile and print terminal reports.
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text)', margin: '0 0 0.5rem' }}>
+            {isAdmin ? 'No Classes Configured' : 'No Class Assigned'}
+          </h2>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', lineHeight: 1.5, maxWidth: '400px', margin: '0 auto 1.5rem' }}>
+            {isAdmin 
+              ? 'Configure classes, subjects, and assign teachers to generate terminal report cards.' 
+              : 'You have not been assigned as a Class Advisor yet. Only assigned class advisors can compile terminal reports.'}
           </p>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--background)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.7rem 1.25rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            <i className="fas fa-info-circle" style={{ color: 'var(--accent)' }} />
-            Contact the Headteacher to get assigned in School Setup.
-          </div>
+          {isAdmin ? (
+            <a href="/setup" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '0.6rem 1.25rem', borderRadius: '10px', textDecoration: 'none', fontWeight: 700, fontSize: '0.88rem' }}>
+              <i className="fas fa-sliders" /> Go to School Setup
+            </a>
+          ) : (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'var(--background)', border: '1px solid var(--border)', borderRadius: '10px', padding: '0.6rem 1.1rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+              <i className="fas fa-info-circle" style={{ color: 'var(--accent)' }} />
+              Contact your Headteacher to assign you as a Class Advisor.
+            </div>
+          )}
         </div>
       </Layout>
     );
@@ -2070,9 +2206,60 @@ const Reports = () => {
         </div>
 
         {/* ══════════════════════════════════════════════ */}
+        {/*  REPORT CARDS LOCK GUARD                       */}
+        {/* ══════════════════════════════════════════════ */}
+        {subStatus?.report_cards_locked && (
+          <div style={{ background: '#0f172a', border: '2px solid #f43f5e', borderRadius: '24px', padding: '3rem 2rem', textAlign: 'center', margin: '1rem 0 2rem', color: 'white', boxShadow: '0 25px 50px rgba(244,63,94,0.25)' }}>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(244,63,94,0.15)', border: '2px solid rgba(244,63,94,0.3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#f43f5e', fontSize: '2.5rem', marginBottom: '1.5rem' }}>
+              <i className="fas fa-lock" />
+            </div>
+            <h2 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.85rem', fontWeight: 900, color: 'white', margin: '0 0 0.5rem' }}>
+              Report Cards Locked
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: '0.95rem', maxWidth: '560px', margin: '0 auto 1.75rem', lineHeight: 1.6 }}>
+              Your School Wallet balance is insufficient to process report card generation for this term. All other school operations (score entry, learners, attendance, remarks, staff) remain fully operational. Top up your wallet to instantly unlock report cards and parent publishing.
+            </p>
+
+            <div style={{ display: 'inline-grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '1.25rem', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', padding: '1.25rem 2rem', borderRadius: '18px', marginBottom: '2rem', textAlign: 'center', width: '100%', maxWidth: '520px' }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Wallet Balance</div>
+                <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.4rem', fontWeight: 900, color: '#34d399', marginTop: '4px' }}>GH₵ {Number(subStatus.wallet_balance || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Required Fee</div>
+                <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.4rem', fontWeight: 900, color: '#38bdf8', marginTop: '4px' }}>GH₵ {Number(subStatus.required_amount || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800 }}>Outstanding</div>
+                <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.4rem', fontWeight: 900, color: '#f43f5e', marginTop: '4px' }}>GH₵ {Number(subStatus.outstanding_amount || 0).toLocaleString()}</div>
+              </div>
+            </div>
+
+            <div>
+              <button
+                onClick={() => setShowTopUpModal(true)}
+                style={{ padding: '0.9rem 2rem', borderRadius: '12px', background: '#09090b', border: 'none', color: 'white', fontWeight: 900, fontSize: '1rem', cursor: 'pointer', boxShadow: '0 6px 20px rgba(9,9,11,0.3)', display: 'inline-flex', alignItems: 'center', gap: '10px' }}
+              >
+                <i className="fas fa-wallet" /> Top Up School Wallet
+              </button>
+            </div>
+
+            {showTopUpModal && (
+              <TopUpWalletModal
+                schoolId={schoolId}
+                currentBalance={subStatus.wallet_balance}
+                requiredAmount={subStatus.required_amount}
+                onClose={() => setShowTopUpModal(false)}
+                onSuccess={() => loadSubStatus()}
+              />
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════ */}
         {/*  CONFIG SCREEN                                 */}
         {/* ══════════════════════════════════════════════ */}
-        {view === 'config' && (
+        {!subStatus?.report_cards_locked && view === 'config' && (
           <div>
             {/* Tabs Selector for Admins */}
             {isAdmin && (
@@ -2189,6 +2376,7 @@ const Reports = () => {
                 {/* Preview button */}
                 <button
                   type="button"
+                  data-tour="reports-release"
                   className="rc-preview-btn"
                   onClick={handlePreview}
                   disabled={!canPreview}
@@ -2298,7 +2486,7 @@ const Reports = () => {
                               </div>
                             </div>
                             <div className="rc-dist-card">
-                              <div className="rc-dist-card-icon" style={{ background: 'rgba(13, 148, 136, 0.08)', color: '#0d9488' }}>
+                              <div className="rc-dist-card-icon" style={{ background: '#ECFDF5', color: '#10B981' }}>
                                 <i className="fas fa-check-circle" />
                               </div>
                               <div className="rc-dist-card-details">
@@ -2435,14 +2623,14 @@ const Reports = () => {
                                         <td>
                                           <span style={{
                                             fontWeight: 700,
-                                            color: isFullyGraded ? '#0d9488' : '#e11d48'
+                                            color: isFullyGraded ? '#10B981' : '#EF4444'
                                           }}>
                                             {subjectsGraded}/{totalClassSubjects} Graded
                                           </span>
                                         </td>
                                         <td>
                                           <div style={{ display: 'flex', gap: '8px', fontSize: '0.85rem' }}>
-                                            <span title="Advisor Remark" style={{ color: hasTeacherRemark ? '#0d9488' : '#94a3b8' }}>
+                                            <span title="Advisor Remark" style={{ color: hasTeacherRemark ? '#10B981' : '#A1A1AA' }}>
                                               <i className={`fas ${hasTeacherRemark ? 'fa-user-tie' : 'fa-user-tie'}`} /> {hasTeacherRemark ? '✓' : '✗'}
                                             </span>
                                             <span title="Headteacher Remark" style={{ color: hasHeadteacherRemark ? '#8b5cf6' : '#94a3b8' }}>
@@ -2520,7 +2708,7 @@ const Reports = () => {
                                               type="button"
                                               className="btn"
                                               style={{
-                                                padding: '4px 8px', fontSize: '0.72rem', background: isReleased ? '#dc2626' : '#0d9488', color: 'white', fontWeight: 'bold'
+                                                padding: '4px 8px', fontSize: '0.72rem', background: isReleased ? '#EF4444' : '#10B981', color: 'white', fontWeight: 'bold'
                                               }}
                                               onClick={async () => {
                                                 setIsReleasing(true);
@@ -2630,7 +2818,7 @@ const Reports = () => {
         {/* ══════════════════════════════════════════════ */}
         {/*  PREVIEW SCREEN                                */}
         {/* ══════════════════════════════════════════════ */}
-        {view === 'preview' && (
+        {!subStatus?.report_cards_locked && view === 'preview' && (
           <div className="rc-print-container">
             {/* Preview header */}
             <div className="rc-preview-header no-print">
@@ -2652,7 +2840,7 @@ const Reports = () => {
                   <button
                     type="button"
                     className="btn"
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: '#0d9488' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: '#10B981', color: '#fff' }}
                     onClick={() => handleReleaseClassReports(true)}
                     disabled={isReleasing}
                   >
@@ -2685,7 +2873,7 @@ const Reports = () => {
                       <button
                         type="button"
                         className="btn"
-                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: activeReleased ? '#dc2626' : '#0d9488' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: activeReleased ? '#EF4444' : '#10B981', color: '#fff' }}
                         onClick={() => handleReleaseIndividualReport(!activeReleased)}
                         disabled={isReleasing}
                       >

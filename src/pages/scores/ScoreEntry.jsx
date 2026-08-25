@@ -7,6 +7,8 @@ import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade } 
 import { useAuth } from '../../store/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import { enqueueSync } from '../../services/syncEngine';
+import { filterLearnersForSubject, getLanguageLabel } from '../../utils/languageUtils';
+import LogoPreloader from '../../components/common/LogoPreloader';
 
 const ScoreEntry = () => {
   const [searchParams] = useSearchParams();
@@ -236,17 +238,18 @@ const ScoreEntry = () => {
     pullAssignmentsAndSetup();
   }, [user]);
 
-  // Filtered classes
+  // Filtered classes (Headteachers/Admins see all classes; teachers see assigned classes)
   const classes = useMemo(() => {
     if (!allClasses) return [];
-    if (!user || user.role === 'super_admin') return allClasses;
+    const isHeadteacherOrAdmin = !user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role);
+    if (isHeadteacherOrAdmin) return allClasses;
     
     // Teacher: Only classes where they have at least one assignment
     const assignedClassIds = new Set(assignments?.map(a => Number(a.classId)));
     return allClasses.filter(c => assignedClassIds.has(Number(c.id)));
   }, [allClasses, assignments, user]);
 
-  // Filtered subjects offered by the selected class
+  // Filtered subjects offered by the selected class (Headteachers/Admins see all subjects)
   const subjects = useMemo(() => {
     if (!allSubjects) return [];
     if (!selectedClass) return [];
@@ -259,8 +262,9 @@ const ScoreEntry = () => {
     );
     const classOfferedSubjects = allSubjects.filter(s => classSubIds.has(Number(s.id)));
 
-    // If Super Admin, they see all subjects offered by the selected class
-    if (!user || user.role === 'super_admin') return classOfferedSubjects;
+    // Headteachers / Admins / Super Admins can enter scores for ALL subjects offered in any class
+    const isHeadteacherOrAdmin = !user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role);
+    if (isHeadteacherOrAdmin) return classOfferedSubjects;
 
     // Get selected class details to check teaching mode
     const classObj = allClasses?.find(c => Number(c.id) === Number(selectedClass));
@@ -353,6 +357,15 @@ const ScoreEntry = () => {
     },
     [selectedClass, selectedAcademicYear, selectedTerm]
   );
+
+  const activeSubjectObj = useMemo(() => {
+    return allSubjects?.find(s => Number(s.id) === Number(selectedSubject));
+  }, [allSubjects, selectedSubject]);
+
+  const displayLearners = useMemo(() => {
+    if (!learners) return [];
+    return filterLearnersForSubject(learners, activeSubjectObj);
+  }, [learners, activeSubjectObj]);
 
   // Load existing scores from local Dexie, with a cloud refresh guard.
   // We fetch from cloud first to ensure teachers on fresh devices see the latest data.
@@ -725,11 +738,7 @@ const ScoreEntry = () => {
     // Online — still loading from Supabase
     return (
       <Layout title="Score Entry System">
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', flexDirection: 'column', color: 'var(--text-muted)' }}>
-          <i className="fas fa-spinner fa-spin fa-3x" style={{ color: 'var(--primary)', marginBottom: '1rem' }}></i>
-          <h2>Loading Assessment Configuration...</h2>
-          <p>Please wait while we sync your school's grading rules.</p>
-        </div>
+        <LogoPreloader fullScreen={false} size="md" />
       </Layout>
     );
   }
@@ -801,52 +810,59 @@ const ScoreEntry = () => {
 
   return (
     <Layout title="Score Entry System">
-      <div className="fade-in">
+      <div className="fade-in" data-tour="scores-broadsheet">
 
-        {/* ── Offline / Sync status banner ────────────────────────────────── */}
-        {!isOnline && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
-            border: '1px solid #fcd34d', borderRadius: '12px',
-            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
-            fontSize: '0.88rem', color: '#92400e', fontWeight: 600,
-            boxShadow: '0 2px 8px rgba(245,158,11,0.15)'
-          }}>
-            <i className="fas fa-wifi-slash" style={{ fontSize: '1.1rem', color: '#d97706', flexShrink: 0 }}></i>
-            <div>
-              <strong>You are offline.</strong> Scores you save will be stored locally and synced automatically when you reconnect.
-            </div>
+        {/* Navigation Breadcrumb Bar */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#64748b' }}>
+            <button
+              onClick={() => {
+                if (isDirty && !window.confirm('You have unsaved score edits. Leaving will discard them. Do you want to go back?')) {
+                  return;
+                }
+                window.history.back();
+              }}
+              style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 700, padding: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+            >
+              <i className="fas fa-arrow-left"></i> Back
+            </button>
+            <span>/</span>
+            <span>Classroom &amp; Marks</span>
+            <span>/</span>
+            <span style={{ color: '#09090b', fontWeight: 700 }}>Score Entry</span>
           </div>
-        )}
-        {isOnline && pendingSyncCount > 0 && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
-            border: '1px solid #93c5fd', borderRadius: '12px',
-            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
-            fontSize: '0.88rem', color: '#1e40af', fontWeight: 600,
-            boxShadow: '0 2px 8px rgba(59,130,246,0.1)'
-          }}>
-            <i className="fas fa-rotate fa-spin" style={{ fontSize: '1rem', color: '#3b82f6', flexShrink: 0 }}></i>
-            <div>
-              Syncing {pendingSyncCount} pending record{pendingSyncCount !== 1 ? 's' : ''} to the cloud…
-            </div>
+        </div>
+
+        {/* Active Session Verification Pill */}
+        <div style={{
+          background: '#F0FDF4',
+          border: '1.5px solid #BBF7D0',
+          borderRadius: '12px',
+          padding: '0.65rem 1rem',
+          marginBottom: '1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+            <i className="fas fa-calendar-check" style={{ color: '#16A34A', fontSize: '1rem' }}></i>
+            <span style={{ color: '#15803D', fontWeight: 800 }}>Recording Scores For:</span>
+            <span style={{ color: '#09090b', fontWeight: 800 }}>
+              {selectedAcademicYear || schoolInfo?.currentAcademicYear || '2025/2026'} &bull; {selectedTerm || schoolInfo?.currentTerm || 'Term 1'}
+            </span>
           </div>
-        )}
-        {isOnline && pendingSyncCount === 0 && outboxItems !== undefined && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)',
-            border: '1px solid #6ee7b7', borderRadius: '12px',
-            padding: '0.65rem 1.25rem', marginBottom: '1.25rem',
-            fontSize: '0.85rem', color: '#065f46', fontWeight: 600,
-            boxShadow: '0 2px 8px rgba(16,185,129,0.1)'
-          }}>
-            <i className="fas fa-cloud-check" style={{ fontSize: '1rem', color: '#10b981', flexShrink: 0 }}></i>
-            <div>All scores synced to the cloud.</div>
-          </div>
-        )}
+          {user?.role === 'super_admin' && (
+            <button 
+              type="button"
+              onClick={() => window.location.href = '/settings'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', color: '#16A34A', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
+            >
+              <i className="fas fa-sliders"></i> Change School Term in Settings &rarr;
+            </button>
+          )}
+        </div>
 
         <div className="card" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
@@ -962,7 +978,7 @@ const ScoreEntry = () => {
 
             {/* Students Card Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(245px, 1fr))', gap: '1.25rem', marginBottom: '2rem' }}>
-              {learners?.map((learner) => {
+              {displayLearners?.map((learner) => {
                 const current = (learner.supabaseId && scores[learner.supabaseId]) || (learner.id && scores[learner.id]) || {};
                 const caScoresArr = current.caScores || [];
                 const examRaw = current.examScore || '';
@@ -1024,9 +1040,14 @@ const ScoreEntry = () => {
                         <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#0f172a', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {learner.fullName}
                         </h4>
-                        <span style={{ fontSize: '0.68rem', color: '#64748b', fontFamily: 'monospace', display: 'block', marginTop: '1px' }}>
-                          Reg No: {learner.regNumber || 'N/A'}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.68rem', color: '#64748b', fontFamily: 'monospace' }}>
+                            Reg: {learner.regNumber || 'N/A'}
+                          </span>
+                          <span style={{ fontSize: '0.65rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #dbeafe', borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
+                            {getLanguageLabel(learner.ghanaianLanguage || learner.ghanaian_language)}
+                          </span>
+                        </div>
                       </div>
                     </div>
 
@@ -1175,10 +1196,30 @@ const ScoreEntry = () => {
               </button>
             </div>
           </div>
+        ) : (!classes || classes.length === 0) ? (
+          <div style={{ textAlign: 'center', padding: '3.5rem 1.5rem', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E4E4E7', color: '#71717a', maxWidth: '460px', margin: '2rem auto' }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: (!user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) ? '#EFF6FF' : '#FFFBEB', color: (!user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) ? '#2563eb' : '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', margin: '0 auto 1rem' }}>
+              <i className={`fas ${(!user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) ? 'fa-school' : 'fa-user-clock'}`}></i>
+            </div>
+            <h3 style={{ margin: '0 0 6px', color: '#09090b', fontSize: '1.05rem', fontWeight: 800 }}>
+              {(!user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) ? 'No Classes Configured' : 'No Classes Assigned'}
+            </h3>
+            <p style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', lineHeight: 1.45 }}>
+              {(!user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) 
+                ? 'Create classes and assign subjects in Setup to start entering scores.' 
+                : 'You have no assigned classes yet. Please contact your Headteacher.'}
+            </p>
+            {(!user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) && (
+              <a href="/setup" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '0.55rem 1.15rem', textDecoration: 'none', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 700 }}>
+                <i className="fas fa-sliders"></i> Go to School Setup
+              </a>
+            )}
+          </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: '5rem', color: 'var(--text-muted)' }}>
-            <i className="fas fa-table-list" style={{ fontSize: '3rem', marginBottom: '1.5rem' }}></i>
-            <h3>Please select a Class and Subject to begin score entry.</h3>
+          <div style={{ textAlign: 'center', padding: '4rem 1.5rem', color: 'var(--text-muted)' }}>
+            <i className="fas fa-hand-pointer" style={{ fontSize: '2rem', color: '#A1A1AA', marginBottom: '1rem', display: 'block' }}></i>
+            <h3 style={{ margin: '0 0 4px', fontSize: '1.05rem', color: '#18181B' }}>Select Class &amp; Subject Above</h3>
+            <p style={{ margin: 0, fontSize: '0.85rem' }}>Choose a class and subject from the dropdowns above to enter scores.</p>
           </div>
         )}
       </div>

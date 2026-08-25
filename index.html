@@ -2,7 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png?v=2" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Labour Edu Report System</title>
     <!-- Font Awesome -->
@@ -10,10 +11,235 @@
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <!-- Paystack Inline SDK -->
+    <script src="https://js.paystack.co/v1/inline.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Official Brand Ant Splash Screen -->
+      <style>
+        .initial-splash {
+          position: fixed;
+          inset: 0;
+          background: radial-gradient(circle at 50% 45%, #0f172a 0%, #090d16 60%, #030712 100%);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          font-family: 'Outfit', sans-serif;
+          z-index: 99999;
+          user-select: none;
+          overflow: hidden;
+          gap: 1.25rem;
+        }
+        .ant-badge {
+          position: relative;
+          width: 160px;
+          height: 160px;
+          border-radius: 36px;
+          background: linear-gradient(145deg, #2575fc 0%, #1a60e8 40%, #0d4ed8 100%);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          animation: badgeGlowPulse 3s ease-in-out infinite;
+          overflow: hidden;
+        }
+        .ant-badge-shine {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 45%;
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 100%);
+          border-radius: 36px 36px 0 0;
+          pointer-events: none;
+        }
+        .splash-title {
+          font-weight: 900;
+          font-size: 1.4rem;
+          color: #ffffff;
+          letter-spacing: 0.05em;
+          text-align: center;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          justify-content: center;
+        }
+        .splash-tagline {
+          font-size: 0.8rem;
+          margin-top: 4px;
+          font-weight: 700;
+          letter-spacing: 0.03em;
+          text-align: center;
+          color: #94a3b8;
+        }
+        .splash-bar-bg {
+          width: 140px;
+          height: 3px;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          overflow: hidden;
+          position: relative;
+        }
+        .splash-bar-fill {
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, #2563eb 0%, #10b981 50%, #f97316 100%);
+          background-size: 200% 100%;
+          animation: barShimmerMove 1.6s linear infinite;
+          border-radius: 999px;
+        }
+
+        @keyframes badgeGlowPulse {
+          0%, 100% {
+            box-shadow: 0 16px 40px -8px rgba(22, 119, 255, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12);
+            transform: translateY(0px) scale(1);
+          }
+          50% {
+            box-shadow: 0 24px 55px -6px rgba(22, 119, 255, 0.65), 0 0 35px rgba(34, 197, 94, 0.25);
+            transform: translateY(-3px) scale(1.015);
+          }
+        }
+        @keyframes antMarch {
+          0%, 100% { transform: translate(0px, 0px); }
+          25% { transform: translate(-3px, -1.5px) rotate(-1.5deg); }
+          50% { transform: translate(-6px, 0px) rotate(0deg); }
+          75% { transform: translate(-3px, -2px) rotate(1.5deg); }
+        }
+        @keyframes leafSway {
+          0%, 100% { transform: rotate(0deg); }
+          30% { transform: rotate(-5deg) scale(1.03); }
+          70% { transform: rotate(4deg) scale(0.98); }
+        }
+        @keyframes antennaTwitchL {
+          0%, 100% { transform: rotate(0deg); }
+          20% { transform: rotate(-10deg); }
+          40% { transform: rotate(6deg); }
+          70% { transform: rotate(-4deg); }
+        }
+        @keyframes antennaTwitchR {
+          0%, 100% { transform: rotate(0deg); }
+          25% { transform: rotate(8deg); }
+          50% { transform: rotate(-12deg); }
+          80% { transform: rotate(4deg); }
+        }
+        @keyframes frontLegMove {
+          0%, 100% { transform: rotate(0deg); }
+          50% { transform: rotate(18deg) translateY(-2px); }
+        }
+        @keyframes midLegMove {
+          0%, 100% { transform: rotate(0deg); }
+          50% { transform: rotate(-16deg) translateY(-2px); }
+        }
+        @keyframes backLegMove {
+          0%, 100% { transform: rotate(0deg); }
+          50% { transform: rotate(14deg) translateY(-1.5px); }
+        }
+        @keyframes eyeBlink {
+          0%, 92%, 100% { transform: scaleY(1); opacity: 1; }
+          95% { transform: scaleY(0.1); opacity: 0.3; }
+        }
+        @keyframes abdomenBreathe {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.04) rotate(-1deg); }
+        }
+        @keyframes barShimmerMove {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      </style>
+      <div class="initial-splash">
+        <div class="ant-badge">
+          <div class="ant-badge-shine"></div>
+          <svg viewBox="0 0 200 200" width="160" height="160" style="width: 100%; height: 100%; display: block;">
+            <defs>
+              <linearGradient id="splashLeafGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#4ade80" />
+                <stop offset="50%" stop-color="#22c55e" />
+                <stop offset="100%" stop-color="#16a34a" />
+              </linearGradient>
+              <radialGradient id="splashAntBodyGrad" cx="35%" cy="35%" r="65%">
+                <stop offset="0%" stop-color="#1e293b" />
+                <stop offset="70%" stop-color="#0a0f1d" />
+                <stop offset="100%" stop-color="#030712" />
+              </radialGradient>
+              <radialGradient id="splashAntHeadGrad" cx="40%" cy="30%" r="60%">
+                <stop offset="0%" stop-color="#334155" />
+                <stop offset="80%" stop-color="#0b1120" />
+              </radialGradient>
+              <filter id="splashSoftShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="#091e42" flood-opacity="0.35" />
+              </filter>
+            </defs>
+
+            <!-- White "L" -->
+            <path
+              d="M 76 42
+                 C 66 42, 66 52, 66 58
+                 L 66 116
+                 C 66 126, 74 128, 82 128
+                 L 144 128
+                 C 152 128, 152 120, 144 120
+                 L 88 120
+                 C 86 120, 84 118, 84 114
+                 L 84 58
+                 C 84 52, 84 42, 76 42
+                 Z"
+              fill="#ffffff"
+            />
+
+            <!-- Ant & Leaf Group -->
+            <g style="animation: antMarch 2.4s ease-in-out infinite;" filter="url(#splashSoftShadow)">
+              <!-- Back Legs -->
+              <path d="M 124 106 Q 138 98 144 107" stroke="#0a0f1d" stroke-width="3.2" stroke-linecap="round" fill="none" style="transform-origin: 124px 106px; animation: backLegMove 0.6s ease-in-out infinite;" />
+              <path d="M 120 108 Q 134 114 135 124" stroke="#0a0f1d" stroke-width="3.2" stroke-linecap="round" fill="none" style="transform-origin: 120px 108px; animation: midLegMove 0.6s ease-in-out infinite 0.15s;" />
+              <path d="M 112 108 Q 124 120 127 131" stroke="#0a0f1d" stroke-width="3.2" stroke-linecap="round" fill="none" style="transform-origin: 112px 108px; animation: frontLegMove 0.6s ease-in-out infinite 0.3s;" />
+
+              <!-- Front Legs -->
+              <path d="M 112 106 Q 106 116 108 124" stroke="#0a0f1d" stroke-width="3.2" stroke-linecap="round" fill="none" style="transform-origin: 112px 106px; animation: frontLegMove 0.6s ease-in-out infinite;" />
+              <path d="M 118 108 Q 116 118 121 126" stroke="#0a0f1d" stroke-width="3.2" stroke-linecap="round" fill="none" style="transform-origin: 118px 108px; animation: midLegMove 0.6s ease-in-out infinite 0.2s;" />
+
+              <!-- Abdomen -->
+              <g style="transform-origin: 136px 110px; animation: abdomenBreathe 2s ease-in-out infinite;">
+                <ellipse cx="136" cy="110" rx="14" ry="10.5" transform="rotate(25 136 110)" fill="url(#splashAntBodyGrad)" />
+                <ellipse cx="135" cy="107" rx="8" ry="4" transform="rotate(25 135 107)" fill="rgba(255, 255, 255, 0.12)" />
+              </g>
+
+              <!-- Thorax -->
+              <ellipse cx="120" cy="104" rx="7" ry="6" fill="url(#splashAntBodyGrad)" />
+
+              <!-- Head -->
+              <g>
+                <circle cx="110" cy="96" r="7.5" fill="url(#splashAntHeadGrad)" />
+                <circle cx="108" cy="94.5" r="1.8" fill="#ffffff" style="transform-origin: 108px 94.5px; animation: eyeBlink 3.5s infinite;" />
+                <path d="M 108 90 Q 102 82 104 76" stroke="#0a0f1d" stroke-width="2" stroke-linecap="round" fill="none" style="transform-origin: 108px 90px; animation: antennaTwitchL 1.8s ease-in-out infinite;" />
+                <path d="M 112 90 Q 112 80 118 78" stroke="#0a0f1d" stroke-width="2" stroke-linecap="round" fill="none" style="transform-origin: 112px 90px; animation: antennaTwitchR 1.8s ease-in-out infinite 0.25s;" />
+              </g>
+
+              <!-- Green Leaf -->
+              <g style="transform-origin: 106px 98px; animation: leafSway 2.4s ease-in-out infinite;">
+                <path d="M 106 98 C 98 90, 84 86, 82 82 C 86 96, 94 104, 106 98 Z" fill="url(#splashLeafGrad)" />
+                <path d="M 104 97 Q 93 91 84 83" stroke="rgba(255, 255, 255, 0.75)" stroke-width="1" stroke-linecap="round" fill="none" />
+              </g>
+            </g>
+          </svg>
+        </div>
+
+        <div class="splash-title">
+          <span>LABOUR</span>
+          <span style="color: #2563eb;">EDU</span>
+        </div>
+        <div class="splash-tagline">
+          <span style="color: #2563eb;">Work</span> &bull;
+          <span style="color: #10b981;">Made</span> &bull;
+          <span style="color: #f97316;">Simple.</span>
+        </div>
+        <div class="splash-bar-bg">
+          <div class="splash-bar-fill"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

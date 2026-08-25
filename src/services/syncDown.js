@@ -80,18 +80,46 @@ async function runAdminSync(user) {
 
     if (remoteSchool && !schoolErr) {
       const existing = await db.schools.get(schoolId);
+      const remoteLogo = remoteSchool.logo_url;
+      const localLogo = existing?.logoUrl;
+      const isLocalDataUrl = localLogo && typeof localLogo === 'string' && localLogo.startsWith('data:');
+      const isRemoteDataUrl = remoteLogo && typeof remoteLogo === 'string' && remoteLogo.startsWith('data:');
+      const isRemoteStorageBroken = remoteLogo && typeof remoteLogo === 'string' && remoteLogo.includes('storage/v1/object/public/learner-photos/logos');
+
+      let finalLogoUrl = existing?.logoUrl || '';
+      if (isRemoteDataUrl) {
+        finalLogoUrl = remoteLogo;
+      } else if (remoteLogo && typeof remoteLogo === 'string' && !isRemoteStorageBroken) {
+        finalLogoUrl = remoteLogo;
+      } else if (isLocalDataUrl) {
+        finalLogoUrl = localLogo;
+      } else if (remoteLogo && typeof remoteLogo === 'string') {
+        finalLogoUrl = remoteLogo;
+      }
+
       const mapped = {
-        id: schoolId, name: remoteSchool.name || '', location: remoteSchool.location || '',
-        district: remoteSchool.district || '', region: remoteSchool.region || '',
-        circuit: remoteSchool.circuit || '', motto: remoteSchool.motto || '',
-        logoUrl: remoteSchool.logo_url || '',
-        currentAcademicYear: remoteSchool.current_academic_year || '',
-        currentTerm: remoteSchool.current_term || 'Term 1',
-        vacationDate: remoteSchool.vacation_date || '',
-        nextTermBegins: remoteSchool.next_term_begins || '',
-        phone: remoteSchool.phone || '', email: remoteSchool.email || ''
+        ...existing,
+        id: schoolId,
+        name: remoteSchool.name || existing?.name || '',
+        location: remoteSchool.location || existing?.location || '',
+        district: remoteSchool.district || existing?.district || '',
+        region: remoteSchool.region || existing?.region || '',
+        circuit: remoteSchool.circuit || existing?.circuit || '',
+        motto: remoteSchool.motto || existing?.motto || '',
+        schoolType: remoteSchool.school_type || remoteSchool.schoolType || existing?.schoolType || 'private',
+        logoUrl: finalLogoUrl,
+        logoBlob: existing?.logoBlob || null,
+        currentAcademicYear: remoteSchool.current_academic_year || existing?.currentAcademicYear || '',
+        currentTerm: remoteSchool.current_term || existing?.currentTerm || 'Term 1',
+        vacationDate: remoteSchool.vacation_date || existing?.vacationDate || '',
+        nextTermBegins: remoteSchool.next_term_begins || existing?.nextTermBegins || '',
+        phone: remoteSchool.phone || existing?.phone || '',
+        email: remoteSchool.email || existing?.email || '',
+        wallet_balance: remoteSchool.wallet_balance !== undefined ? Number(remoteSchool.wallet_balance) : (existing?.wallet_balance || 0),
+        walletBalance: remoteSchool.wallet_balance !== undefined ? Number(remoteSchool.wallet_balance) : (existing?.walletBalance || 0),
+        is_first_term_free: remoteSchool.is_first_term_free !== undefined ? remoteSchool.is_first_term_free : existing?.is_first_term_free
       };
-      if (!existing || hasChanged(existing, mapped, ['name', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'district', 'region', 'circuit', 'phone', 'email'])) {
+      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'district', 'region', 'circuit', 'phone', 'email', 'wallet_balance', 'walletBalance', 'is_first_term_free'])) {
         await db.schools.put(mapped);
       }
     }
@@ -196,16 +224,43 @@ async function runAdminSync(user) {
 
     if (!error && classSubsData) {
       const existing = await db.classSubjects.where('schoolId').equals(schoolId).toArray();
-      const existingIds = new Set(existing.map(e => e.supabaseId));
       const remoteIds = new Set(classSubsData.map(cs => cs.id));
 
-      // Remove mappings no longer in remote
+      // 1. Remove mappings no longer in remote
       for (const e of existing) {
-        if (e.supabaseId && !remoteIds.has(e.supabaseId)) await db.classSubjects.delete(e.id);
+        if (e.supabaseId && !remoteIds.has(e.supabaseId)) {
+          await db.classSubjects.delete(e.id);
+        }
       }
-      // Add new mappings
+
+      // 2. Clean up local duplicate rows for the same class & subject
+      const currentList = await db.classSubjects.where('schoolId').equals(schoolId).toArray();
+      const seenCombinations = new Map();
+      for (const item of currentList) {
+        const key = `${item.classId}_${item.subjectId}`;
+        if (seenCombinations.has(key)) {
+          const prev = seenCombinations.get(key);
+          if (item.supabaseId && !prev.supabaseId) {
+            await db.classSubjects.delete(prev.id);
+            seenCombinations.set(key, item);
+          } else {
+            await db.classSubjects.delete(item.id);
+          }
+        } else {
+          seenCombinations.set(key, item);
+        }
+      }
+
+      // 3. Reconcile with remote items
       for (const cs of classSubsData) {
-        if (!existingIds.has(cs.id)) {
+        const key = `${cs.class_id}_${cs.subject_id}`;
+        const local = seenCombinations.get(key);
+
+        if (local) {
+          if (!local.supabaseId || local.supabaseId !== cs.id || !local.synced) {
+            await db.classSubjects.update(local.id, { supabaseId: cs.id, synced: true });
+          }
+        } else {
           await db.classSubjects.put({
             supabaseId: cs.id, schoolId: cs.school_id,
             classId: Number(cs.class_id), subjectId: Number(cs.subject_id), synced: true
@@ -306,38 +361,166 @@ async function runAdminSync(user) {
 
   // ── 5. Learners ──────────────────────────────────────────────────────────────
   try {
-    const { data: remoteLearners, error } = await supabase
+    const { data: rawRemoteLearners, error } = await supabase
       .from('report_learners').select('*').eq('school_id', schoolId);
 
-    if (!error && remoteLearners) {
-      const allLocal = await db.learners.where('schoolId').equals(schoolId).toArray();
-      const remoteSupabaseIds = new Set(remoteLearners.map(r => r.id));
-      const seenSupabaseIds = new Set();
-      const seenRegNumbers = new Set();
+    if (!error && rawRemoteLearners) {
+      // 1. Deduplicate remote learners from Supabase (preventing cloud duplicate rows from oscillating local records)
+      const remoteLearners = [];
+      const remoteRegMap = new Map();
+      const remoteNameClassMap = new Map();
+      const duplicateRemoteIdsToDelete = [];
 
-      // Sort so synced (supabaseId) records come first, preserving them during dedup
-      const sortedLocal = [...allLocal].sort((a, b) =>
-        (a.supabaseId && !b.supabaseId ? -1 : !a.supabaseId && b.supabaseId ? 1 : 0)
-      );
+      for (const rl of rawRemoteLearners) {
+        if (!rl || !rl.id) continue;
+        const regKey = rl.reg_number ? String(rl.reg_number).trim().toUpperCase() : null;
+        const nameClassKey = `${(rl.full_name || '').trim().toLowerCase()}_${rl.class_id || ''}`;
 
-      // Cleanup pass — remove stale and duplicate local records
-      for (const l of sortedLocal) {
-        if (typeof l.id === 'string' || !l.id) { await db.learners.delete(l.id); continue; }
-
-        // Purge records whose supabase ID is no longer in remote (hard-deleted elsewhere)
-        if (l.supabaseId && !remoteSupabaseIds.has(l.supabaseId) && l.synced) {
-          console.log(`[SyncDown] Purging stale learner: ${l.fullName} (${l.regNumber})`);
-          await db.learners.delete(l.id);
+        if (regKey && remoteRegMap.has(regKey)) {
+          // Already have a primary record for this reg_number
+          duplicateRemoteIdsToDelete.push(rl.id);
+          continue;
+        }
+        if (!regKey && nameClassKey && remoteNameClassMap.has(nameClassKey)) {
+          duplicateRemoteIdsToDelete.push(rl.id);
           continue;
         }
 
-        let isDuplicate = false;
-        if (l.supabaseId) { if (seenSupabaseIds.has(l.supabaseId)) isDuplicate = true; else seenSupabaseIds.add(l.supabaseId); }
-        if (l.regNumber) { if (seenRegNumbers.has(l.regNumber)) isDuplicate = true; else seenRegNumbers.add(l.regNumber); }
-        if (isDuplicate) { await db.learners.delete(l.id); continue; }
+        if (regKey) remoteRegMap.set(regKey, rl);
+        if (nameClassKey) remoteNameClassMap.set(nameClassKey, rl);
+        remoteLearners.push(rl);
       }
 
-      // Upsert pass — add new or update changed learners only
+      // Asynchronously clean up ghost duplicate rows from Supabase if any exist
+      if (duplicateRemoteIdsToDelete.length > 0) {
+        console.warn(`[SyncDown] Found ${duplicateRemoteIdsToDelete.length} duplicate learner rows on Supabase. Purging duplicates...`);
+        supabase.from('report_learners').delete().in('id', duplicateRemoteIdsToDelete).catch(() => null);
+      }
+
+      // Fetch all local learners for this school (type-safe check on string/number schoolId)
+      const allLocal = await db.learners.filter(l => 
+        String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId)
+      ).toArray();
+
+      const remoteSupabaseIds = new Set(remoteLearners.map(r => r.id));
+      const remoteRegNumbers = new Set(remoteLearners.map(r => String(r.reg_number || '').trim().toUpperCase()).filter(Boolean));
+
+      // Check if this client has any pending outbox inserts/updates for learners
+      const pendingOutboxLearners = await db.outbox
+        .filter(o => o.table === 'report_learners')
+        .toArray();
+      const pendingPayloads = pendingOutboxLearners.map(o => o.payload || '').join(' ');
+
+      // 2. Local Self-Healing Deduplication pass:
+      // Uses SEPARATE index maps for supabaseId and regNumber so that cross-key
+      // collisions are caught. Without this fix, a record pulled from cloud (with
+      // supabaseId → key "SUB_uuid") and the original locally-registered copy (no
+      // supabaseId → key "REG_STU001") get different keys, both survive, and the
+      // learner appears duplicated on screen.
+      const localBySupaId = new Map();  // supabaseId  → record
+      const localByReg    = new Map();  // regNumber   → record
+      const localByKey    = new Map();  // legacy key  → record (kept for compat)
+      const duplicateLocalsToDelete = [];
+
+      for (const l of allLocal) {
+        if (typeof l.id === 'string' || !l.id) {
+          duplicateLocalsToDelete.push({ id: l.id, reason: 'invalid_id' });
+          continue;
+        }
+
+        const lReg        = l.regNumber  ? String(l.regNumber).trim().toUpperCase() : null;
+        const lSupabaseId = l.supabaseId ? String(l.supabaseId)                     : null;
+        const lNameClass  = `${(l.fullName || '').trim().toLowerCase()}_${l.currentClassId || ''}`;
+        const dedupKey    = lSupabaseId  ? `SUB_${lSupabaseId}` : (lReg ? `REG_${lReg}` : `NC_${lNameClass}`);
+
+        // Cross-key collision: find any existing record that shares supabaseId OR regNumber,
+        // even if it was previously indexed under a different key family.
+        let collidingPrimary = null;
+        if (lSupabaseId && localBySupaId.has(lSupabaseId)) {
+          collidingPrimary = localBySupaId.get(lSupabaseId);
+        }
+        if (!collidingPrimary && lReg && localByReg.has(lReg)) {
+          collidingPrimary = localByReg.get(lReg);
+        }
+        if (!collidingPrimary && localByKey.has(dedupKey)) {
+          collidingPrimary = localByKey.get(dedupKey);
+        }
+
+        if (collidingPrimary) {
+          // Determine which record is more authoritative
+          const primaryScore = (collidingPrimary.supabaseId ? 10 : 0) + (collidingPrimary.photo ? 5 : 0) + (collidingPrimary.regNumber ? 2 : 0);
+          const currentScore = (l.supabaseId               ? 10 : 0) + (l.photo               ? 5 : 0) + (l.regNumber               ? 2 : 0);
+
+          if (currentScore > primaryScore) {
+            duplicateLocalsToDelete.push({ primaryId: l.id, duplicateId: collidingPrimary.id, primaryRecord: l, duplicateRecord: collidingPrimary });
+            // Promote current record to primary in all maps
+            if (lSupabaseId) localBySupaId.set(lSupabaseId, l);
+            if (lReg)        localByReg.set(lReg, l);
+            localByKey.set(dedupKey, l);
+          } else {
+            duplicateLocalsToDelete.push({ primaryId: collidingPrimary.id, duplicateId: l.id, primaryRecord: collidingPrimary, duplicateRecord: l });
+          }
+        } else {
+          // Register all of this record's unique identifiers
+          if (lSupabaseId) localBySupaId.set(lSupabaseId, l);
+          if (lReg)        localByReg.set(lReg, l);
+          localByKey.set(dedupKey, l);
+        }
+      }
+
+      // Merge and re-link scores/summaries for duplicate locals
+      for (const item of duplicateLocalsToDelete) {
+        if (item.duplicateId && item.primaryId) {
+          console.log(`[SyncDown] Merging duplicate local learner ${item.duplicateRecord?.fullName} (${item.duplicateId} → ${item.primaryId})`);
+          // Re-link scores
+          const scoresToRelink = await db.scores.filter(s => String(s.learnerId) === String(item.duplicateId)).toArray();
+          for (const sc of scoresToRelink) {
+            await db.scores.update(sc.id, { learnerId: item.primaryId });
+          }
+          // Re-link report summaries
+          const summariesToRelink = await db.reportSummaries.filter(sm => String(sm.learnerId) === String(item.duplicateId)).toArray();
+          for (const sm of summariesToRelink) {
+            await db.reportSummaries.update(sm.id, { learnerId: item.primaryId });
+          }
+          // Delete duplicate
+          await db.learners.delete(item.duplicateId);
+        } else if (item.id) {
+          await db.learners.delete(item.id);
+        }
+      }
+
+      // Refresh remaining local records after local deduplication
+      const remainingLocal = await db.learners.filter(l => 
+        String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId)
+      ).toArray();
+
+      // 3. Safe Cleanup pass — remove records that were explicitly deleted on cloud
+      // NEVER delete records that are unsynced, pending outbox, or without supabaseId
+      for (const l of remainingLocal) {
+        const cleanReg = l.regNumber ? String(l.regNumber).trim().toUpperCase() : '';
+        const isLocallyPending = pendingPayloads.includes(String(l.regNumber)) || 
+                                 pendingPayloads.includes(String(l.fullName)) ||
+                                 (l.supabaseId && pendingPayloads.includes(String(l.supabaseId)));
+
+        const existsOnRemote = (l.supabaseId && remoteSupabaseIds.has(l.supabaseId)) || 
+                               (cleanReg && remoteRegNumbers.has(cleanReg));
+
+        // Only purge if record was previously synced to cloud (has supabaseId) AND is confirmed gone from remote AND is not pending
+        if (!existsOnRemote && !isLocallyPending && l.supabaseId && l.synced) {
+          console.log(`[SyncDown] Purging deleted learner from portal: ${l.fullName} (${l.regNumber || l.id})`);
+          
+          await db.scores
+            .filter(s => String(s.learnerId) === String(l.id) || String(s.learnerId) === String(l.supabaseId))
+            .delete();
+          await db.reportSummaries
+            .filter(s => String(s.learnerId) === String(l.id) || String(s.learnerId) === String(l.supabaseId))
+            .delete();
+
+          await db.learners.delete(l.id);
+        }
+      }
+
+      // 4. Upsert pass — add new or update changed learners with full fields
       for (const rl of remoteLearners) {
         // Resurrection guard
         const isPendingDelete = await db.outbox
@@ -347,17 +530,53 @@ async function runAdminSync(user) {
         const inlineDeletedQueue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
         if (isPendingDelete || inlineDeletedQueue.includes(rl.id)) continue;
 
-        // Find local record
+        const cleanRemoteReg = rl.reg_number ? String(rl.reg_number).trim().toUpperCase() : '';
+
+        // Find local record: first by supabaseId, then by exact reg_number, then by normalized full_name + class_id
         let local = await db.learners.where('supabaseId').equals(rl.id).first();
-        if (!local && rl.reg_number) {
-          const byReg = await db.learners.where('regNumber').equals(rl.reg_number).toArray();
+        if (!local && cleanRemoteReg) {
+          const byReg = await db.learners.filter(l => 
+            l.regNumber && String(l.regNumber).trim().toUpperCase() === cleanRemoteReg &&
+            (String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId))
+          ).toArray();
           if (byReg.length > 0) {
             const nameMatch = byReg.find(
               l => l.fullName?.trim().toLowerCase() === rl.full_name?.trim().toLowerCase()
             );
-            local = nameMatch || byReg.find(l => !l.supabaseId) || null;
+            local = nameMatch || byReg[0];
           }
         }
+        if (!local && rl.full_name) {
+          const byName = await db.learners.filter(l =>
+            l.fullName?.trim().toLowerCase() === rl.full_name?.trim().toLowerCase() &&
+            (String(l.schoolId) === String(schoolId) || !l.schoolId)
+          ).toArray();
+          if (byName.length > 0) {
+            local = byName.find(l => !l.supabaseId) || byName[0];
+          }
+        }
+
+        const remoteFields = {
+          schoolId: schoolId,
+          regNumber: rl.reg_number || '',
+          fullName: rl.full_name || '',
+          gender: rl.gender || 'Male',
+          ghanaianLanguage: rl.ghanaian_language || 'twi',
+          currentClassId: rl.class_id ? Number(rl.class_id) : (local?.currentClassId || null),
+          status: rl.status || 'Active',
+          guardianName: rl.guardian_name || '',
+          guardianRelation: rl.guardian_relation || '',
+          guardianContact1: rl.guardian_contact_1 || rl.guardian_phone || '',
+          guardianContact2: rl.guardian_contact_2 || '',
+          guardianProfession: rl.guardian_profession || '',
+          guardianLocation: rl.guardian_location || '',
+          excludeFromPdf: !!rl.exclude_from_pdf,
+          photoUrl: rl.photo_url || null,
+          synced: true,
+          supabaseId: rl.id,
+          updatedAt: rl.updated_at || new Date().toISOString(),
+          createdAt: rl.created_at || new Date().toISOString()
+        };
 
         if (!local) {
           // New learner — download photo blob for offline caching
@@ -366,21 +585,19 @@ async function runAdminSync(user) {
             photoBlobCache = await downloadImageAsBlob(rl.photo_url).catch(() => null);
           }
           await db.learners.add({
-            schoolId: rl.school_id, regNumber: rl.reg_number, fullName: rl.full_name,
-            gender: rl.gender, currentClassId: rl.class_id,
-            photo: photoBlobCache, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id,
-            excludeFromPdf: rl.exclude_from_pdf || false
+            ...remoteFields,
+            photo: photoBlobCache
           });
 
         } else {
           // Existing learner — smart diff; re-download photo only if URL changed
-          const remoteFields = {
-            regNumber: rl.reg_number, fullName: rl.full_name, gender: rl.gender,
-            currentClassId: rl.class_id, photoUrl: rl.photo_url, synced: true, supabaseId: rl.id,
-            excludeFromPdf: rl.exclude_from_pdf || false
-          };
-          const fieldsChanged = hasChanged(local, remoteFields, ['regNumber', 'fullName', 'gender', 'currentClassId', 'photoUrl', 'supabaseId', 'synced', 'excludeFromPdf']);
+          const fieldsChanged = hasChanged(local, remoteFields, [
+            'regNumber', 'fullName', 'gender', 'ghanaianLanguage', 'currentClassId', 
+            'status', 'guardianName', 'guardianRelation', 'guardianContact1', 'guardianContact2',
+            'guardianProfession', 'guardianLocation', 'photoUrl', 'supabaseId', 'synced', 'excludeFromPdf'
+          ]);
           const photoUrlChanged = navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl;
+
           if (fieldsChanged || photoUrlChanged) {
             let photoBlobCache = local.photo instanceof Blob ? local.photo : null;
             if (photoUrlChanged) {
@@ -388,10 +605,11 @@ async function runAdminSync(user) {
               photoBlobCache = downloaded || (local.photo instanceof Blob ? local.photo : null);
             } else if (!rl.photo_url) {
               photoBlobCache = null;
-            } else {
-              photoBlobCache = local.photo instanceof Blob ? local.photo : null;
             }
-            await db.learners.update(local.id, { ...remoteFields, photo: photoBlobCache });
+            await db.learners.update(local.id, { 
+              ...remoteFields, 
+              photo: photoBlobCache 
+            });
           }
         }
       }
@@ -649,18 +867,30 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
 
     if (remoteSchool && !error) {
       const existing = await db.schools.get(schoolId);
+      const remoteLogo = remoteSchool.logo_url;
+      const isRemoteValid = remoteLogo && typeof remoteLogo === 'string' && !remoteLogo.startsWith('blob:');
+      const isLocalValid = existing?.logoUrl && typeof existing.logoUrl === 'string' && !existing.logoUrl.startsWith('blob:');
+      const finalLogoUrl = isRemoteValid ? remoteLogo : (isLocalValid ? existing.logoUrl : '');
+
       const mapped = {
-        id: schoolId, name: remoteSchool.name || '', location: remoteSchool.location || '',
-        district: remoteSchool.district || '', region: remoteSchool.region || '',
-        circuit: remoteSchool.circuit || '', motto: remoteSchool.motto || '',
-        logoUrl: remoteSchool.logo_url || '',
-        currentAcademicYear: remoteSchool.current_academic_year || '',
-        currentTerm: remoteSchool.current_term || 'Term 1',
-        vacationDate: remoteSchool.vacation_date || '',
-        nextTermBegins: remoteSchool.next_term_begins || '',
-        phone: remoteSchool.phone || '', email: remoteSchool.email || ''
+        ...existing,
+        id: schoolId,
+        name: remoteSchool.name || existing?.name || '',
+        location: remoteSchool.location || existing?.location || '',
+        district: remoteSchool.district || existing?.district || '',
+        region: remoteSchool.region || existing?.region || '',
+        circuit: remoteSchool.circuit || existing?.circuit || '',
+        motto: remoteSchool.motto || existing?.motto || '',
+        schoolType: remoteSchool.school_type || remoteSchool.schoolType || existing?.schoolType || 'private',
+        logoUrl: finalLogoUrl,
+        currentAcademicYear: remoteSchool.current_academic_year || existing?.currentAcademicYear || '',
+        currentTerm: remoteSchool.current_term || existing?.currentTerm || 'Term 1',
+        vacationDate: remoteSchool.vacation_date || existing?.vacationDate || '',
+        nextTermBegins: remoteSchool.next_term_begins || existing?.nextTermBegins || '',
+        phone: remoteSchool.phone || existing?.phone || '',
+        email: remoteSchool.email || existing?.email || ''
       };
-      if (!existing || hasChanged(existing, mapped, ['name', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl'])) {
+      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl'])) {
         await db.schools.put(mapped);
       }
     }
@@ -749,6 +979,47 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
     }
   } catch (err) { console.error('[SyncDown] Parent class-subjects sync failed:', err); }
 
+  // ── 5b. Learners (via secure RPC) ─────────────────────────────────────────────
+  try {
+    const { data: remoteLearners, error } = await supabase
+      .rpc('get_learners_by_guardian_contact', { p_contact: parent.phone_number });
+
+    if (remoteLearners && !error) {
+      for (const rl of remoteLearners) {
+        let local = await db.learners.where('supabaseId').equals(rl.id).first();
+        if (!local && rl.reg_number) {
+          local = await db.learners.where('regNumber').equals(rl.reg_number).first();
+        }
+
+        const entry = {
+          schoolId: rl.school_id,
+          regNumber: rl.reg_number,
+          fullName: rl.full_name,
+          gender: rl.gender,
+          currentClassId: rl.class_id,
+          photoUrl: rl.photo_url,
+          guardianName: rl.guardian_name,
+          guardianRelation: rl.guardian_relation,
+          guardianContact1: rl.guardian_contact_1,
+          guardianContact2: rl.guardian_contact_2,
+          guardianProfession: rl.guardian_profession,
+          guardianLocation: rl.guardian_location,
+          supabaseId: rl.id,
+          synced: true,
+          status: 'Active'
+        };
+
+        if (!local) {
+          await db.learners.add(entry);
+        } else if (hasChanged(local, entry, ['fullName', 'currentClassId', 'photoUrl', 'guardianName', 'guardianContact1', 'guardianContact2'])) {
+          await db.learners.update(local.id, entry);
+        }
+      }
+    } else if (error) {
+      console.error('[SyncDown] Parent learners RPC failed:', error);
+    }
+  } catch (err) { console.error('[SyncDown] Parent learners sync failed:', err); }
+
   // ── 6. Report Summaries (via secure RPC) ────────────────────────────────────
   try {
     const { data: remoteSummaries, error } = await supabase
@@ -756,10 +1027,12 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
 
     if (remoteSummaries && !error) {
       for (const rs of remoteSummaries) {
-        const existing = await db.reportSummaries
-          .where('learnerId').equals(rs.learner_id)
-          .filter(s => s.academicYear === rs.academic_year && s.term === rs.term)
-          .first();
+        const allLocalSummaries = await db.reportSummaries.toArray();
+        const existing = allLocalSummaries.find(s =>
+          (s.supabaseId === rs.id || s.learnerId === rs.learner_id || String(s.learnerId) === String(rs.learner_id)) &&
+          String(s.academicYear || '').trim().toLowerCase() === String(rs.academic_year || '').trim().toLowerCase() &&
+          String(s.term || '').trim().toLowerCase() === String(rs.term || '').trim().toLowerCase()
+        );
 
         const entry = {
           schoolId: rs.school_id, learnerId: rs.learner_id, classId: rs.class_id,
@@ -806,7 +1079,7 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
           .first();
 
         const entry = {
-          learnerId: cs.learner_id, classId: cs.class_id, subjectId: cs.subject_id,
+          learnerId: cs.learner_id, schoolId: cs.school_id, classId: cs.class_id, subjectId: cs.subject_id,
           caScores: cs.ca_scores || [], examScore: cs.exam_score || '',
           classScore: cs.class_score || 0, totalScore: cs.total_score || 0,
           grade: cs.grade || '', remark: cs.remark || '',
@@ -872,15 +1145,22 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
         }
       }
 
-      // Add new payments
+      // Add or update payments
       for (const rp of remotePayments) {
-        if (!existingIds.has(rp.id)) {
-          await db.payments.add({
-            schoolId: rp.school_id, learnerId: rp.learner_id, academicYear: rp.academic_year,
-            term: rp.term, amount: rp.amount, paymentDate: rp.payment_date,
-            paymentMethod: rp.payment_method, reference: rp.reference,
-            supabaseId: rp.id, synced: true
-          });
+        const entry = {
+          schoolId: rp.school_id, learnerId: rp.learner_id, academicYear: rp.academic_year,
+          term: rp.term, amount: rp.amount, paymentDate: rp.payment_date,
+          paymentMethod: rp.payment_method, reference: rp.reference,
+          supabaseId: rp.id, synced: true
+        };
+
+        if (existingIds.has(rp.id)) {
+          const local = allExisting.find(e => e.supabaseId === rp.id);
+          if (local && hasChanged(local, entry, ['amount', 'paymentDate', 'paymentMethod', 'reference'])) {
+            await db.payments.update(local.id, entry);
+          }
+        } else {
+          await db.payments.add(entry);
         }
       }
     } else if (error) {
@@ -927,14 +1207,24 @@ export function startAdminSync(user) {
   };
   window.addEventListener('online', onOnline);
 
+  // Instant sync when returning to tab
+  const onVisibility = () => {
+    if (document.visibilityState === 'visible' && navigator.onLine) {
+      console.log('[SyncDown] Tab focused — triggering instant sync refresh...');
+      runAdminSync(user);
+    }
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+
   // Silent background poll
   const intervalId = setInterval(() => {
     if (navigator.onLine) runAdminSync(user);
   }, POLL_INTERVAL_MS);
 
-  // Cleanup — removes event listener and stops polling when component unmounts
+  // Cleanup — removes event listeners and stops polling when component unmounts
   return () => {
     window.removeEventListener('online', onOnline);
+    document.removeEventListener('visibilitychange', onVisibility);
     clearInterval(intervalId);
   };
 }

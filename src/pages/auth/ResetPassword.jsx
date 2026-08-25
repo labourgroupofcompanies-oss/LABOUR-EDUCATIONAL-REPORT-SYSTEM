@@ -5,17 +5,25 @@ import { supabase } from '../../lib/supabase';
 const ResetPassword = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const navigate = useNavigate();
 
-  // Handle Hash fragments/Recovery state check
+  // Handle URL errors or recovery state checks
   useEffect(() => {
-    // Check if the current URL contains access token or recovery error
+    // Check hash parameters and search query parameters
     const hash = window.location.hash;
+    const search = window.location.search;
+
     if (hash && hash.includes('error_description')) {
       const params = new URLSearchParams(hash.replace('#', '?'));
+      const errorDesc = params.get('error_description');
+      setError(errorDesc || 'The password reset link is invalid or expired. Please request a new one.');
+    } else if (search && search.includes('error_description')) {
+      const params = new URLSearchParams(search);
       const errorDesc = params.get('error_description');
       setError(errorDesc || 'The password reset link is invalid or expired. Please request a new one.');
     }
@@ -45,87 +53,108 @@ const ResetPassword = () => {
 
       if (updateErr) throw updateErr;
 
-      setSuccess('Your password has been successfully updated! Redirecting to the sign-in page...');
+      setSuccess('Your password has been updated successfully! Redirecting to the sign-in page...');
       
       // Auto-navigate to login after 3 seconds
       setTimeout(() => {
-        // Sign out to clear temporary recovery session, forcing a fresh sign in
         supabase.auth.signOut().then(() => {
           navigate('/login');
         });
       }, 3000);
     } catch (err) {
-      setError(err.message || 'Failed to update password. Your recovery link might be expired or invalid.');
+      setError(err.message || 'Failed to update password. Your recovery link may be expired or invalid.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center', background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)', minHeight: '100vh' }}>
-      <div className="card fade-in" style={{ width: '100%', maxWidth: '420px', padding: '2.5rem' }}>
+    <div style={{ minHeight: '100vh', background: '#FAFAFA', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
+      <div style={{ width: '100%', maxWidth: '440px', background: '#FFFFFF', borderRadius: '24px', boxShadow: '0 25px 60px rgba(15, 23, 42, 0.12)', padding: '2.5rem', border: '1px solid #E2E8F0' }}>
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{ width: '64px', height: '64px', background: 'var(--accent)', borderRadius: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', transform: 'rotate(-5deg)', boxShadow: '0 10px 20px rgba(13, 148, 136, 0.3)' }}>
-            <i className="fas fa-lock-open" style={{ color: 'white', fontSize: '2rem' }}></i>
+          <div style={{ width: '64px', height: '64px', background: 'linear-gradient(135deg, #1E3A8A, #D97706)', borderRadius: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.25rem', boxShadow: '0 10px 25px rgba(217, 119, 6, 0.25)' }}>
+            <i className="fas fa-key" style={{ color: 'white', fontSize: '1.75rem' }}></i>
           </div>
-          <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Set New Password</h1>
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Enter a strong, secure password for your account</p>
+          <h1 style={{ fontSize: '1.6rem', color: '#1E3A8A', fontWeight: 800, marginBottom: '0.35rem' }}>Set New Password</h1>
+          <p style={{ color: '#64748B', fontSize: '0.875rem' }}>Create a strong, secure password for your account</p>
         </div>
 
         {error && (
-          <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--error)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
-            <i className="fas fa-circle-exclamation" style={{ marginRight: '8px' }}></i>
-            {error}
+          <div style={{ backgroundColor: 'rgba(239, 68, 68, 0.08)', color: '#EF4444', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', fontSize: '0.85rem', border: '1px solid rgba(239, 68, 68, 0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fas fa-circle-exclamation"></i>
+            <span>{error}</span>
           </div>
         )}
 
         {success && (
-          <div style={{ backgroundColor: 'rgba(13, 148, 136, 0.1)', color: 'var(--accent)', padding: '0.75rem', borderRadius: 'var(--radius-md)', marginBottom: '1.5rem', fontSize: '0.875rem', border: '1px solid rgba(13, 148, 136, 0.2)' }}>
-            <i className="fas fa-circle-check" style={{ marginRight: '8px' }}></i>
-            {success}
+          <div style={{ backgroundColor: 'rgba(217, 119, 6, 0.08)', color: '#D97706', padding: '0.85rem 1rem', borderRadius: '12px', marginBottom: '1.5rem', fontSize: '0.85rem', border: '1px solid rgba(217, 119, 6, 0.2)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <i className="fas fa-circle-check"></i>
+            <span>{success}</span>
           </div>
         )}
 
         {!success && (
           <form onSubmit={handleSubmit}>
             <div className="form-group" style={{ marginBottom: '1.25rem' }}>
-              <label className="form-label">New Password</label>
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="Minimum 6 characters"
-                value={newPassword}
-                onChange={(e) => {
-                  setNewPassword(e.target.value);
-                  setError('');
-                }}
-                required
-                minLength={6}
-                disabled={loading}
-              />
+              <label className="form-label" style={{ color: '#0F172A', fontWeight: 600, fontSize: '0.82rem' }}>New Password</label>
+              <div style={{ position: 'relative' }}>
+                <i className="fas fa-lock" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '0.9rem' }} />
+                <input 
+                  type={showNewPass ? "text" : "password"} 
+                  className="form-input" 
+                  placeholder="Minimum 6 characters"
+                  value={newPassword}
+                  onChange={(e) => {
+                    setNewPassword(e.target.value);
+                    setError('');
+                  }}
+                  required
+                  minLength={6}
+                  disabled={loading}
+                  style={{ paddingLeft: '40px', paddingRight: '40px', height: '46px', borderRadius: '10px', border: '1.5px solid #E2E8F0' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPass(!showNewPass)}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '4px' }}
+                >
+                  <i className={`fas ${showNewPass ? 'fa-eye-slash' : 'fa-eye'}`} />
+                </button>
+              </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: '1.75rem' }}>
-              <label className="form-label">Confirm Password</label>
-              <input 
-                type="password" 
-                className="form-input" 
-                placeholder="Re-enter password"
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  setError('');
-                }}
-                required
-                minLength={6}
-                disabled={loading}
-              />
+              <label className="form-label" style={{ color: '#0F172A', fontWeight: 600, fontSize: '0.82rem' }}>Confirm Password</label>
+              <div style={{ position: 'relative' }}>
+                <i className="fas fa-lock" style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: '#94A3B8', fontSize: '0.9rem' }} />
+                <input 
+                  type={showConfirmPass ? "text" : "password"} 
+                  className="form-input" 
+                  placeholder="Re-enter new password"
+                  value={confirmPassword}
+                  onChange={(e) => {
+                    setConfirmPassword(e.target.value);
+                    setError('');
+                  }}
+                  required
+                  minLength={6}
+                  disabled={loading}
+                  style={{ paddingLeft: '40px', paddingRight: '40px', height: '46px', borderRadius: '10px', border: '1.5px solid #E2E8F0' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPass(!showConfirmPass)}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: '#94A3B8', cursor: 'pointer', padding: '4px' }}
+                >
+                  <i className={`fas ${showConfirmPass ? 'fa-eye-slash' : 'fa-eye'}`} />
+                </button>
+              </div>
             </div>
 
             <button 
               type="submit" 
-              className="btn btn-primary" 
-              style={{ width: '100%', padding: '0.875rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              className="btn" 
+              style={{ width: '100%', height: '48px', background: '#1E3A8A', color: 'white', fontWeight: 700, borderRadius: '12px', border: 'none', cursor: 'pointer', fontSize: '0.95rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(30, 58, 138, 0.25)' }}
               disabled={loading}
             >
               {loading ? <i className="fas fa-spinner fa-spin"></i> : <>
@@ -140,9 +169,7 @@ const ResetPassword = () => {
           <button
             type="button"
             onClick={() => navigate('/login')}
-            style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
-            onMouseEnter={e => e.target.style.color = 'var(--text)'}
-            onMouseLeave={e => e.target.style.color = 'var(--text-muted)'}
+            style={{ background: 'none', border: 'none', color: '#64748B', fontSize: '0.85rem', cursor: 'pointer', fontWeight: 600 }}
           >
             <i className="fas fa-arrow-left" style={{ marginRight: '6px' }}></i> Back to Sign In
           </button>

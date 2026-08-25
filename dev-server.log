@@ -1,0 +1,30 @@
+
+  [32m[1mVITE[22m v5.4.21[39m  [2mready in [0m[1m13721[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://127.0.0.1:[1m5173[22m/[39m
+[2m3:30:53 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m3:30:53 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m3:31:52 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m3:47:52 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/components/layout/Sidebar.jsx[22m
+[2m3:48:28 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx, /src/store/AuthContext.jsx, /src/pages/parent/ParentReportView.jsx, /src/pages/setup/Settings.jsx, /src/pages/learners/LearnerList.jsx, /src/pages/parent/ParentLogin.jsx, /src/pages/parent/ParentFeesView.jsx, /src/pages/parent/ParentDashboard.jsx[22m
+[2m3:48:32 pm[22m [36m[1m[vite][22m[39m [33mhmr invalidate [39m[2m/src/store/AuthContext.jsx[22m Could not Fast Refresh ("useAuth" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m3:48:32 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx, /src/pages/teachers/TeacherList.jsx, /src/pages/scores/ScoreEntry.jsx, /src/pages/Dashboard.jsx, /src/pages/teachers/ClassTeacherEntry.jsx, /src/pages/financials/Financials.jsx, /src/pages/setup/Settings.jsx, /src/pages/learners/Promotions.jsx, /src/pages/auth/Login.jsx, /src/pages/reports/Reports.jsx, /src/pages/setup/ScoreDiagnostic.jsx, /src/pages/learners/LearnerList.jsx, /src/pages/parent/HeadTeacherMessages.jsx, /src/pages/setup/SchoolSetup.jsx, /src/components/layout/Header.jsx, /src/components/layout/Sidebar.jsx, /src/components/layout/SuperAdminRoute.jsx, /src/components/developer/DeveloperLayout.jsx[22m
+[2m3:48:58 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/auth/Login.jsx[22m
+[2m4:17:37 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m4:18:45 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/App.jsx[22m
+[2m4:29:20 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsDashboard.jsx, /src/pages/operations/SchoolDetailView.jsx, /src/pages/operations/OperationsSchoolsDirectory.jsx, /src/pages/operations/OperationsInterventionsAudit.jsx, /src/pages/operations/OperationsSupportCenter.jsx, /src/pages/operations/OperationsSubscriptions.jsx[22m
+[2m4:30:45 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsDashboard.jsx[22m
+[2m4:31:48 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsSchoolsDirectory.jsx[22m
+[2m4:33:36 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/SchoolDetailView.jsx[22m
+[2m4:34:42 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsSupportCenter.jsx[22m
+[2m4:35:44 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsSubscriptions.jsx[22m
+[2m4:36:37 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsInterventionsAudit.jsx[22m
+[2m4:37:51 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/operations/OperationsSchoolAnalytics.jsx[22m
+[2m4:57:02 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/DeveloperDashboard.jsx, /src/pages/developer/SandboxEnvironment.jsx, /src/pages/developer/ApiKeyManager.jsx, /src/pages/developer/SecurityCenter.jsx, /src/pages/developer/ApiVersionManager.jsx, /src/pages/developer/WebhookManager.jsx[22m
+[2m4:59:23 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/DeveloperDashboard.jsx, /src/pages/developer/SandboxEnvironment.jsx, /src/pages/developer/ApiKeyManager.jsx, /src/pages/developer/SecurityCenter.jsx, /src/pages/developer/ApiVersionManager.jsx, /src/pages/developer/WebhookManager.jsx[22m
+[2m5:00:21 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/DeveloperDashboard.jsx[22m
+[2m5:01:29 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/ApiAnalytics.jsx[22m
+[2m5:01:29 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/ApiAnalytics.jsx[22m
+[2m5:02:42 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/SecurityCenter.jsx[22m
+[2m5:03:46 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/ApiVersionManager.jsx[22m
+[2m5:04:55 pm[22m [36m[1m[vite][22m[39m [32mhmr update [39m[2m/src/pages/developer/SandboxEnvironment.jsx[22m

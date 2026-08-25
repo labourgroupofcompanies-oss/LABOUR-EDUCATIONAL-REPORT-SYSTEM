@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Platform Operations & Subscription Management — User Manual</title>
+  <!-- Google Fonts & FontAwesome -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <style>
+    :root {
+      --primary-gold: #d97706;
+      --accent-amber: #fbbf24;
+      --bg-dark: #1c1917;
+      --card-bg: #26221f;
+      --border-color: #3d3731;
+      --text-main: #f5f5f4;
+      --text-muted: #a8a29e;
+      --green-accent: #4ade80;
+      --red-accent: #fca5a5;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #12100e;
+      color: #e7e5e4;
+      margin: 0;
+      padding: 0;
+      line-height: 1.6;
+    }
+
+    /* Floating Header Action Bar for Printing/PDF */
+    .action-header {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(28, 25, 23, 0.95);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid #3d3834;
+      padding: 0.85rem 2rem;
+      display: flex;
+      justify: space-between;
+      align-items: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+
+    .action-header h2 {
+      margin: 0;
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.1rem;
+      color: var(--accent-amber);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn-pdf {
+      padding: 0.6rem 1.4rem;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+      border: none;
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(217,119,6,0.4);
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .btn-pdf:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 18px rgba(217,119,6,0.6);
+    }
+
+    .document-container {
+      max-width: 900px;
+      margin: 2rem auto;
+      background: #1c1917;
+      border: 1px solid #3d3731;
+      border-radius: 20px;
+      padding: 3rem 3.5rem;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+
+    /* Manual Title Block */
+    .title-block {
+      border-bottom: 2px solid #3d3731;
+      padding-bottom: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .title-block .badge {
+      display: inline-block;
+      padding: 0.25rem 0.75rem;
+      border-radius: 6px;
+      background: rgba(217, 119, 6, 0.15);
+      border: 1px solid #d97706;
+      color: var(--accent-amber);
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      margin-bottom: 0.5rem;
+    }
+
+    .title-block h1 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 2.2rem;
+      font-weight: 900;
+      color: #ffffff;
+      margin: 0.25rem 0 0.5rem;
+      letter-spacing: -0.5px;
+    }
+
+    .title-block p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin: 0;
+    }
+
+    /* Section Styling */
+    h2 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--accent-amber);
+      margin-top: 2.2rem;
+      margin-bottom: 0.85rem;
+      border-bottom: 1px dashed #3d3731;
+      padding-bottom: 0.4rem;
+    }
+
+    h3 {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #f5f5f4;
+      margin-top: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    p, li {
+      font-size: 0.92rem;
+      color: #d6d3d1;
+    }
+
+    ul, ol {
+      padding-left: 1.4rem;
+      margin-top: 0.4rem;
+    }
+
+    li { margin-bottom: 0.35rem; }
+
+    /* Info Cards & Tables */
+    .info-box {
+      background: #26221f;
+      border-left: 4px solid var(--primary-gold);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin: 1rem 0;
+    }
+
+    .info-box p { margin: 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.2rem 0;
+      font-size: 0.88rem;
+    }
+
+    th, td {
+      padding: 0.75rem 1rem;
+      border: 1px solid #3d3731;
+      text-align: left;
+    }
+
+    th {
+      background: #26221f;
+      color: var(--accent-amber);
+      font-weight: 800;
+      font-family: 'Outfit', sans-serif;
+    }
+
+    tr:nth-child(even) {
+      background: rgba(255,255,255,0.02);
+    }
+
+    code {
+      background: #141210;
+      color: var(--accent-amber);
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.85rem;
+    }
+
+    /* Print Specific Styles */
+    @media print {
+      .action-header { display: none !important; }
+      body { background: #ffffff !important; color: #111111 !important; }
+      .document-container {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: #ffffff !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+      h1, h2, h3, th { color: #000000 !important; }
+      p, li, td { color: #222222 !important; }
+      .info-box { background: #f5f5f5 !important; border-left-color: #d97706 !important; }
+      table, th, td { border-color: #cccccc !important; }
+      th { background: #f0f0f0 !important; }
+      code { background: #eeeeee !important; color: #990000 !important; }
+      .page-break { page-break-before: always; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating Print/PDF Bar -->
+  <div class="action-header">
+    <h2><i class="fas fa-book"></i> Labour Edu System — Platform Operations Manual</h2>
+    <button class="btn-pdf" onclick="window.print()">
+      <i class="fas fa-file-pdf"></i> Download / Print PDF Manual
+    </button>
+  </div>
+
+  <div class="document-container" id="manual-content">
+
+    <!-- Title Block -->
+    <div class="title-block">
+      <div class="badge">Official System Documentation • Version 2026.1</div>
+      <h1>Platform Operations &amp; Subscription Management Center</h1>
+      <p>Comprehensive Administrative User Guide &amp; Operational Procedures for Super Admins and Platform Developers.</p>
+    </div>
+
+    <!-- Section 1 -->
+    <h2>1. System Overview &amp; Role Access</h2>
+    <p>The <strong>Platform Operations &amp; Subscription Management Center</strong> (located at <code>/platform/operations/subscriptions</code>) is the central command center for the Labour Educational Report System across Ghana Basic Schools. It provides administrators with total oversight over subscription entitlements, learner billing calculations, wallet ledgers, and revenue realization.</p>
+    
+    <table>
+      <thead>
+        <tr>
+          <th>User Role</th>
+          <th>Access Rights</th>
+          <th>Primary Responsibilities</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>super_admin</code></td>
+          <td>Full Control</td>
+          <td>Pricing controls, billing cycle triggers, cycle reverts, exemptions, top-ups.</td>
+        </tr>
+        <tr>
+          <td><code>developer</code></td>
+          <td>Full Control + Audit</td>
+          <td>Database migrations, schema maintenance, security audit logs, diagnostics.</td>
+        </tr>
+        <tr>
+          <td><code>accountant</code></td>
+          <td>Read &amp; Financial Ledger</td>
+          <td>Revenue verification, Paystack reconciliation, wallet top-ups, CSV reporting.</td>
+        </tr>
+        <tr>
+          <td><code>operations</code></td>
+          <td>Read &amp; Category Config</td>
+          <td>School category tagging, learner count monitoring, exemption status.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Section 2 -->
+    <h2>2. Executive KPI Dashboard &amp; Real-Time Indicators</h2>
+    <p>At the top of the interface, the <strong>Executive KPI Metrics Bar</strong> provides real-time counts across all onboarded schools:</p>
+    <ul>
+      <li><strong>Total Schools</strong>: Total count of registered basic schools on the platform.</li>
+      <li><strong>Free Onboarding</strong>: Schools running their 16-week trial (First Term Free).</li>
+      <li><strong>Wallet Balance</strong>: Cumulative pre-funded GHS wallet balances across all active schools.</li>
+      <li><strong>Frozen Accounts</strong>: Schools whose wallet balance is below their term subscription dues, resulting in report card locks.</li>
+      <li><strong>Exempted</strong>: Schools granted explicit administrative exemption from term fees.</li>
+    </ul>
+
+    <!-- Section 3 -->
+    <h2>3. Term Subscription Revenue Analytics Engine</h2>
+    <p>The <strong>Term Revenue Analytics</strong> dashboard calculates real-time revenue performance for any selected term:</p>
+    <ul>
+      <li><strong>Total Billed</strong>: Total subscription fees required from non-waived schools.</li>
+      <li><strong>Collected</strong>: Realized revenue deducted from school wallets or collected via Paystack.</li>
+      <li><strong>Outstanding</strong>: Uncollected shortfall due from schools with insufficient funds.</li>
+      <li><strong>Realization Rate (%)</strong>: Percentage ratio of collected vs. billed revenue (<code>(Collected / Billed) * 100%</code>).</li>
+    </ul>
+    
+    <div class="info-box">
+      <p><strong><i class="fas fa-info-circle"></i> CSV Revenue Export:</strong> Click <code>Revenue Report CSV</code> to download a complete breakdown per school containing learner counts, effective rates, dues, wallet balances, and shortfall metrics.</p>
+    </div>
+
+    <!-- Section 4 -->
+    <div class="page-break"></div>
+    <h2>4. School Subscription Status Matrix &amp; Card Anatomy</h2>
+    <p>The <strong>Subscription Matrix</strong> displays all registered schools in an interactive 3D Card Grid Format or Table View.</p>
+
+    <h3>School Card Layout Components:</h3>
+    <ol>
+      <li><strong>Header</strong>: Displays School Name, ID Badge (e.g. <code>SCH-0042</code>), Category (Private/GES/International), and Running Term Badge (e.g. <code>📅 Term 1 (2025/2026)</code>).</li>
+      <li><strong>Status Banner</strong>:
+        <ul>
+          <li><code>🎁 Waived (Free First Term Active)</code></li>
+          <li><code>🟢 Paid &amp; Approved (Term Bill Settled)</code></li>
+          <li><code>⏳ Payment Requested by Admin (Pending Approval)</code></li>
+          <li><code>🔴 Bill Unpaid (Reports &amp; Cards Frozen)</code></li>
+          <li><code>🛡️ Waived (Admin Exempted)</code></li>
+        </ul>
+      </li>
+      <li><strong>Metrics Box (2x2)</strong>: Displays Active Learner Count, Rate per Learner, Term Fee, Wallet Balance, and Outstanding Dues.</li>
+      <li><strong>Action Footer</strong>:
+        <ul>
+          <li><code>💳 Top Up</code>: Performs manual admin credit deposit into school wallet.</li>
+          <li><code>🛡️ Exempt</code> / <code>✅ Exempted</code>: Toggles term exemption for the school.</li>
+          <li><code>📜 Bills</code>: Opens billing snapshot history for the school.</li>
+          <li><code>⚙️ Config</code>: Opens custom rate override and category settings.</li>
+        </ul>
+      </li>
+    </ol>
+
+    <!-- Section 5 -->
+    <h2>5. Term Billing Trigger &amp; Cycle Revert Controls</h2>
+    
+    <h3>5.1 Initiating a Billing Cycle</h3>
+    <p>Under <code>⚙️ Term Billing Controls</code> (Tab 3), enter the Academic Year (e.g. <code>2025/2026</code>), select the Term, set the Payment Deadline, and click <strong>⚡ START TERM BILLING</strong>. Immutable billing snapshots will be generated for all eligible schools.</p>
+
+    <h3>5.2 Reverting a Billing Trigger</h3>
+    <p>If a billing cycle was triggered by mistake or requires adjustment:</p>
+    <ol>
+      <li>Go to <code>⚙️ Term Billing Controls</code> (Tab 3).</li>
+      <li>Click <strong><code>⏪ REVERT BILLING TRIGGER</code></strong> (or click <code>⏪ Revert</code> next to any active cycle in the list).</li>
+      <li>Unpaid term bill snapshots for that cycle are deleted, allowing you to adjust school exemptions or pricing and re-trigger billing cleanly.</li>
+    </ol>
+
+    <!-- Section 6 -->
+    <h2>6. School Wallet Management &amp; Manual Top-Ups</h2>
+    <ol>
+      <li>On the school's card, click <strong>💳 Top Up</strong>.</li>
+      <li>Enter the Deposit Amount (GH₵), Reference Code, and Deposit Notes.</li>
+      <li>Click <strong>Confirm Top Up</strong>. The school's balance updates immediately.</li>
+    </ol>
+
+    <!-- Section 7 -->
+    <h2>7. Database Maintenance &amp; Troubleshooting</h2>
+    <p>Ensure the following SQL scripts are executed in your Supabase SQL Editor:</p>
+    <ul>
+      <li><code>20260813_fix_wallet_rls_and_transactions.sql</code> — Grants RLS permissions on <code>report_schools</code> and <code>school_term_bills</code>.</li>
+      <li><code>20260813_add_revert_billing_and_school_exemption.sql</code> — Installs <code>revert_term_billing_cycle</code> and <code>toggle_school_term_exemption</code> functions.</li>
+    </ul>
+
+  </div>
+
+</body>
+</html>
