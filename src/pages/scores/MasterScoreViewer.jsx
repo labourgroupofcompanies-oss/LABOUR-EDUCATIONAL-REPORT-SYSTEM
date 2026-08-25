@@ -388,52 +388,136 @@ const MasterScoreViewer = () => {
 
   return (
     <Layout title="All Scores Audit">
-      {/* Print-only CSS rules designed never to cut off cards */}
+      {/* Print-only CSS rules designed never to cut off cards and print all learner sheets */}
       <style>{`
         @media print {
-          body * { visibility: hidden !important; }
-          #printable-broadsheet, #printable-broadsheet * { visibility: visible !important; }
-          #printable-broadsheet {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+          html, body {
+            margin: 0 !important;
+            padding: 0 !important;
+            height: auto !important;
+            min-height: 100% !important;
+            overflow: visible !important;
+            background: #FFFFFF !important;
+          }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          .no-print, .no-print-bg, header, nav, aside, footer, .sidebar, .header-container {
+            display: none !important;
+          }
+
+          .broadsheet-modal-wrapper {
+            position: static !important;
+            display: block !important;
             width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            background: transparent !important;
+            backdrop-filter: none !important;
             padding: 0 !important;
             margin: 0 !important;
-            background: #ffffff !important;
+            z-index: auto !important;
+          }
+
+          .broadsheet-modal-dialog {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            box-shadow: none !important;
+            border: none !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          #printable-broadsheet, #printable-broadsheet * {
+            visibility: visible !important;
+          }
+
+          #printable-broadsheet {
+            position: static !important;
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #FFFFFF !important;
             color: #000000 !important;
           }
-          .no-print { display: none !important; }
+
+          .printable-cards-container {
+            display: block !important;
+            width: 100% !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
           .print-page-sheet {
             page-break-after: always !important;
             break-after: page !important;
             page-break-inside: avoid !important;
             break-inside: avoid !important;
             box-sizing: border-box !important;
-            padding: 6mm !important;
-            margin: 0 !important;
-            border-bottom: none !important;
-            background: #ffffff !important;
+            width: 100% !important;
+            min-height: 94vh !important;
+            padding: 4mm 6mm !important;
+            margin: 0 0 10mm 0 !important;
+            border: none !important;
+            background: #FFFFFF !important;
+            display: block !important;
           }
-          .print-page-sheet:last-child {
+
+          .print-page-sheet:last-of-type, .print-page-sheet:last-child {
             page-break-after: auto !important;
             break-after: auto !important;
+            margin-bottom: 0 !important;
           }
+
           .printable-card-grid {
             display: grid !important;
             grid-template-columns: repeat(2, 1fr) !important;
             gap: 8px !important;
-            align-items: start !important;
+            align-items: stretch !important;
           }
+
           .printable-card {
             page-break-inside: avoid !important;
             break-inside: avoid !important;
-            border: 1px solid #334155 !important;
+            border: 1.5px solid #1E293B !important;
+            border-radius: 6px !important;
             box-shadow: none !important;
             padding: 6px 8px !important;
-            background: #ffffff !important;
+            background: #FFFFFF !important;
+            color: #0F172A !important;
           }
-          @page { size: A4 landscape; margin: 4mm; }
+
+          /* Matrix Table Multi-Page Print Rules */
+          table {
+            page-break-inside: auto !important;
+            border-collapse: collapse !important;
+            width: 100% !important;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            page-break-after: auto !important;
+          }
+          thead {
+            display: table-header-group !important;
+          }
+
+          @page {
+            size: A4 landscape;
+            margin: 6mm 8mm;
+          }
         }
 
         /* Responsive Mobile Styles for Master Scores Audit */
