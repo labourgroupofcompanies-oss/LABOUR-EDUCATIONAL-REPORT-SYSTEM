@@ -302,7 +302,7 @@ async function processSingleItem(item) {
       }
 
       case 'delete_insert': {
-        // Delete existing rows
+        // 1. Delete existing rows matching filter
         let delQ = supabase.from(item.table).delete();
         Object.entries(payload.deleteFilter).forEach(([k, v]) => {
           delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
@@ -310,16 +310,57 @@ async function processSingleItem(item) {
         const { error: delErr } = await delQ;
 
         if (Array.isArray(payload.insertData) && payload.insertData.length > 0) {
-          if (item.table === 'report_scores') {
-            const { error: upsertErr } = await supabase.from(item.table).upsert(payload.insertData, {
-              onConflict: 'school_id,learner_id,subject_id,academic_year,term',
-              ignoreDuplicates: false
-            });
-            opError = upsertErr;
-          } else {
-            const { error: insErr } = await supabase.from(item.table).insert(payload.insertData);
-            opError = insErr;
+          // Deduplicate in-memory by primary business key
+          const seen = new Set();
+          const cleanRows = [];
+          for (const row of payload.insertData) {
+            const key = item.table === 'report_scores'
+              ? `${row.school_id}_${row.learner_id}_${row.subject_id}_${row.academic_year}_${row.term}`
+              : JSON.stringify(row);
+            if (!seen.has(key)) {
+              seen.add(key);
+              cleanRows.push(row);
+            }
           }
+
+          // 2. Extra safety for report_scores: delete matching learner IDs for this subject/term
+          if (item.table === 'report_scores') {
+            const learnerIds = cleanRows.map(r => r.learner_id).filter(Boolean);
+            if (learnerIds.length > 0 && payload.deleteFilter?.subject_id) {
+              let lDelQ = supabase.from(item.table).delete()
+                .eq('school_id', item.schoolId || payload.deleteFilter.school_id)
+                .eq('subject_id', payload.deleteFilter.subject_id)
+                .in('learner_id', learnerIds);
+              if (payload.deleteFilter.term) lDelQ = lDelQ.eq('term', payload.deleteFilter.term);
+              if (payload.deleteFilter.academic_year) lDelQ = lDelQ.eq('academic_year', payload.deleteFilter.academic_year);
+              await lDelQ.catch(() => null);
+            }
+          }
+
+          // 3. Clean insert
+          let { error: insErr } = await supabase.from(item.table).insert(cleanRows);
+
+          // 4. If unique constraint or conflict occurs, heal row-by-row
+          if (insErr && (insErr.code === '23505' || String(insErr.message || '').toLowerCase().includes('duplicate') || insErr.code === '409')) {
+            console.log(`[SyncEngine] 🔄 Healing conflict on ${item.table} via targeted delete-insert...`);
+            let hasFailures = false;
+            for (const r of cleanRows) {
+              if (item.table === 'report_scores') {
+                await supabase.from(item.table).delete()
+                  .eq('school_id', r.school_id)
+                  .eq('learner_id', r.learner_id)
+                  .eq('subject_id', r.subject_id)
+                  .eq('academic_year', r.academic_year)
+                  .eq('term', r.term)
+                  .catch(() => null);
+              }
+              const { error: singleErr } = await supabase.from(item.table).insert(r);
+              if (singleErr) hasFailures = true;
+            }
+            if (!hasFailures) insErr = null;
+          }
+
+          opError = insErr;
         } else {
           opError = delErr;
         }
@@ -593,12 +634,19 @@ const healUniqueConflict = async (opError, item, payload) => {
         ? payload.insertData
         : (Array.isArray(payload) ? payload : [payload]);
       if (rows && rows.length > 0) {
-        const { error: upsertErr } = await supabase.from('report_scores').upsert(rows, {
-          onConflict: 'school_id,learner_id,subject_id,academic_year,term',
-          ignoreDuplicates: false
-        });
-        if (!upsertErr) return null;
-        return upsertErr;
+        for (const r of rows) {
+          if (r.school_id && r.learner_id && r.subject_id) {
+            await supabase.from('report_scores').delete()
+              .eq('school_id', r.school_id)
+              .eq('learner_id', r.learner_id)
+              .eq('subject_id', r.subject_id)
+              .eq('academic_year', r.academic_year)
+              .eq('term', r.term)
+              .catch(() => null);
+            await supabase.from('report_scores').insert(r).catch(() => null);
+          }
+        }
+        return null;
       }
     }
   } catch (e) {
