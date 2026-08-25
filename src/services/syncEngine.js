@@ -310,8 +310,16 @@ async function processSingleItem(item) {
         const { error: delErr } = await delQ;
 
         if (Array.isArray(payload.insertData) && payload.insertData.length > 0) {
-          const { error: insErr } = await supabase.from(item.table).insert(payload.insertData);
-          opError = insErr;
+          if (item.table === 'report_scores') {
+            const { error: upsertErr } = await supabase.from(item.table).upsert(payload.insertData, {
+              onConflict: 'school_id,learner_id,subject_id,academic_year,term',
+              ignoreDuplicates: false
+            });
+            opError = upsertErr;
+          } else {
+            const { error: insErr } = await supabase.from(item.table).insert(payload.insertData);
+            opError = insErr;
+          }
         } else {
           opError = delErr;
         }
@@ -577,6 +585,20 @@ const healUniqueConflict = async (opError, item, payload) => {
           if (local) await db.classSubjects.update(local.id, { supabaseId: existing.id, synced: true });
           return null;
         }
+      }
+    }
+
+    if (item.table === 'report_scores') {
+      const rows = Array.isArray(payload.insertData)
+        ? payload.insertData
+        : (Array.isArray(payload) ? payload : [payload]);
+      if (rows && rows.length > 0) {
+        const { error: upsertErr } = await supabase.from('report_scores').upsert(rows, {
+          onConflict: 'school_id,learner_id,subject_id,academic_year,term',
+          ignoreDuplicates: false
+        });
+        if (!upsertErr) return null;
+        return upsertErr;
       }
     }
   } catch (e) {
