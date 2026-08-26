@@ -73,83 +73,48 @@ const subscriptionService = {
             walletBal = resetAt ? 0 : Number(schoolDb.wallet_balance);
           }
 
-          // Auto-reconcile: credit all valid non-rejected referral rewards created AFTER reset
-          const { data: rawCloudRefs } = await supabase
-            .from('report_referrals')
-            .select('id, referred_school_id, reward_amount, status, fraud_flag, created_at')
-            .eq('referrer_school_id', String(schoolId).trim())
-            .neq('status', 'REJECTED');
 
-          const cloudRefs = (rawCloudRefs || []).filter(r => !resetAt || new Date(r.created_at) > new Date(resetAt));
 
-          if (cloudRefs && cloudRefs.length > 0) {
-            const { data: existingRefTxs } = await supabase
-              .from('wallet_transactions')
-              .select('reference')
-              .eq('school_id', String(schoolId).trim());
-
-            const existingRefCodes = new Set((existingRefTxs || []).map(t => t.reference));
-
-            for (const ref of cloudRefs) {
-              if (ref.fraud_flag || ref.status === 'UNDER_REVIEW') continue;
-              if (!ref.id) continue;
-
-              const refYear = ref.created_at ? new Date(ref.created_at).getFullYear() : new Date().getFullYear();
-              const refSuffix = String(ref.id).replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
-              const refReference = `REF-${refYear}-${refSuffix}`;
-
-              if (!existingRefCodes.has(refReference)) {
-                const amount = Number(ref.reward_amount || 20.00);
-                const beforeBal = Number(walletBal || 0);
-                const afterBal = beforeBal + amount;
-
-                try {
-                  const txPayload = {
-                    school_id: String(schoolId).trim(),
-                    transaction_type: 'CREDIT',
-                    currency: 'GHS',
-                    amount,
-                    balance_before: beforeBal,
-                    balance_after: afterBal,
-                    reference: refReference,
-                    description: 'Referral Reward Credit (+GH₵20.00)',
-                    created_by: 'Referral Rewards Engine'
-                  };
-
-                  let { error: insertErr } = await supabase.from('wallet_transactions').insert(txPayload);
-                  if (insertErr) {
-                    try {
-                      await supabase.from('platform_wallet_transactions').insert(txPayload);
-                    } catch (_) {}
-                  }
-
-                  await supabase.from('report_referrals').update({
-                    status: 'REWARDED',
-                    reward_date: new Date().toISOString()
-                  }).eq('id', ref.id);
-
-                  existingRefCodes.add(refReference);
-                  walletBal = afterBal;
-                } catch (txErr) {
-                  console.warn('[subscriptionService] Referral credit operation notice:', txErr.message);
-                }
-              }
-            }
-          }
-
-          // Authoritative Reconciled Balance from Sum(Credits) - Sum(Debits) created AFTER reset
+          // Authoritative Reconciled Balance from Sum(Credits) - Sum(Debits)
           const { data: rawSchoolTxs } = await supabase
             .from('wallet_transactions')
-            .select('amount, transaction_type, created_at')
+            .select('amount, transaction_type, created_at, reference, description')
             .eq('school_id', String(schoolId).trim());
 
-          const allSchoolTxs = (rawSchoolTxs || []).filter(t => !resetAt || new Date(t.created_at) > new Date(resetAt));
+          const { data: rewardedRefs } = await supabase
+            .from('report_referrals')
+            .select('id')
+            .eq('referrer_school_id', String(schoolId).trim())
+            .eq('status', 'REWARDED');
+
+          const rewardedSuffixes = new Set((rewardedRefs || []).map(r => String(r.id).replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()));
+
+          const allSchoolTxs = (rawSchoolTxs || []).filter(t => {
+            if (resetAt && new Date(t.created_at) <= new Date(resetAt)) return false;
+            // If transaction is a referral reward credit, verify underlying referral is REWARDED
+            const isRefCredit = (t.reference || '').startsWith('REF-') || (t.description || '').toLowerCase().includes('referral');
+            if (isRefCredit && (t.transaction_type || '').toUpperCase() === 'CREDIT') {
+              const refSuffix = (t.reference || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
+              if (!rewardedSuffixes.has(refSuffix)) return false; // Exclude unverified referrals
+            }
+            return true;
+          });
 
           if (allSchoolTxs.length > 0) {
-            const totalCredits = allSchoolTxs
+            // Deduplicate by (reference, transaction_type) to prevent counting accidental duplicate transactions
+            const seenRefs = new Set();
+            const uniqueTxs = [];
+            for (const t of allSchoolTxs) {
+              const refKey = t.reference ? `${t.reference}_${t.transaction_type}` : `${t.id || JSON.stringify(t)}`;
+              if (t.reference && seenRefs.has(refKey)) continue;
+              if (t.reference) seenRefs.add(refKey);
+              uniqueTxs.push(t);
+            }
+
+            const totalCredits = uniqueTxs
               .filter(t => (t.transaction_type || '').toUpperCase() === 'CREDIT')
               .reduce((sum, t) => sum + Number(t.amount || 0), 0);
-            const totalDebits = allSchoolTxs
+            const totalDebits = uniqueTxs
               .filter(t => (t.transaction_type || '').toUpperCase() === 'DEBIT')
               .reduce((sum, t) => sum + Number(t.amount || 0), 0);
             const netBalance = Math.max(0, totalCredits - totalDebits);
@@ -161,7 +126,7 @@ const subscriptionService = {
                 .update({ wallet_balance: walletBal })
                 .eq('id', schoolId);
             } catch (_) {}
-          } else if (resetAt) {
+          } else {
             walletBal = 0;
             try {
               await supabase
