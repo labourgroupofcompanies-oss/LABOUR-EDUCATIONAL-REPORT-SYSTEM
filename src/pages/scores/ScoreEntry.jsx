@@ -515,6 +515,7 @@ const ScoreEntry = () => {
 
         if (allGroupScores.length === 0) continue;
 
+        const seenLearnerIds = new Set();
         const insertData = [];
         for (const s of allGroupScores) {
           // Resolve UUID
@@ -525,6 +526,9 @@ const ScoreEntry = () => {
             if (!matchedLearner?.supabaseId) continue; // skip if UUID not available
             resolvedLearnerId = matchedLearner.supabaseId;
           }
+
+          if (!resolvedLearnerId || seenLearnerIds.has(resolvedLearnerId)) continue;
+          seenLearnerIds.add(resolvedLearnerId);
 
           // exam_score: only send null if the value is truly absent (empty string, null, undefined)
           // Use strict check — do NOT treat 0 as absent (a student can legitimately score 0)
