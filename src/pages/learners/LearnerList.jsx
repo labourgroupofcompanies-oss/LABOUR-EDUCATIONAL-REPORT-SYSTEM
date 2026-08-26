@@ -190,7 +190,7 @@ const LearnerList = () => {
     }
   }, [user?.schoolId]);
 
-  const areLearnerCardsFrozen = !!subStatus?.learners_cards_frozen || (!!subStatus?.reports_locked && subStatus?.billing_status !== 'FIRST_TERM_FREE' && subStatus?.billing_status !== 'EXEMPT');
+  const areLearnerCardsFrozen = false;
 
   const learners = useLiveQuery(
     () => user?.schoolId 
@@ -411,10 +411,6 @@ const LearnerList = () => {
   };
 
   const openEditModal = (l) => {
-    if (areLearnerCardsFrozen) {
-      alert('🔒 Existing learner records are frozen while a Term Subscription Payment Request is active. Registering new learners remains 100% operational.');
-      return;
-    }
     setEditingId(l.id);
     setForm({
       fullName: l.fullName || '',
@@ -1118,10 +1114,6 @@ const LearnerList = () => {
   };
 
   const handleDeleteLearner = async (l) => {
-    if (areLearnerCardsFrozen) {
-      alert('🔒 Deleting or altering existing learner records is locked while a Term Subscription Payment Request is active.');
-      return;
-    }
     const warningMessage = 
       `🚨 PERMANENT ACADEMIC ERASURE!\n\n` +
       `Are you sure you want to absolutely delete ${l.fullName}?\n` +
@@ -1498,21 +1490,7 @@ const LearnerList = () => {
         </div>
       </div>
 
-      {areLearnerCardsFrozen && (
-        <div style={{ background: '#fffbe5', border: '1px solid #fde047', borderRadius: '16px', padding: '1rem 1.25rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '1rem', color: '#854d0e', boxShadow: '0 4px 12px rgba(245, 158, 11, 0.1)' }}>
-          <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#fef3c7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', color: '#d97706', flexShrink: 0 }}>
-            <i className="fas fa-lock" />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontWeight: 800, fontSize: '0.95rem', color: '#92400e' }}>
-              Existing Learner Cards Frozen (Payment Request Active)
-            </div>
-            <div style={{ fontSize: '0.82rem', color: '#b45309', marginTop: '2px' }}>
-              Editing or deleting existing learners is frozen to preserve billing snapshot integrity. <strong>Registering new learners remains 100% operational.</strong>
-            </div>
-          </div>
-        </div>
-      )}
+
 
       <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ fontSize: '.85rem', color: '#64748b', fontWeight: 500 }}>
