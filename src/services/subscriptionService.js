@@ -923,15 +923,31 @@ const subscriptionService = {
         .from('report_referrals')
         .select('*')
         .eq('referrer_school_id', String(schoolId).trim())
-        .neq('status', 'REJECTED');
+        .eq('status', 'REWARDED');
 
-      const walletData = (rawWalletData || []).filter(tx => !resetAt || new Date(tx.created_at) > new Date(resetAt));
+      const rewardedRefSuffixes = new Set((rawRefData || []).map(r => String(r.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase()));
+
+      const walletData = (rawWalletData || []).filter(tx => {
+        if (resetAt && new Date(tx.created_at) <= new Date(resetAt)) return false;
+        const isReferral = tx.description?.toLowerCase().includes('referral') || tx.reference?.startsWith('REF-') || tx.description?.toLowerCase().includes('welcome');
+        if (isReferral) {
+          const suffix = String(tx.reference || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
+          if (!rewardedRefSuffixes.has(suffix)) return false; // Exclude unverified / cleared referrals
+        }
+        return true;
+      });
+
       const paymentData = (rawPaymentData || []).filter(p => !resetAt || new Date(p.created_at || p.completed_at) > new Date(resetAt));
       const refData = (rawRefData || []).filter(r => !resetAt || new Date(r.created_at) > new Date(resetAt));
 
       const topUpList = [];
+      const seenTxRefs = new Set();
 
       (walletData || []).forEach(tx => {
+        const refKey = tx.reference ? `${tx.reference}_${tx.transaction_type || tx.type}` : `${tx.id}`;
+        if (tx.reference && seenTxRefs.has(refKey)) return;
+        if (tx.reference) seenTxRefs.add(refKey);
+
         const isDebit = tx.type === 'DEBIT' || tx.transaction_type === 'DEBIT' || tx.description?.toLowerCase().includes('debit') || tx.description?.toLowerCase().includes('deduct');
         const isReferral = tx.description?.toLowerCase().includes('referral') || tx.reference?.startsWith('REF-') || tx.description?.toLowerCase().includes('welcome');
         
@@ -956,7 +972,9 @@ const subscriptionService = {
         const refSuffix = String(ref.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
         const refReference = `REF-${year}-${refSuffix}`;
         const exists = topUpList.some(t => t.reference === refReference || t.reference === ref.id);
+        if (!exists && seenTxRefs.has(refReference)) return;
         if (!exists) {
+          seenTxRefs.add(refReference);
           topUpList.push({
             id: ref.id,
             amount: Number(ref.reward_amount || 20.00),
