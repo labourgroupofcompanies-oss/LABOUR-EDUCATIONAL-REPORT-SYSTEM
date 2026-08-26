@@ -327,13 +327,15 @@ async function processSingleItem(item) {
           if (item.table === 'report_scores') {
             const learnerIds = cleanRows.map(r => r.learner_id).filter(Boolean);
             if (learnerIds.length > 0 && payload.deleteFilter?.subject_id) {
-              let lDelQ = supabase.from(item.table).delete()
-                .eq('school_id', item.schoolId || payload.deleteFilter.school_id)
-                .eq('subject_id', payload.deleteFilter.subject_id)
-                .in('learner_id', learnerIds);
-              if (payload.deleteFilter.term) lDelQ = lDelQ.eq('term', payload.deleteFilter.term);
-              if (payload.deleteFilter.academic_year) lDelQ = lDelQ.eq('academic_year', payload.deleteFilter.academic_year);
-              await lDelQ.catch(() => null);
+              try {
+                let lDelQ = supabase.from(item.table).delete()
+                  .eq('school_id', item.schoolId || payload.deleteFilter.school_id)
+                  .eq('subject_id', payload.deleteFilter.subject_id)
+                  .in('learner_id', learnerIds);
+                if (payload.deleteFilter.term) lDelQ = lDelQ.eq('term', payload.deleteFilter.term);
+                if (payload.deleteFilter.academic_year) lDelQ = lDelQ.eq('academic_year', payload.deleteFilter.academic_year);
+                await lDelQ;
+              } catch (_) {}
             }
           }
 
@@ -346,13 +348,14 @@ async function processSingleItem(item) {
             let hasFailures = false;
             for (const r of cleanRows) {
               if (item.table === 'report_scores') {
-                await supabase.from(item.table).delete()
-                  .eq('school_id', r.school_id)
-                  .eq('learner_id', r.learner_id)
-                  .eq('subject_id', r.subject_id)
-                  .eq('academic_year', r.academic_year)
-                  .eq('term', r.term)
-                  .catch(() => null);
+                try {
+                  await supabase.from(item.table).delete()
+                    .eq('school_id', r.school_id)
+                    .eq('learner_id', r.learner_id)
+                    .eq('subject_id', r.subject_id)
+                    .eq('academic_year', r.academic_year)
+                    .eq('term', r.term);
+                } catch (_) {}
               }
               const { error: singleErr } = await supabase.from(item.table).insert(r);
               if (singleErr) hasFailures = true;
@@ -636,14 +639,15 @@ const healUniqueConflict = async (opError, item, payload) => {
       if (rows && rows.length > 0) {
         for (const r of rows) {
           if (r.school_id && r.learner_id && r.subject_id) {
-            await supabase.from('report_scores').delete()
-              .eq('school_id', r.school_id)
-              .eq('learner_id', r.learner_id)
-              .eq('subject_id', r.subject_id)
-              .eq('academic_year', r.academic_year)
-              .eq('term', r.term)
-              .catch(() => null);
-            await supabase.from('report_scores').insert(r).catch(() => null);
+            try {
+              await supabase.from('report_scores').delete()
+                .eq('school_id', r.school_id)
+                .eq('learner_id', r.learner_id)
+                .eq('subject_id', r.subject_id)
+                .eq('academic_year', r.academic_year)
+                .eq('term', r.term);
+              await supabase.from('report_scores').insert(r);
+            } catch (_) {}
           }
         }
         return null;
