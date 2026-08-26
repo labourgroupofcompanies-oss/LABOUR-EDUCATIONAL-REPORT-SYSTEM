@@ -323,17 +323,22 @@ async function processSingleItem(item) {
             }
           }
 
-          // 2. Extra safety for report_scores: delete matching learner IDs for this subject/term
+          // 2. Pre-delete existing score rows for these learners/subject/term to ensure 100% clean insert
           if (item.table === 'report_scores') {
             const learnerIds = cleanRows.map(r => r.learner_id).filter(Boolean);
-            if (learnerIds.length > 0 && payload.deleteFilter?.subject_id) {
+            const targetSubjectId = payload.deleteFilter?.subject_id || cleanRows[0]?.subject_id;
+            const targetTerm = payload.deleteFilter?.term || cleanRows[0]?.term;
+            const targetYear = payload.deleteFilter?.academic_year || cleanRows[0]?.academic_year;
+            const targetSchoolId = item.schoolId || payload.deleteFilter?.school_id || cleanRows[0]?.school_id;
+
+            if (learnerIds.length > 0 && targetSubjectId && targetSchoolId) {
               try {
-                let lDelQ = supabase.from(item.table).delete()
-                  .eq('school_id', item.schoolId || payload.deleteFilter.school_id)
-                  .eq('subject_id', payload.deleteFilter.subject_id)
+                let lDelQ = supabase.from('report_scores').delete()
+                  .eq('school_id', targetSchoolId)
+                  .eq('subject_id', targetSubjectId)
                   .in('learner_id', learnerIds);
-                if (payload.deleteFilter.term) lDelQ = lDelQ.eq('term', payload.deleteFilter.term);
-                if (payload.deleteFilter.academic_year) lDelQ = lDelQ.eq('academic_year', payload.deleteFilter.academic_year);
+                if (targetTerm) lDelQ = lDelQ.eq('term', targetTerm);
+                if (targetYear) lDelQ = lDelQ.eq('academic_year', targetYear);
                 await lDelQ;
               } catch (_) {}
             }
