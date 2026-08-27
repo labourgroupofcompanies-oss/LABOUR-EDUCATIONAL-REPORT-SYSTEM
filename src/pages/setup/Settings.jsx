@@ -438,10 +438,30 @@ const Settings = () => {
       // 2. If online, perform direct synchronous Supabase upsert for instant confirmation
       if (navigator.onLine) {
         try {
-          const [resSettings, resSchool] = await Promise.all([
+          let [resSettings, resSchool] = await Promise.all([
             supabase.from('report_settings').upsert(settingsPayload),
             supabase.from('report_schools').upsert(schoolsPayload)
           ]);
+
+          // Self-heal: If report_settings schema error, strip unknown column and retry
+          if (resSettings.error && (resSettings.error.code === 'PGRST204' || String(resSettings.error.message || '').includes('schema cache') || String(resSettings.error.message || '').includes('Could not find the'))) {
+            const match = (resSettings.error.message || '').match(/Could not find the '([^']+)' column/);
+            if (match && match[1]) {
+              const cleanPayload = { ...settingsPayload };
+              delete cleanPayload[match[1]];
+              resSettings = await supabase.from('report_settings').upsert(cleanPayload);
+            }
+          }
+
+          // Self-heal: If report_schools schema error, strip unknown column and retry
+          if (resSchool.error && (resSchool.error.code === 'PGRST204' || String(resSchool.error.message || '').includes('schema cache') || String(resSchool.error.message || '').includes('Could not find the'))) {
+            const match = (resSchool.error.message || '').match(/Could not find the '([^']+)' column/);
+            if (match && match[1]) {
+              const cleanSchoolPayload = { ...schoolsPayload };
+              delete cleanSchoolPayload[match[1]];
+              resSchool = await supabase.from('report_schools').upsert(cleanSchoolPayload);
+            }
+          }
 
           if (resSettings.error) {
             console.error('[Settings] Cloud sync error (report_settings):', resSettings.error);
