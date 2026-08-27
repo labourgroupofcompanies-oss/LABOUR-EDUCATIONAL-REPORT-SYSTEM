@@ -390,7 +390,24 @@ async function processSingleItem(item) {
 
       case 'upsert': {
         const rows = Array.isArray(payload) ? payload : [payload];
-        const { error } = await supabase.from(item.table).upsert(rows);
+        let { error } = await supabase.from(item.table).upsert(rows);
+
+        // Self-heal: If schema error / unknown column (PGRST204), extract column name, strip and retry
+        if (error && (error.code === 'PGRST204' || String(error.message || '').includes('schema cache') || String(error.message || '').includes('Could not find the'))) {
+          const match = (error.message || '').match(/Could not find the '([^']+)' column/);
+          if (match && match[1]) {
+            const badCol = match[1];
+            console.warn(`[SyncEngine] 🔄 Stripping unknown column '${badCol}' from ${item.table} and retrying upsert...`);
+            const cleanedRows = rows.map(r => {
+              const copy = { ...r };
+              delete copy[badCol];
+              return copy;
+            });
+            const retryRes = await supabase.from(item.table).upsert(cleanedRows);
+            error = retryRes.error;
+          }
+        }
+
         opError = error;
         break;
       }

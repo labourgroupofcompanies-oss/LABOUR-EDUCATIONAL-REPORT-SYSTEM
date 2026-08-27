@@ -166,7 +166,6 @@ const Settings = () => {
               ca_best_n: settingsData.ca_best_n || null,
               ca_breakdown: cleanBreakdown,
               grading_scale: settingsData.grading_scale || [],
-              enable_best6_aggregate: settingsData.enable_best6_aggregate ?? true,
               updated_at: new Date().toISOString()
             }, targetSchoolId);
           }
@@ -410,7 +409,6 @@ const Settings = () => {
         ca_best_n: settings.caBestNCount ? Number(settings.caBestNCount) : null,
         ca_breakdown: settings.caBreakdown,
         grading_scale: finalScale,
-        enable_best6_aggregate: settings.enableBest6Aggregate ?? true,
         updated_at: new Date().toISOString()
       };
 
