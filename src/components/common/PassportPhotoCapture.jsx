@@ -1,17 +1,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import LearnerPhoto from './LearnerPhoto';
+import { processPassportPhoto } from '../../utils/imageUtils';
 
 /**
- * PassportPhotoCapture
- * 
- * Studio-grade passport photo capture & crop tool.
- * Features:
- *  1. Live Camera with Head & Shoulders Alignment Oval & crosshairs guide
- *  2. Digital Zoom (1x - 3x) for distance compensation
- *  3. Front / Back camera switching
- *  4. 3-second pose countdown timer
- *  5. Interactive Crop, Zoom, Pan & Rotate editor for perfect framing
- *  6. Seamless integration with file upload & existing photos
+ * PassportPhotoCapture (Automated One-Tap Version)
+ *
+ * Super simple & fast:
+ * 1. Live Camera with Head & Shoulders Alignment Oval
+ * 2. One-click "Capture Photo" button
+ * 3. Automatically crops to a passport photo (450x600 px)
+ * 4. Front/Back camera switcher for mobile devices
  */
 const PassportPhotoCapture = ({
   currentPhoto = null,
@@ -19,7 +17,7 @@ const PassportPhotoCapture = ({
   onPhotoSelected,
   onPhotoCleared
 }) => {
-  const [mode, setMode] = useState(currentPhoto ? 'preview' : 'idle');
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [photoBlob, setPhotoBlob] = useState(currentPhoto);
 
   const [cameras, setCameras] = useState([]);
@@ -27,26 +25,15 @@ const PassportPhotoCapture = ({
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const [isMirrored, setIsMirrored] = useState(false);
-  const [digitalZoom, setDigitalZoom] = useState(1.0);
-  const [countdown, setCountdown] = useState(null);
-  const [isFlashing, setIsFlashing] = useState(false);
-
-  const [rawImageSrc, setRawImageSrc] = useState(null);
-  const [cropZoom, setCropZoom] = useState(1.0);
-  const [cropPan, setCropPan] = useState({ x: 0, y: 0 });
-  const [cropRotation, setCropRotation] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const fileInputRef = useRef(null);
-  const imageElementRef = useRef(null);
 
   useEffect(() => {
-    if (currentPhoto && !photoBlob) {
+    if (currentPhoto !== photoBlob) {
       setPhotoBlob(currentPhoto);
-      setMode('preview');
     }
   }, [currentPhoto]);
 
@@ -80,9 +67,9 @@ const PassportPhotoCapture = ({
           videoDevices = refreshed.filter(d => d.kind === 'videoinput');
         } catch (_) {}
       }
-      return videoDevices.length > 0 ? videoDevices : [{ deviceId: '', label: 'Default Camera' }];
+      return videoDevices.length > 0 ? videoDevices : [{ deviceId: '', label: 'Camera' }];
     } catch {
-      return [{ deviceId: '', label: 'Default Camera' }];
+      return [{ deviceId: '', label: 'Camera' }];
     }
   }, []);
 
@@ -122,134 +109,60 @@ const PassportPhotoCapture = ({
       setCameraActive(true);
       setActiveCamIdx(idx);
       setCameras(camList || []);
-      
+
       const label = (camList?.[idx]?.label || '').toLowerCase();
       setIsMirrored(label.includes('front') || label.includes('user') || label.includes('facetime'));
     } catch (err) {
-      console.warn('[PassportCamera] Camera init failed:', err);
-      setCameraError('Unable to access camera. Please check browser permissions.');
+      console.warn('[PassportCamera] Camera start failed:', err);
+      setCameraError('Unable to open camera. Please ensure camera permissions are allowed.');
       setCameraActive(false);
     }
   }, [stopCamera]);
 
   const handleOpenLiveCamera = async () => {
-    setMode('camera');
-    setDigitalZoom(1.0);
+    setIsCameraOpen(true);
     setCameraError(null);
     const devs = await loadCameraDevices();
     setCameras(devs);
     await startCamera(devs[0]?.deviceId, 0, devs);
   };
 
-  const switchCamera = async (direction) => {
+  const switchCamera = async () => {
     if (cameras.length < 2) return;
-    const nextIdx = (activeCamIdx + direction + cameras.length) % cameras.length;
+    const nextIdx = (activeCamIdx + 1) % cameras.length;
     await startCamera(cameras[nextIdx]?.deviceId, nextIdx, cameras);
   };
 
-  const triggerCapture = () => {
-    if (countdown !== null) return;
-    executeCapture();
-  };
-
-  const triggerCountdownCapture = () => {
-    if (countdown !== null) return;
-    setCountdown(3);
-    const timer = setInterval(() => {
-      setCountdown(prev => {
-        if (prev === 1) {
-          clearInterval(timer);
-          setTimeout(() => {
-            executeCapture();
-            setCountdown(null);
-          }, 400);
-          return '📸';
-        }
-        return prev - 1;
-      });
-    }, 900);
-  };
-
-  const executeCapture = () => {
+  // ─── Automated One-Tap Capture ────────────────────────────────────────────────
+  const handleAutoCapture = async () => {
     const video = videoRef.current;
-    if (!video || !cameraActive) return;
+    if (!video || !cameraActive || isProcessing) return;
 
-    setIsFlashing(true);
-    setTimeout(() => setIsFlashing(false), 200);
-
-    const vw = video.videoWidth || 1280;
-    const vh = video.videoHeight || 720;
-
-    const canvas = document.createElement('canvas');
-    canvas.width = vw;
-    canvas.height = vh;
-    const ctx = canvas.getContext('2d');
-
-    if (isMirrored) {
-      ctx.translate(vw, 0);
-      ctx.scale(-1, 1);
-    }
-
-    ctx.drawImage(video, 0, 0, vw, vh);
-
-    const capturedDataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    stopCamera();
-
-    setRawImageSrc(capturedDataUrl);
-    setCropZoom(digitalZoom);
-    setCropPan({ x: 0, y: 0 });
-    setCropRotation(0);
-    setMode('crop');
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setRawImageSrc(reader.result);
-      setCropZoom(1.0);
-      setCropPan({ x: 0, y: 0 });
-      setCropRotation(0);
-      setMode('crop');
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  const handlePointerDown = (e) => {
-    setIsDragging(true);
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    setDragStart({ x: clientX - cropPan.x, y: clientY - cropPan.y });
-  };
-
-  const handlePointerMove = (e) => {
-    if (!isDragging) return;
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    setCropPan({
-      x: clientX - dragStart.x,
-      y: clientY - dragStart.y
-    });
-  };
-
-  const handlePointerUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleRotate = () => {
-    setCropRotation(prev => (prev + 90) % 360);
-  };
-
-  const applyCropAndConfirm = async () => {
-    if (!rawImageSrc) return;
+    setIsProcessing(true);
 
     try {
-      const img = new Image();
-      img.src = rawImageSrc;
-      await new Promise(r => { img.onload = r; });
+      const vw = video.videoWidth || 1280;
+      const vh = video.videoHeight || 960;
+
+      // Target aspect ratio: 3 / 4 (0.75)
+      const targetRatio = 3 / 4;
+      const srcRatio = vw / vh;
+
+      let cropW, cropH, cropX, cropY;
+
+      if (srcRatio > targetRatio) {
+        // Video is wider than 3:4 → crop horizontal center
+        cropH = vh;
+        cropW = Math.round(vh * targetRatio);
+        cropX = Math.round((vw - cropW) / 2);
+        cropY = 0;
+      } else {
+        // Video is taller than 3:4 → crop vertical with top-bias for face
+        cropW = vw;
+        cropH = Math.round(vw / targetRatio);
+        cropX = 0;
+        cropY = Math.max(0, Math.round((vh - cropH) * 0.15));
+      }
 
       const targetW = 450;
       const targetH = 600;
@@ -261,50 +174,297 @@ const PassportPhotoCapture = ({
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
 
-      ctx.fillStyle = '#F8FAFC';
-      ctx.fillRect(0, 0, targetW, targetH);
+      // Mirror if front camera
+      if (isMirrored) {
+        ctx.translate(targetW, 0);
+        ctx.scale(-1, 1);
+      }
 
-      ctx.save();
-      ctx.translate(targetW / 2 + cropPan.x * 1.5, targetH / 2 + cropPan.y * 1.5);
-      ctx.rotate((cropRotation * Math.PI) / 180);
+      ctx.drawImage(video, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
 
-      const isRotated90 = cropRotation % 180 !== 0;
-      const effectiveImgW = isRotated90 ? img.height : img.width;
-      const effectiveImgH = isRotated90 ? img.width : img.height;
+      stopCamera();
+      setIsCameraOpen(false);
 
-      const scale = Math.max(targetW / effectiveImgW, targetH / effectiveImgH) * cropZoom;
-      const drawW = img.width * scale;
-      const drawH = img.height * scale;
-
-      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
-      ctx.restore();
-
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        setPhotoBlob(blob);
-        setMode('preview');
-        if (onPhotoSelected) {
-          onPhotoSelected(blob);
+      canvas.toBlob((blob) => {
+        setIsProcessing(false);
+        if (blob) {
+          setPhotoBlob(blob);
+          if (onPhotoSelected) onPhotoSelected(blob);
         }
       }, 'image/webp', 0.92);
 
     } catch (err) {
-      console.warn('[PassportCamera] Error cropping photo:', err);
+      console.warn('[PassportCamera] Auto-capture failed:', err);
+      setIsProcessing(false);
     }
   };
 
-  const handleClearPhoto = () => {
-    setPhotoBlob(null);
-    setRawImageSrc(null);
-    setMode('idle');
-    if (onPhotoCleared) {
-      onPhotoCleared();
+  // ─── File Upload with Auto-Crop ──────────────────────────────────────────────
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const autoPassportBlob = await processPassportPhoto(file, 450, 600, 0.92);
+      setPhotoBlob(autoPassportBlob);
+      if (onPhotoSelected) onPhotoSelected(autoPassportBlob);
+    } catch (err) {
+      setPhotoBlob(file);
+      if (onPhotoSelected) onPhotoSelected(file);
     }
+    e.target.value = '';
+  };
+
+  const handleRemovePhoto = () => {
+    setPhotoBlob(null);
+    if (onPhotoCleared) onPhotoCleared();
   };
 
   return (
     <div style={{ width: '100%' }}>
-      {mode === 'preview' && photoBlob ? (
+      {/* ── 1. ACTIVE LIVE CAMERA VIEW ── */}
+      {isCameraOpen ? (
+        <div style={{
+          background: '#09090B',
+          borderRadius: 20,
+          padding: '1.25rem 1rem',
+          color: '#fff',
+          border: '1px solid #27272A',
+          boxShadow: '0 12px 36px rgba(0,0,0,0.4)',
+          position: 'relative'
+        }}>
+          {/* Top Bar */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '.75rem',
+            padding: '0 .25rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                background: cameraActive ? '#22C55E' : '#EF4444',
+                boxShadow: cameraActive ? '0 0 10px #22C55E' : 'none'
+              }}></span>
+              <span style={{ fontSize: '.85rem', fontWeight: 700 }}>
+                Passport Camera
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { stopCamera(); setIsCameraOpen(false); }}
+              style={{
+                background: '#27272A',
+                border: 'none',
+                color: '#A1A1AA',
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '.8rem'
+              }}
+            >
+              <i className="fas fa-times"></i>
+            </button>
+          </div>
+
+          {/* Viewfinder with Passport Oval Guide */}
+          <div style={{
+            position: 'relative',
+            width: '100%',
+            maxWidth: 300,
+            aspectRatio: '3 / 4',
+            margin: '0 auto',
+            borderRadius: 16,
+            overflow: 'hidden',
+            background: '#000',
+            border: '2px solid #3B82F6'
+          }}>
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                transform: isMirrored ? 'scaleX(-1)' : 'none'
+              }}
+            />
+
+            {!cameraActive && !cameraError && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                <i className="fas fa-circle-notch fa-spin" style={{ fontSize: '1.5rem', opacity: .6 }}></i>
+              </div>
+            )}
+
+            {/* Passport Oval Guidance Overlay */}
+            <svg
+              viewBox="0 0 300 400"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+                zIndex: 4
+              }}
+            >
+              <defs>
+                <mask id="passportGuideHole">
+                  <rect width="300" height="400" fill="white" />
+                  <ellipse cx="150" cy="165" rx="72" ry="92" fill="black" />
+                  <path d="M 60 380 Q 150 280 240 380 Z" fill="black" />
+                </mask>
+              </defs>
+
+              <rect
+                width="300"
+                height="400"
+                fill="rgba(9, 9, 11, 0.45)"
+                mask="url(#passportGuideHole)"
+              />
+
+              {/* Head Oval Guide */}
+              <ellipse
+                cx="150"
+                cy="165"
+                rx="72"
+                ry="92"
+                fill="none"
+                stroke="#3B82F6"
+                strokeWidth="2.5"
+                strokeDasharray="6 4"
+              />
+
+              {/* Shoulders Guide */}
+              <path
+                d="M 60 380 Q 150 280 240 380"
+                fill="none"
+                stroke="#38BDF8"
+                strokeWidth="2"
+                strokeDasharray="4 4"
+              />
+            </svg>
+
+            {/* Top Guidance Banner */}
+            <div style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              right: 10,
+              background: 'rgba(15, 23, 42, 0.85)',
+              color: '#F1F5F9',
+              fontSize: '.72rem',
+              fontWeight: 600,
+              padding: '5px 10px',
+              borderRadius: 20,
+              textAlign: 'center',
+              backdropFilter: 'blur(6px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              zIndex: 5
+            }}>
+              <i className="fas fa-user-circle" style={{ color: '#60A5FA', marginRight: 5 }}></i>
+              Align learner's face inside the oval
+            </div>
+
+            {cameraError && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                background: 'rgba(9,9,11,0.9)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1.5rem',
+                textAlign: 'center',
+                zIndex: 8
+              }}>
+                <i className="fas fa-exclamation-triangle" style={{ fontSize: '2rem', color: '#EF4444', marginBottom: 10 }}></i>
+                <div style={{ fontSize: '.85rem', color: '#fff', fontWeight: 600 }}>{cameraError}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Simple Controls */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '1rem',
+            marginTop: '1rem'
+          }}>
+            {/* Switch camera button (if device has multiple) */}
+            {cameras.length > 1 && (
+              <button
+                type="button"
+                onClick={switchCamera}
+                title="Switch Camera (Front/Back)"
+                style={{
+                  background: '#27272A',
+                  border: 'none',
+                  color: '#fff',
+                  width: 44,
+                  height: 44,
+                  borderRadius: '50%',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1rem'
+                }}
+              >
+                <i className="fas fa-rotate"></i>
+              </button>
+            )}
+
+            {/* One-Tap Capture Button */}
+            <button
+              type="button"
+              onClick={handleAutoCapture}
+              disabled={!cameraActive || isProcessing}
+              style={{
+                padding: '.65rem 1.5rem',
+                background: '#2563EB',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 12,
+                fontWeight: 700,
+                fontSize: '.9rem',
+                cursor: cameraActive ? 'pointer' : 'not-allowed',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)',
+                opacity: cameraActive ? 1 : 0.6
+              }}
+            >
+              {isProcessing ? (
+                <>
+                  <i className="fas fa-circle-notch fa-spin"></i>
+                  <span>Cropping...</span>
+                </>
+              ) : (
+                <>
+                  <i className="fas fa-camera"></i>
+                  <span>Capture Photo</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      ) : photoBlob ? (
+
+        /* ── 2. PHOTO PREVIEW (READY & FORMATTED) ── */
         <div style={{
           display: 'flex',
           flexDirection: 'column',
@@ -354,7 +514,7 @@ const PassportPhotoCapture = ({
               Passport Photo Ready
             </div>
             <div style={{ fontSize: '.75rem', color: '#64748B', marginTop: 2 }}>
-              Formatted 3:4 portrait • Fits learner cards & report cards perfectly
+              Formatted 3:4 portrait • Fits learner cards & report cards
             </div>
           </div>
 
@@ -376,7 +536,7 @@ const PassportPhotoCapture = ({
                 gap: 6
               }}
             >
-              <i className="fas fa-camera"></i> Retake
+              <i className="fas fa-camera"></i> Retake Photo
             </button>
             <button
               type="button"
@@ -395,11 +555,11 @@ const PassportPhotoCapture = ({
                 gap: 6
               }}
             >
-              <i className="fas fa-upload"></i> Upload Another
+              <i className="fas fa-upload"></i> Upload File
             </button>
             <button
               type="button"
-              onClick={handleClearPhoto}
+              onClick={handleRemovePhoto}
               style={{
                 padding: '.45rem .9rem',
                 background: 'transparent',
@@ -414,552 +574,15 @@ const PassportPhotoCapture = ({
             </button>
           </div>
         </div>
-      ) : mode === 'camera' ? (
-        <div style={{
-          background: '#09090B',
-          borderRadius: 20,
-          padding: '1.25rem 1rem',
-          color: '#fff',
-          border: '1px solid #27272A',
-          boxShadow: '0 12px 36px rgba(0,0,0,0.4)',
-          position: 'relative'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '.75rem',
-            padding: '0 .25rem'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
-                background: cameraActive ? '#22C55E' : '#EF4444',
-                boxShadow: cameraActive ? '0 0 10px #22C55E' : 'none'
-              }}></span>
-              <span style={{ fontSize: '.85rem', fontWeight: 700, letterSpacing: '.02em' }}>
-                Passport Studio Camera
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => { stopCamera(); setMode('idle'); }}
-              style={{
-                background: '#27272A',
-                border: 'none',
-                color: '#A1A1AA',
-                width: 28,
-                height: 28,
-                borderRadius: '50%',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '.8rem'
-              }}
-            >
-              <i className="fas fa-times"></i>
-            </button>
-          </div>
-
-          <div style={{
-            position: 'relative',
-            width: '100%',
-            maxWidth: 320,
-            aspectRatio: '3 / 4',
-            margin: '0 auto',
-            borderRadius: 16,
-            overflow: 'hidden',
-            background: '#000',
-            border: '2px solid #3B82F6'
-          }}>
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'cover',
-                transform: `${isMirrored ? 'scaleX(-1)' : 'scaleX(1)'} scale(${digitalZoom})`,
-                transition: 'transform 0.15s ease-out'
-              }}
-            />
-
-            {isFlashing && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: '#fff',
-                opacity: 0.9,
-                zIndex: 10
-              }}></div>
-            )}
-
-            {countdown !== null && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(0,0,0,0.6)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '4rem',
-                fontWeight: 900,
-                color: '#FBBF24',
-                zIndex: 9,
-                textShadow: '0 4px 20px rgba(0,0,0,0.8)'
-              }}>
-                {countdown}
-              </div>
-            )}
-
-            <svg
-              viewBox="0 0 300 400"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 4
-              }}
-            >
-              <defs>
-                <mask id="passportHole">
-                  <rect width="300" height="400" fill="white" />
-                  <ellipse cx="150" cy="165" rx="72" ry="92" fill="black" />
-                  <path d="M 60 380 Q 150 280 240 380 Z" fill="black" />
-                </mask>
-              </defs>
-
-              <rect
-                width="300"
-                height="400"
-                fill="rgba(9, 9, 11, 0.45)"
-                mask="url(#passportHole)"
-              />
-
-              <ellipse
-                cx="150"
-                cy="165"
-                rx="72"
-                ry="92"
-                fill="none"
-                stroke="#3B82F6"
-                strokeWidth="2.5"
-                strokeDasharray="6 4"
-                opacity="0.9"
-              />
-
-              <path
-                d="M 60 380 Q 150 280 240 380"
-                fill="none"
-                stroke="#38BDF8"
-                strokeWidth="2"
-                strokeDasharray="4 4"
-                opacity="0.75"
-              />
-
-              <line x1="85" y1="150" x2="215" y2="150" stroke="#FBBF24" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
-              <line x1="150" y1="80" x2="150" y2="250" stroke="#FBBF24" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
-            </svg>
-
-            <div style={{
-              position: 'absolute',
-              top: 10,
-              left: 10,
-              right: 10,
-              background: 'rgba(15, 23, 42, 0.85)',
-              color: '#F1F5F9',
-              fontSize: '.72rem',
-              fontWeight: 600,
-              padding: '5px 10px',
-              borderRadius: 20,
-              textAlign: 'center',
-              backdropFilter: 'blur(6px)',
-              border: '1px solid rgba(255,255,255,0.1)',
-              zIndex: 5
-            }}>
-              <i className="fas fa-user-circle" style={{ color: '#60A5FA', marginRight: 5 }}></i>
-              Fit head in oval & shoulders on line
-            </div>
-
-            {cameraError && (
-              <div style={{
-                position: 'absolute',
-                inset: 0,
-                background: 'rgba(9,9,11,0.9)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '1.5rem',
-                textAlign: 'center',
-                zIndex: 8
-              }}>
-                <i className="fas fa-exclamation-triangle" style={{ fontSize: '2rem', color: '#EF4444', marginBottom: 10 }}></i>
-                <div style={{ fontSize: '.85rem', color: '#fff', fontWeight: 600 }}>{cameraError}</div>
-                <button
-                  type="button"
-                  onClick={handleOpenLiveCamera}
-                  style={{
-                    marginTop: 12,
-                    padding: '.45rem 1rem',
-                    background: '#2563EB',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: 8,
-                    fontSize: '.8rem',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Retry Camera
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            marginTop: '.75rem',
-            background: 'rgba(255,255,255,0.05)',
-            padding: '6px 12px',
-            borderRadius: 12,
-            maxWidth: 320,
-            margin: '.75rem auto 0'
-          }}>
-            <span style={{ fontSize: '.72rem', color: '#A1A1AA', fontWeight: 600 }}>Zoom:</span>
-            {[1.0, 1.4, 1.8, 2.2].map(z => (
-              <button
-                key={z}
-                type="button"
-                onClick={() => setDigitalZoom(z)}
-                style={{
-                  padding: '3px 8px',
-                  background: digitalZoom === z ? '#2563EB' : 'transparent',
-                  color: digitalZoom === z ? '#fff' : '#A1A1AA',
-                  border: digitalZoom === z ? 'none' : '1px solid #3F3F46',
-                  borderRadius: 6,
-                  fontSize: '.72rem',
-                  fontWeight: 700,
-                  cursor: 'pointer'
-                }}
-              >
-                {z.toFixed(1)}x
-              </button>
-            ))}
-            <input
-              type="range"
-              min="1.0"
-              max="2.5"
-              step="0.1"
-              value={digitalZoom}
-              onChange={e => setDigitalZoom(parseFloat(e.target.value))}
-              style={{ width: 70, cursor: 'pointer', accentColor: '#3B82F6' }}
-            />
-          </div>
-
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '1.25rem',
-            marginTop: '1rem'
-          }}>
-            <button
-              type="button"
-              onClick={() => setIsMirrored(prev => !prev)}
-              title="Flip Horizontal"
-              style={{
-                background: isMirrored ? '#3B82F6' : '#27272A',
-                border: 'none',
-                color: '#fff',
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '.9rem'
-              }}
-            >
-              <i className="fas fa-arrows-left-right"></i>
-            </button>
-
-            <button
-              type="button"
-              onClick={triggerCapture}
-              disabled={!cameraActive}
-              title="Capture Photo"
-              style={{
-                width: 64,
-                height: 64,
-                borderRadius: '50%',
-                background: '#fff',
-                border: '4px solid #3B82F6',
-                boxShadow: '0 0 20px rgba(59, 130, 246, 0.6)',
-                cursor: cameraActive ? 'pointer' : 'not-allowed',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'transform 0.1s',
-                opacity: cameraActive ? 1 : 0.5
-              }}
-            >
-              <div style={{
-                width: 46,
-                height: 46,
-                borderRadius: '50%',
-                background: '#2563EB'
-              }}></div>
-            </button>
-
-            <button
-              type="button"
-              onClick={triggerCountdownCapture}
-              title="3-Second Timer"
-              style={{
-                background: '#27272A',
-                border: 'none',
-                color: '#FBBF24',
-                width: 40,
-                height: 40,
-                borderRadius: '50%',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '.9rem'
-              }}
-            >
-              <i className="fas fa-stopwatch"></i>
-            </button>
-
-            {cameras.length > 1 && (
-              <button
-                type="button"
-                onClick={() => switchCamera(1)}
-                title="Switch Camera (Front/Back)"
-                style={{
-                  background: '#27272A',
-                  border: 'none',
-                  color: '#fff',
-                  width: 40,
-                  height: 40,
-                  borderRadius: '50%',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '.9rem'
-                }}
-              >
-                <i className="fas fa-rotate"></i>
-              </button>
-            )}
-          </div>
-        </div>
-      ) : mode === 'crop' && rawImageSrc ? (
-        <div style={{
-          background: '#FFFFFF',
-          borderRadius: 20,
-          padding: '1.25rem',
-          border: '1px solid #E2E8F0',
-          boxShadow: '0 10px 30px rgba(0,0,0,0.08)'
-        }}>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '.75rem'
-          }}>
-            <div>
-              <div style={{ fontSize: '.9rem', fontWeight: 800, color: '#0F172A' }}>
-                Adjust & Frame Photo
-              </div>
-              <div style={{ fontSize: '.75rem', color: '#64748B' }}>
-                Drag to center face inside the oval • Zoom to fit
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleRotate}
-              title="Rotate 90 degrees"
-              style={{
-                padding: '.35rem .7rem',
-                background: '#F1F5F9',
-                border: '1px solid #CBD5E1',
-                borderRadius: 8,
-                fontSize: '.75rem',
-                fontWeight: 600,
-                color: '#334155',
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 5
-              }}
-            >
-              <i className="fas fa-rotate-right"></i> Rotate
-            </button>
-          </div>
-
-          <div
-            onMouseDown={handlePointerDown}
-            onMouseMove={handlePointerMove}
-            onMouseUp={handlePointerUp}
-            onMouseLeave={handlePointerUp}
-            onTouchStart={handlePointerDown}
-            onTouchMove={handlePointerMove}
-            onTouchEnd={handlePointerUp}
-            style={{
-              position: 'relative',
-              width: '100%',
-              maxWidth: 280,
-              aspectRatio: '3 / 4',
-              margin: '0 auto',
-              borderRadius: 16,
-              overflow: 'hidden',
-              background: '#0F172A',
-              border: '2px solid #2563EB',
-              cursor: isDragging ? 'grabbing' : 'grab',
-              userSelect: 'none',
-              touchAction: 'none'
-            }}
-          >
-            <img
-              ref={imageElementRef}
-              src={rawImageSrc}
-              alt="Raw capture"
-              draggable={false}
-              style={{
-                width: '100%',
-                height: '100%',
-                objectFit: 'contain',
-                transform: `translate(${cropPan.x}px, ${cropPan.y}px) scale(${cropZoom}) rotate(${cropRotation}deg)`,
-                transformOrigin: 'center center',
-                transition: isDragging ? 'none' : 'transform 0.1s ease-out',
-                pointerEvents: 'none'
-              }}
-            />
-
-            <svg
-              viewBox="0 0 300 400"
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                zIndex: 2
-              }}
-            >
-              <defs>
-                <mask id="cropMask">
-                  <rect width="300" height="400" fill="white" />
-                  <ellipse cx="150" cy="165" rx="72" ry="92" fill="black" />
-                </mask>
-              </defs>
-              <rect
-                width="300"
-                height="400"
-                fill="rgba(15, 23, 42, 0.4)"
-                mask="url(#cropMask)"
-              />
-              <ellipse
-                cx="150"
-                cy="165"
-                rx="72"
-                ry="92"
-                fill="none"
-                stroke="#2563EB"
-                strokeWidth="2.5"
-                strokeDasharray="6 4"
-              />
-            </svg>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 10,
-            marginTop: '1rem',
-            padding: '0 .5rem'
-          }}>
-            <i className="fas fa-magnifying-glass-minus" style={{ color: '#64748B', fontSize: '.85rem' }}></i>
-            <input
-              type="range"
-              min="0.8"
-              max="3.0"
-              step="0.05"
-              value={cropZoom}
-              onChange={e => setCropZoom(parseFloat(e.target.value))}
-              style={{ flex: 1, maxWidth: 200, accentColor: '#2563EB', cursor: 'pointer' }}
-            />
-            <i className="fas fa-magnifying-glass-plus" style={{ color: '#64748B', fontSize: '.85rem' }}></i>
-            <span style={{ fontSize: '.75rem', fontWeight: 700, color: '#334155', minWidth: 32 }}>
-              {cropZoom.toFixed(1)}x
-            </span>
-          </div>
-
-          <div style={{
-            display: 'flex',
-            gap: '.6rem',
-            marginTop: '1.25rem',
-            justifyContent: 'center'
-          }}>
-            <button
-              type="button"
-              onClick={handleOpenLiveCamera}
-              style={{
-                flex: 1,
-                padding: '.6rem',
-                background: '#F1F5F9',
-                border: '1px solid #CBD5E1',
-                borderRadius: 10,
-                fontWeight: 700,
-                fontSize: '.85rem',
-                color: '#475569',
-                cursor: 'pointer'
-              }}
-            >
-              <i className="fas fa-redo" style={{ marginRight: 6 }}></i> Retake
-            </button>
-            <button
-              type="button"
-              onClick={applyCropAndConfirm}
-              style={{
-                flex: 1.5,
-                padding: '.6rem',
-                background: '#2563EB',
-                border: 'none',
-                borderRadius: 10,
-                fontWeight: 700,
-                fontSize: '.85rem',
-                color: '#FFFFFF',
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
-              }}
-            >
-              <i className="fas fa-check" style={{ marginRight: 6 }}></i> Use This Photo
-            </button>
-          </div>
-        </div>
       ) : (
+
+        /* ── 3. CHOOSE SOURCE BUTTONS (IDLE) ── */
         <div style={{
           display: 'grid',
           gridTemplateColumns: '1fr 1fr',
           gap: '.75rem'
         }}>
+          {/* Live Passport Camera Button */}
           <div
             onClick={handleOpenLiveCamera}
             style={{
@@ -969,7 +592,6 @@ const PassportPhotoCapture = ({
               borderRadius: 16,
               textAlign: 'center',
               cursor: 'pointer',
-              transition: 'all 0.2s',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -992,13 +614,14 @@ const PassportPhotoCapture = ({
               <i className="fas fa-camera"></i>
             </div>
             <div style={{ fontSize: '.88rem', fontWeight: 800, color: '#1E3A8A' }}>
-              Live Passport Camera
+              Live Camera
             </div>
             <div style={{ fontSize: '.72rem', color: '#3B82F6', marginTop: 2 }}>
-              With Head Guide & Zoom
+              With Head Guide
             </div>
           </div>
 
+          {/* Upload File Button */}
           <div
             onClick={() => fileInputRef.current?.click()}
             style={{
@@ -1008,7 +631,6 @@ const PassportPhotoCapture = ({
               borderRadius: 16,
               textAlign: 'center',
               cursor: 'pointer',
-              transition: 'all 0.2s',
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
@@ -1031,7 +653,7 @@ const PassportPhotoCapture = ({
               <i className="fas fa-cloud-arrow-up"></i>
             </div>
             <div style={{ fontSize: '.88rem', fontWeight: 800, color: '#1E293B' }}>
-              Upload Image File
+              Upload Image
             </div>
             <div style={{ fontSize: '.72rem', color: '#64748B', marginTop: 2 }}>
               Auto-Crop to Passport
@@ -1040,12 +662,13 @@ const PassportPhotoCapture = ({
         </div>
       )}
 
+      {/* Hidden File Input */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         style={{ display: 'none' }}
-        onChange={handleFileChange}
+        onChange={handleFileUpload}
       />
     </div>
   );
