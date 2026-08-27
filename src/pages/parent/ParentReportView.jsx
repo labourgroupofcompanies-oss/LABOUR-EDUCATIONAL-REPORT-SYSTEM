@@ -7,6 +7,7 @@ import authService from '../../services/authService';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
 import { calculateBest6Aggregate } from '../../lib/beceAggregateEngine';
 import { filterSubjectsForLearner, getLanguageLabel, formatSubjectNameForLearner } from '../../utils/languageUtils';
+import { formatPromotionDecision } from '../../utils/promotionUtils';
 import LogoPreloader from '../../components/common/LogoPreloader';
 
 const DEFAULT_GRADING_SCALE = [
@@ -1067,12 +1068,16 @@ const ParentReportView = () => {
               <h4>Next Term &amp; Financials</h4>
               <p><strong>Vacation Date:</strong> {vDate}</p>
               <p><strong>Resumes:</strong> {nDate}</p>
-              {promoted && (
-                <p style={{ color: '#10B981', fontWeight: 'bold', marginTop: '4px' }}>
-                  <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
-                  Decision: Promoted to {getPromotedClassName(promoted)}
-                </p>
-              )}
+              {(() => {
+                const promoInfo = formatPromotionDecision(promoted, activeLearner?.currentClassId || activeLearner?.classId, classes);
+                if (!promoInfo) return null;
+                return (
+                  <p style={{ color: promoInfo.color, fontWeight: 'bold', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                    <i className={`fas ${promoInfo.icon}`}></i>
+                    <span><strong>Decision:</strong> {promoInfo.text}</span>
+                  </p>
+                );
+              })()}
             </div>
 
             {/* Remarks */}

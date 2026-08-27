@@ -12,6 +12,7 @@ import subscriptionService from '../../services/subscriptionService';
 import TopUpWalletModal from '../../components/subscription/TopUpWalletModal';
 import { calculateBest6Aggregate } from '../../lib/beceAggregateEngine';
 import { filterSubjectsForLearner, getLanguageLabel, formatSubjectNameForLearner } from '../../utils/languageUtils';
+import { getNextClassForPromotion, formatPromotionDecision } from '../../utils/promotionUtils';
 import ClassBroadsheetModal from '../../components/reports/ClassBroadsheetModal';
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
@@ -2107,12 +2108,16 @@ const Reports = () => {
             <h4>Next Term &amp; Financials</h4>
             <p><strong>Vacation Date:</strong> {vDate}</p>
             <p><strong>Resumes:</strong> {nDate}</p>
-            {promoted && (
-              <p style={{ color: '#2563eb', fontWeight: 'bold', margin: '4px 0' }}>
-                <i className="fas fa-trophy" style={{ marginRight: '4px' }}></i>
-                Decision: Promoted to {getPromotedClassName(promoted)}
-              </p>
-            )}
+            {(() => {
+              const promoInfo = formatPromotionDecision(promoted, learner.currentClassId || learner.classId || selectedClass, classes);
+              if (!promoInfo) return null;
+              return (
+                <p style={{ color: promoInfo.color, fontWeight: 'bold', margin: '4px 0', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                  <i className={`fas ${promoInfo.icon}`}></i>
+                  <span><strong>Decision:</strong> {promoInfo.text}</span>
+                </p>
+              );
+            })()}
           </div>
 
           {/* Remarks */}
@@ -3046,6 +3051,41 @@ const Reports = () => {
                           </div>
                         ))}
                       </div>
+
+                      {selectedTerm === 'Term 3' && (() => {
+                        const nextClassObj = getNextClassForPromotion(selectedClass, classes);
+                        const currentClassObj = classes?.find(c => String(c.id) === String(selectedClass));
+                        const isNextAlumni = nextClassObj === 'Alumni';
+
+                        return (
+                          <div className="rc-form-group" style={{ marginTop: '1rem' }}>
+                            <label>Promotion Recommendation (Term 3)</label>
+                            <select
+                              className="form-input"
+                              value={form.promotedTo}
+                              onChange={e => setForm(f => ({ ...f, promotedTo: e.target.value }))}
+                            >
+                              <option value="">-- Select Recommendation --</option>
+                              {nextClassObj && !isNextAlumni && (
+                                <option value={nextClassObj.id}>
+                                  Promoted to {nextClassObj.name}
+                                </option>
+                              )}
+                              {nextClassObj && !isNextAlumni && (
+                                <option value={`${nextClassObj.id}_probation`}>
+                                  Promoted to {nextClassObj.name} (On Probation)
+                                </option>
+                              )}
+                              {currentClassObj && (
+                                <option value={currentClassObj.id}>
+                                  Repeat {currentClassObj.name}
+                                </option>
+                              )}
+                              <option value="Alumni">Graduate (Alumni)</option>
+                            </select>
+                          </div>
+                        );
+                      })()}
 
                       <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem' }}>
                         <button type="submit" className="btn" disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.7rem 1.75rem', fontWeight: 700, background: 'var(--accent)' }}>

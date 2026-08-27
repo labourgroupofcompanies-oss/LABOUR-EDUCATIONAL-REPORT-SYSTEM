@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
 import { enqueueSync } from '../../services/syncEngine';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
+import { getNextClassForPromotion } from '../../utils/promotionUtils';
 
 const ClassTeacherEntry = () => {
   const { user } = useAuth();
@@ -125,52 +126,6 @@ const ClassTeacherEntry = () => {
       (s.learnerId === activeLearnerId || s.learnerId === String(activeLearnerId) || (activeLearner.supabaseId && s.learnerId === activeLearner.supabaseId)) && s.academicYear === academicYear && s.term === selectedTerm
     );
   }, [activeLearnerId, activeLearner, reportSummaries, academicYear, selectedTerm]);
-
-/** Helper: Find next class in Ghanaian school progression sequence */
-const getNextClassForPromotion = (currentClassId, allClasses) => {
-  if (!currentClassId || !allClasses || allClasses.length === 0) return null;
-
-  const current = allClasses.find(c => String(c.id) === String(currentClassId));
-  if (!current) return null;
-
-  const hierarchyPatterns = [
-    /creche/i, /nursery 1/i, /nursery 2/i, /kg 1/i, /kg 2/i,
-    /basic 1/i, /basic 2/i, /basic 3/i, /basic 4/i, /basic 5/i, /basic 6/i,
-    /jhs 1/i, /jhs 2/i, /jhs 3/i, /shs 1/i, /shs 2/i, /shs 3/i
-  ];
-
-  const curName = current.name || '';
-  const hierarchyIndex = hierarchyPatterns.findIndex(pattern => pattern.test(curName));
-
-  if (hierarchyIndex !== -1 && hierarchyIndex < hierarchyPatterns.length - 1) {
-    const nextPattern = hierarchyPatterns[hierarchyIndex + 1];
-    const matchedNext = allClasses.find(c => nextPattern.test(c.name));
-    if (matchedNext) return matchedNext;
-  }
-
-  // Match by number (e.g. "Basic 5" -> 5 -> next 6)
-  const numMatch = curName.match(/\d+/);
-  if (numMatch) {
-    const currentNum = parseInt(numMatch[0], 10);
-    const nextNum = currentNum + 1;
-    const prefix = curName.replace(/\d+.*/, '').trim();
-    const matchedByNum = allClasses.find(c => {
-      const cNumMatch = c.name.match(/\d+/);
-      const cPrefix = c.name.replace(/\d+.*/, '').trim();
-      return cNumMatch && parseInt(cNumMatch[0], 10) === nextNum && (cPrefix.toLowerCase() === prefix.toLowerCase() || prefix === '');
-    });
-    if (matchedByNum) return matchedByNum;
-  }
-
-  // Fallback: next higher class in sorted array
-  const sorted = [...allClasses].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  const curIdx = sorted.findIndex(c => String(c.id) === String(currentClassId));
-  if (curIdx !== -1 && curIdx < sorted.length - 1) {
-    return sorted[curIdx + 1];
-  }
-
-  return 'Alumni';
-};
 
   useEffect(() => {
     const nextClassObj = getNextClassForPromotion(selectedClass, classes);
