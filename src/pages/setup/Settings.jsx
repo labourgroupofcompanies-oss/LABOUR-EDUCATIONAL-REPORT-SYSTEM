@@ -7,7 +7,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { enqueueSync, drainOutbox } from '../../services/syncEngine';
 import { compressImageToBlob, processSchoolLogo, blobToDataURL } from '../../utils/imageUtils';
 import authService from '../../services/authService';
-import { DEFAULT_GRADING_SCALE, BECE_GES_GRADING_SCALE, LETTER_GRADING_SCALE } from '../../lib/grading';
+import { DEFAULT_GRADING_SCALE } from '../../lib/grading';
 
 const Settings = () => {
   const { user, updateProfile } = useAuth();
@@ -693,19 +693,6 @@ const Settings = () => {
     alert('Default Grading System loaded! Click "Save & Synchronize Settings" below to apply it.');
   };
 
-  const applyLetterGradingPreset = () => {
-    if (settings.gradingScale && settings.gradingScale.length > 0) {
-      if (!window.confirm('Replace current grading scale with the Standard Letter Grading Scale (Grades A to F)?')) {
-        return;
-      }
-    }
-    setSettings({
-      ...settings,
-      gradingScale: JSON.parse(JSON.stringify(LETTER_GRADING_SCALE))
-    });
-    alert('Standard Letter Grading Scale (A - F) loaded! Click "Save & Synchronize Settings" below to apply it.');
-  };
-
   const addGradingRow = () => {
     setSettings({
       ...settings,
@@ -1288,29 +1275,6 @@ const Settings = () => {
                   >
                     <i className="fas fa-rotate-left" style={{ fontSize: '0.82rem' }}></i>
                     Default Grading System
-                  </button>
-
-                  {/* 1-Click Letter Preset Button */}
-                  <button
-                    type="button"
-                    onClick={applyLetterGradingPreset}
-                    style={{
-                      padding: '0.45rem 0.8rem',
-                      borderRadius: '8px',
-                      background: '#F8FAFC',
-                      border: '1px solid #CBD5E1',
-                      color: '#334155',
-                      fontSize: '0.78rem',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                    title="Import Standard Letter Grades (A to F)"
-                  >
-                    <i className="fas fa-font" style={{ fontSize: '0.78rem' }}></i>
-                    Letter Scale (A - F)
                   </button>
 
                   <button
