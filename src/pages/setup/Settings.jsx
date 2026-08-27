@@ -4,7 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { enqueueSync } from '../../services/syncEngine';
+import { enqueueSync, drainOutbox } from '../../services/syncEngine';
 import { compressImageToBlob, processSchoolLogo, blobToDataURL } from '../../utils/imageUtils';
 import authService from '../../services/authService';
 import { DEFAULT_GRADING_SCALE } from '../../lib/grading';
@@ -104,12 +104,27 @@ const Settings = () => {
   // Sync from Cloud on mount
   useEffect(() => {
     const fetchCloudSettings = async () => {
-      if (!navigator.onLine || !user?.schoolId) return;
+      const targetSchoolId = user?.schoolId || user?.school_id || schoolData?.id;
+      if (!navigator.onLine || !targetSchoolId) return;
+
+      // Check if there are pending unsynced outbox items for settings or schools
+      // If there are pending outbox items, preserve local state to prevent overwriting recent user edits
+      const pendingSettingsOutbox = await db.outbox
+        .where('table').anyOf(['report_settings', 'report_schools'])
+        .filter(item => item.status === 'pending' || item.status === 'processing')
+        .count()
+        .catch(() => 0);
+
+      if (pendingSettingsOutbox > 0) {
+        console.log('[Settings] Pending settings/school outbox items exist. Preserving local edits.');
+        return;
+      }
+
       try {
         const { data: settingsList, error: settingsError } = await supabase
           .from('report_settings')
           .select('*')
-          .eq('id', user.schoolId);
+          .eq('id', targetSchoolId);
         const settingsData = settingsList?.[0];
 
         if (settingsData && !settingsError) {
@@ -143,8 +158,8 @@ const Settings = () => {
 
           if (needsUpdate) {
             await enqueueSync('upsert', 'report_settings', {
-              id: user.schoolId,
-              school_id: user.schoolId,
+              id: targetSchoolId,
+              school_id: targetSchoolId,
               ca_weight: settingsData.ca_weight,
               exam_weight: settingsData.exam_weight,
               ca_model: settingsData.ca_model,
@@ -153,18 +168,18 @@ const Settings = () => {
               grading_scale: settingsData.grading_scale || [],
               enable_best6_aggregate: settingsData.enable_best6_aggregate ?? true,
               updated_at: new Date().toISOString()
-            }, user.schoolId);
+            }, targetSchoolId);
           }
         }
 
         const { data: schoolCloudData, error: schoolError } = await supabase
           .from('report_schools')
           .select('*')
-          .eq('id', user.schoolId);
+          .eq('id', targetSchoolId);
         const sData = schoolCloudData?.[0];
 
         if (sData && !schoolError) {
-          const localSchool = await db.schools.get(user.schoolId).catch(() => null);
+          const localSchool = await db.schools.get(targetSchoolId).catch(() => null);
           const remoteLogo = sData.logo_url;
           const localLogo = localSchool?.logoUrl;
           const isLocalDataUrl = localLogo && typeof localLogo === 'string' && localLogo.startsWith('data:');
@@ -188,7 +203,7 @@ const Settings = () => {
 
           await db.schools.put({
             ...(localSchool || {}),
-            id: user.schoolId,
+            id: targetSchoolId,
             name: sData.name || localSchool?.name || '',
             motto: sData.motto ?? localSchool?.motto ?? '',
             logoUrl: effectiveLogo,
@@ -213,7 +228,7 @@ const Settings = () => {
     };
 
     fetchCloudSettings();
-  }, [user]);
+  }, [user, schoolData?.id]);
 
   // Sync state from Dexie IndexedDB
   useEffect(() => {
@@ -290,9 +305,11 @@ const Settings = () => {
       // 1. Immediately update UI state
       setSchool(prev => ({ ...prev, logoUrl: dataUrl }));
 
+      const targetSchoolId = user?.schoolId || user?.school_id || schoolData?.id || school?.id;
+
       // 2. Save directly to local IndexedDB (with both dataUrl and raw blob)
-      if (user?.schoolId) {
-        await db.schools.update(user.schoolId, { 
+      if (targetSchoolId) {
+        await db.schools.update(targetSchoolId, { 
           logoUrl: dataUrl, 
           logoBlob,
           logo_url: dataUrl 
@@ -306,17 +323,17 @@ const Settings = () => {
               logo_url: dataUrl,
               updated_at: new Date().toISOString()
             })
-            .eq('id', user.schoolId);
+            .eq('id', targetSchoolId);
         } catch (dbErr) {
           console.warn('[Settings] Direct Supabase logo update skipped, queued in sync engine:', dbErr);
         }
 
         // 4. Also enqueue to sync engine for offline-safe guarantee
         await enqueueSync('upsert', 'report_schools', {
-          id: user.schoolId,
+          id: targetSchoolId,
           logo_url: dataUrl,
           updated_at: new Date().toISOString()
-        }, user.schoolId);
+        }, targetSchoolId);
       }
 
       alert('School logo saved successfully!');
@@ -329,7 +346,7 @@ const Settings = () => {
   };
 
   const handleSave = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
 
     if (Number(settings.caWeight) + Number(settings.examWeight) !== 100) {
       alert('Continuous Assessment and Exam weights must sum to exactly 100%.');
@@ -368,9 +385,12 @@ const Settings = () => {
     const updatedSettings = { ...settings, gradingScale: finalScale, id: 'global' };
     setSettings(updatedSettings);
     
+    // 1. Save to local Dexie IndexedDB immediately
     await db.settings.put(updatedSettings);
 
-    if (user?.schoolId) {
+    const targetSchoolId = user?.schoolId || user?.school_id || schoolData?.id || school?.id;
+
+    if (targetSchoolId) {
       const sType = school.schoolType || 'private';
       const mappedCategory = sType === 'public' ? 'GES' : sType === 'international' ? 'International' : 'Private';
 
@@ -378,55 +398,95 @@ const Settings = () => {
         ...school,
         schoolType: sType,
         school_category: mappedCategory,
-        id: user.schoolId
+        id: targetSchoolId
       });
-    }
 
-    if (user?.schoolId) {
-      try {
-        const sType = school.schoolType || 'private';
-        const mappedCategory = sType === 'public' ? 'GES' : sType === 'international' ? 'International' : 'Private';
+      const settingsPayload = {
+        id: targetSchoolId,
+        school_id: targetSchoolId,
+        ca_weight: Number(settings.caWeight),
+        exam_weight: Number(settings.examWeight),
+        ca_model: settings.caModel,
+        ca_best_n: settings.caBestNCount ? Number(settings.caBestNCount) : null,
+        ca_breakdown: settings.caBreakdown,
+        grading_scale: finalScale,
+        enable_best6_aggregate: settings.enableBest6Aggregate ?? true,
+        updated_at: new Date().toISOString()
+      };
 
-        await enqueueSync('upsert', 'report_settings', {
-          id: user.schoolId,
-          school_id: user.schoolId,
-          ca_weight: settings.caWeight,
-          exam_weight: settings.examWeight,
-          ca_model: settings.caModel,
-          ca_best_n: settings.caBestNCount || null,
-          ca_breakdown: settings.caBreakdown,
-          grading_scale: finalScale,
-          enable_best6_aggregate: settings.enableBest6Aggregate ?? true,
-          updated_at: new Date().toISOString()
-        }, user.schoolId);
+      const schoolsPayload = {
+        id: targetSchoolId,
+        name: school.name,
+        school_type: sType,
+        school_category: mappedCategory,
+        motto: school.motto || null,
+        logo_url: school.logoUrl || null,
+        location: school.location || null,
+        district: school.district || null,
+        region: school.region || null,
+        circuit: school.circuit || null,
+        current_academic_year: school.currentAcademicYear || null,
+        current_term: school.currentTerm || null,
+        vacation_date: school.vacationDate || null,
+        next_term_begins: school.nextTermBegins || null,
+        phone: school.phone || null,
+        email: school.email || null,
+        updated_at: new Date().toISOString()
+      };
 
-        await enqueueSync('upsert', 'report_schools', {
-          id: user.schoolId,
-          name: school.name,
-          school_type: sType,
-          school_category: mappedCategory,
-          motto: school.motto || null,
-          logo_url: school.logoUrl || null,
-          location: school.location || null,
-          district: school.district || null,
-          region: school.region || null,
-          circuit: school.circuit || null,
-          current_academic_year: school.currentAcademicYear || null,
-          current_term: school.currentTerm || null,
-          vacation_date: school.vacationDate || null,
-          next_term_begins: school.nextTermBegins || null,
-          phone: school.phone || null,
-          email: school.email || null,
-          updated_at: new Date().toISOString()
-        }, user.schoolId);
+      let directCloudSuccess = false;
+      let cloudErrorMsg = '';
 
-      } catch (err) {
-        console.error('Failed to sync settings or school:', err);
+      // 2. If online, perform direct synchronous Supabase upsert for instant confirmation
+      if (navigator.onLine) {
+        try {
+          const [resSettings, resSchool] = await Promise.all([
+            supabase.from('report_settings').upsert(settingsPayload),
+            supabase.from('report_schools').upsert(schoolsPayload)
+          ]);
+
+          if (resSettings.error) {
+            console.error('[Settings] Cloud sync error (report_settings):', resSettings.error);
+            cloudErrorMsg = resSettings.error.message || 'Error updating report settings';
+          }
+          if (resSchool.error) {
+            console.error('[Settings] Cloud sync error (report_schools):', resSchool.error);
+            cloudErrorMsg = (cloudErrorMsg ? cloudErrorMsg + '; ' : '') + (resSchool.error.message || 'Error updating school profile');
+          }
+
+          if (!resSettings.error && !resSchool.error) {
+            directCloudSuccess = true;
+          }
+        } catch (cloudErr) {
+          console.error('[Settings] Direct cloud connection error:', cloudErr);
+          cloudErrorMsg = cloudErr.message || 'Connection error';
+        }
       }
-    }
 
-    setIsSaving(false);
-    alert('Settings saved and synchronized successfully!');
+      // 3. Always enqueue to outbox for zero-loss offline and background sync recovery
+      try {
+        await enqueueSync('upsert', 'report_settings', settingsPayload, targetSchoolId);
+        await enqueueSync('upsert', 'report_schools', schoolsPayload, targetSchoolId);
+        drainOutbox().catch(() => {});
+      } catch (err) {
+        console.error('Failed to enqueue outbox sync:', err);
+      }
+
+      setIsSaving(false);
+
+      if (directCloudSuccess) {
+        alert('Settings saved and synchronized to the cloud successfully!');
+      } else if (!navigator.onLine) {
+        alert('Settings saved locally! Since you are offline, changes will automatically sync to the cloud once connected.');
+      } else if (cloudErrorMsg) {
+        alert(`Settings saved locally. Note: Cloud sync reported: ${cloudErrorMsg}. It will automatically retry in the background.`);
+      } else {
+        alert('Settings saved and queued for cloud synchronization!');
+      }
+    } else {
+      setIsSaving(false);
+      alert('Settings saved locally!');
+    }
   };
 
   // Canvas Signature state & handlers
@@ -546,11 +606,12 @@ const Settings = () => {
             updatedAt: new Date().toISOString()
           });
 
+          const targetSchoolId = user?.schoolId || user?.school_id || schoolData?.id || school?.id;
           await enqueueSync('upsert', 'report_profiles', {
             id: user.id,
             signature_url: publicUrl,
             updated_at: new Date().toISOString()
-          }, user.schoolId);
+          }, targetSchoolId);
         }
       }
       alert('Digital signature saved successfully!');
@@ -571,11 +632,12 @@ const Settings = () => {
       clearCanvas();
 
       if (navigator.onLine && user?.id) {
+        const targetSchoolId = user?.schoolId || user?.school_id || schoolData?.id || school?.id;
         await enqueueSync('upsert', 'report_profiles', {
           id: user.id,
           signature_url: null,
           updated_at: new Date().toISOString()
-        }, user.schoolId);
+        }, targetSchoolId);
         await supabase.storage.from('learner-photos').remove([`signatures/${user.id}.png`]).catch(() => null);
       }
       alert('Signature deleted.');
