@@ -6,6 +6,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
 import { compressImageToBlob, processPassportPhoto } from '../../utils/imageUtils';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
+import PassportPhotoCapture from '../../components/common/PassportPhotoCapture';
 import authService from '../../services/authService';
 import { enqueueSync } from '../../services/syncEngine';
 import { GHANAIAN_LANGUAGE_OPTIONS, getLearnerLanguage, getLanguageLabel } from '../../utils/languageUtils';
@@ -138,19 +139,8 @@ const LearnerList = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [photoMode, setPhotoMode] = useState('upload');
-  const [cameraActive, setCameraActive] = useState(false);
   // photoPreview holds a Blob (from camera/file) or a string URL (from existing record)
   const [photoPreview, setPhotoPreview] = useState(null);
-  // photoPreviewUrl is an object URL derived from a Blob preview, for memory-safe <img> rendering
-  const [photoPreviewUrl, setPhotoPreviewUrl] = useState(null);
-  // Camera device management
-  const [cameras, setCameras] = useState([]);       // list of VideoInputDeviceInfo
-  const [activeCamIdx, setActiveCamIdx] = useState(0); // which camera is in use
-  const videoRef = useRef(null);
-  const streamRef = useRef(null);
-  const canvasRef = useRef(null);
-  const fileInputRef = useRef(null);
   const fileInputExcelRef = useRef(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importData, setImportData] = useState([]);
@@ -292,103 +282,6 @@ const LearnerList = () => {
     return parseFloat(((present / total) * 100).toFixed(1));
   }, [learnerSummary]);
 
-  // ── Stop any running stream (stable ref, no deps) ──
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    setCameraActive(false);
-  }, []);
-
-  // ── Enumerate cameras (requests permission so labels appear) ──
-  const loadCameras = useCallback(async () => {
-    try {
-      // First try enumerateDevices — works offline if camera permission was already granted
-      const all = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = all.filter(d => d.kind === 'videoinput');
-      
-      // If we got labelled devices, we already have permission — no probe needed
-      if (videoDevices.length > 0 && videoDevices.some(d => d.label)) {
-        return videoDevices;
-      }
-      
-      // Labels are empty (permission not yet granted) — do a one-shot probe
-      // This requires network only for the first-ever permission grant on a new browser
-      const probe = await navigator.mediaDevices.getUserMedia({ video: true });
-      probe.getTracks().forEach(t => t.stop());
-      const refreshed = await navigator.mediaDevices.enumerateDevices();
-      return refreshed.filter(d => d.kind === 'videoinput');
-    } catch {
-      // Fallback: return a single generic camera entry so startCameraDevice can still try
-      return [{ deviceId: '', label: 'Camera', kind: 'videoinput' }];
-    }
-  }, []);
-
-  // ── Start a specific camera by deviceId ──
-  const startCameraDevice = useCallback(async (deviceId, idx, camList) => {
-    // Stop previous stream first, then wait a tick for the device to release
-    stopCamera();
-    await new Promise(r => setTimeout(r, 150));
-    try {
-      const constraints = deviceId
-        ? { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } }
-        : { video: { facingMode: 'user' } };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      streamRef.current = stream;
-      // Attach to video element — videoRef must be mounted at this point
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.onloadedmetadata = () => videoRef.current?.play().catch(() => {});
-      }
-      setCameraActive(true);
-      setActiveCamIdx(idx);
-      setCameras(camList);
-    } catch (err) {
-      console.warn('Camera switch failed:', err);
-      // Do NOT reset photoMode — just show error state, keep camera UI visible
-      setCameraActive(false);
-    }
-  }, [stopCamera]);
-
-  // ── Switch to next/prev camera ──
-  const switchCamera = useCallback(async (dir) => {
-    if (cameras.length < 2) return;
-    const next = (activeCamIdx + dir + cameras.length) % cameras.length;
-    await startCameraDevice(cameras[next]?.deviceId, next, cameras);
-  }, [cameras, activeCamIdx, startCameraDevice]);
-
-  const capturePhoto = () => {
-    const v = videoRef.current, c = canvasRef.current;
-    if (!v || !c) return;
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext('2d').drawImage(v, 0, 0);
-    // Get blob directly from canvas — formatted to 3:4 Passport Picture
-    c.toBlob(async (rawBlob) => {
-      if (!rawBlob) return;
-      try {
-        const passportBlob = await processPassportPhoto(rawBlob, 450, 600, 0.90);
-        setPhotoPreview(passportBlob);
-      } catch (err) {
-        console.warn('Failed to format passport photo from camera capture:', err);
-        setPhotoPreview(rawBlob);
-      }
-      stopCamera();
-    }, 'image/jpeg', 0.92);
-  };
-
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const passportBlob = await processPassportPhoto(file, 450, 600, 0.90);
-      setPhotoPreview(passportBlob);
-    } catch (err) {
-      console.warn('Failed to format passport photo from uploaded file:', err);
-      setPhotoPreview(file);
-    }
-  };
-
   const openModal = () => {
     setEditingId(null);
     setForm({
@@ -405,8 +298,7 @@ const LearnerList = () => {
       guardianProfession: '',
       guardianLocation: ''
     });
-    setPhotoPreview(null); setPhotoPreviewUrl(null); setPhotoMode('upload');
-    setCameras([]); setActiveCamIdx(0);
+    setPhotoPreview(null);
     setIsModalOpen(true);
   };
 
@@ -428,12 +320,13 @@ const LearnerList = () => {
     });
     // photo may be a Blob (local) or a string URL (remote cached)
     setPhotoPreview(l.photo || l.photoUrl || null);
-    setPhotoMode('upload');
-    setCameras([]); setActiveCamIdx(0);
     setIsModalOpen(true);
   };
 
-  const closeModal = () => { stopCamera(); setIsModalOpen(false); setPhotoPreview(null); setPhotoPreviewUrl(null); };
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setPhotoPreview(null);
+  };
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -1605,82 +1498,16 @@ const LearnerList = () => {
                 <div className="form-section-box">
                   <div className="form-section-title">
                     <i className="fas fa-camera" style={{ color: '#2563eb' }}></i>
-                    <span>1. Learner Photo</span>
+                    <span>1. Learner Passport Photo</span>
                   </div>
 
-                  <div className="mode-pill">
-                    {[['upload','fa-upload','Upload File'],['camera','fa-camera','Live Camera']].map(([m, ic, lbl]) => (
-                      <button key={m} type="button" className={`mode-btn${photoMode===m?' active':''}`} onClick={async () => {
-                        setPhotoMode(m); setPhotoPreview(null);
-                        if (m === 'camera') {
-                          const devs = await loadCameras();
-                          setCameras(devs);
-                          await startCameraDevice(devs[0]?.deviceId, 0, devs);
-                        } else {
-                          stopCamera();
-                        }
-                      }}>
-                        <i className={`fas ${ic}`} style={{ marginRight: 6 }}></i>{lbl}
-                      </button>
-                    ))}
-                  </div>
-
-                  {photoPreview ? (
-                    <div className="photo-preview-wrap">
-                      <LearnerPhoto photo={photoPreview} alt="preview" gender={form.gender} className="photo-avatar" style={{ width: 100, height: 100, borderRadius: '50%', objectFit: 'cover', border: '3px solid #2563eb', boxShadow: '0 4px 14px rgba(37,99,235,.25)' }} />
-                      <button type="button" onClick={() => { setPhotoPreview(null); setPhotoPreviewUrl(null); stopCamera(); }} style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '.8rem', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <i className="fas fa-redo"></i> Retake / Change Photo
-                      </button>
-                    </div>
-                  ) : photoMode === 'camera' ? (
-                    <div style={{ textAlign: 'center' }}>
-                      {/* Camera viewport */}
-                      <div style={{ position: 'relative', borderRadius: 14, overflow: 'hidden', border: '2px solid #E4E4E7', background: '#000', maxWidth: 300, margin: '0 auto' }}>
-                        <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', display: 'block', maxHeight: 200, objectFit: 'cover' }} />
-                        {!cameraActive && <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}><i className="fas fa-circle-notch fa-spin" style={{ fontSize: '1.5rem', opacity: .6 }}></i></div>}
-                        {/* Camera label badge */}
-                        {cameraActive && cameras.length > 0 && (
-                          <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(9,9,11,.75)', color: '#fff', fontSize: '.7rem', padding: '2px 8px', borderRadius: 999, backdropFilter: 'blur(4px)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <i className="fas fa-video" style={{ marginRight: 4 }}></i>
-                            {cameras[activeCamIdx]?.label || `Camera ${activeCamIdx + 1}`}
-                          </div>
-                        )}
-                      </div>
-                      <canvas ref={canvasRef} style={{ display: 'none' }} />
-                      {/* Camera controls row */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', marginTop: '.75rem', flexWrap: 'wrap' }}>
-                        {cameras.length > 1 && (
-                          <button type="button" onClick={() => switchCamera(-1)} title="Previous camera"
-                            style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#71717a' }}>
-                            <i className="fas fa-chevron-left"></i>
-                          </button>
-                        )}
-                        {cameraActive && (
-                          <button type="button" onClick={capturePhoto} style={{ padding: '.5rem 1.25rem', background: '#09090b', color: '#fff', border: 'none', borderRadius: '10px', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                            <i className="fas fa-camera"></i> Capture
-                          </button>
-                        )}
-                        {cameras.length > 1 && (
-                          <button type="button" onClick={() => switchCamera(1)} title="Next camera"
-                            style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '50%', width: 36, height: 36, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#71717a' }}>
-                            <i className="fas fa-chevron-right"></i>
-                          </button>
-                        )}
-                      </div>
-                      {cameras.length > 1 && (
-                        <div style={{ marginTop: '.4rem', fontSize: '.72rem', color: '#71717a' }}>
-                          Camera {activeCamIdx + 1} of {cameras.length} — use arrows to switch
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="photo-zone" onClick={() => fileInputRef.current?.click()}>
-                      <i className="fas fa-cloud-arrow-up" style={{ fontSize: '2rem', color: '#2563eb', display: 'block', marginBottom: '.5rem' }}></i>
-                      <p style={{ margin: 0, fontSize: '.88rem', color: '#09090b', fontWeight: 700 }}>Click to browse or drop photo</p>
-                      <p style={{ margin: '4px 0 0', fontSize: '.75rem', color: '#71717a' }}>Supports JPG, PNG or WEBP</p>
-                      <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileUpload} />
-                    </div>
-                  )}
+                  <PassportPhotoCapture
+                    key={editingId ? `edit_${editingId}` : 'new_learner'}
+                    currentPhoto={photoPreview}
+                    gender={form.gender}
+                    onPhotoSelected={(blob) => setPhotoPreview(blob)}
+                    onPhotoCleared={() => setPhotoPreview(null)}
+                  />
                 </div>
 
                 {/* ── SECTION 2: Academic & Personal Profile ── */}
