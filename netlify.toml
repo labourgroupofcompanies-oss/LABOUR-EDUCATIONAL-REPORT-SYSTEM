@@ -37,6 +37,16 @@
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.ico"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 # Immutable caching for hashed Vite build bundles
 [[headers]]
   for = "/assets/*"
