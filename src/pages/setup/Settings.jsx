@@ -680,17 +680,17 @@ const Settings = () => {
     }
   };
 
-  const applyBeceGradingPreset = () => {
+  const applyDefaultGradingPreset = () => {
     if (settings.gradingScale && settings.gradingScale.length > 0) {
-      if (!window.confirm('Replace current grading scale with the Official WAEC/GES BECE 9-Point Grading Scale (Grades 1 to 9)?')) {
+      if (!window.confirm('Replace current grading scale with the Default Grading System?')) {
         return;
       }
     }
     setSettings({
       ...settings,
-      gradingScale: JSON.parse(JSON.stringify(BECE_GES_GRADING_SCALE))
+      gradingScale: JSON.parse(JSON.stringify(DEFAULT_GRADING_SCALE))
     });
-    alert('Official WAEC/GES BECE 9-Point Grading Scale loaded! Click "Save & Synchronize Settings" below to apply it.');
+    alert('Default Grading System loaded! Click "Save & Synchronize Settings" below to apply it.');
   };
 
   const applyLetterGradingPreset = () => {
@@ -1265,10 +1265,10 @@ const Settings = () => {
                 </div>
 
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  {/* 1-Click BECE / GES Preset Button */}
+                  {/* 1-Click Default Preset Button */}
                   <button
                     type="button"
-                    onClick={applyBeceGradingPreset}
+                    onClick={applyDefaultGradingPreset}
                     style={{
                       padding: '0.45rem 0.9rem',
                       borderRadius: '8px',
@@ -1284,10 +1284,10 @@ const Settings = () => {
                       boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
                       transition: 'all 0.15s ease'
                     }}
-                    title="Import Official WAEC / GES BECE 9-Point Grading Scale (Grades 1 to 9)"
+                    title="Load the standard Default Grading System"
                   >
-                    <i className="fas fa-graduation-cap" style={{ fontSize: '0.88rem' }}></i>
-                    Import BECE Scale (1 - 9)
+                    <i className="fas fa-rotate-left" style={{ fontSize: '0.82rem' }}></i>
+                    Default Grading System
                   </button>
 
                   {/* 1-Click Letter Preset Button */}
