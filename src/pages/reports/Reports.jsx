@@ -12,6 +12,7 @@ import subscriptionService from '../../services/subscriptionService';
 import TopUpWalletModal from '../../components/subscription/TopUpWalletModal';
 import { calculateBest6Aggregate } from '../../lib/beceAggregateEngine';
 import { filterSubjectsForLearner, getLanguageLabel, formatSubjectNameForLearner } from '../../utils/languageUtils';
+import ClassBroadsheetModal from '../../components/reports/ClassBroadsheetModal';
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 const DEFAULT_GRADING_SCALE = [
@@ -205,8 +206,39 @@ const STYLES = `
     transform: translateY(-1px);
     box-shadow: 0 6px 20px rgba(99,102,241,0.4);
   }
-  .rc-preview-btn:active { transform: translateY(0); }
   .rc-preview-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  .rc-broadsheet-btn {
+    width: 100%;
+    padding: 1rem;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #1e40af 0%, #2563eb 50%, #3b82f6 100%);
+    color: white;
+    font-size: 0.88rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(37,99,235,0.3);
+    font-family: 'Inter', sans-serif;
+  }
+  .rc-broadsheet-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(37,99,235,0.4);
+  }
+  .rc-broadsheet-btn:active { transform: translateY(0); }
+  .rc-broadsheet-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     transform: none;
@@ -1085,6 +1117,7 @@ const Reports = () => {
   // ── View state: 'config' | 'preview' ─────────────────────────────────────
   const [view, setView] = useState('config');
   const [activeTab, setActiveTab] = useState('compiler'); // 'compiler' | 'distribution'
+  const [isBroadsheetOpen, setIsBroadsheetOpen] = useState(false);
   const [isDispatching, setIsDispatching] = useState(false);
   const [editingRemarkId, setEditingRemarkId] = useState(null);
   const [inlineHeadteacherRemark, setInlineHeadteacherRemark] = useState('');
@@ -2373,17 +2406,33 @@ const Reports = () => {
                   </div>
                 )}
 
-                {/* Preview button */}
-                <button
-                  type="button"
-                  data-tour="reports-release"
-                  className="rc-preview-btn"
-                  onClick={handlePreview}
-                  disabled={!canPreview}
-                >
-                  <i className="fas fa-eye" />
-                  Preview Report Cards
-                </button>
+                {/* Action buttons */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginTop: '1.5rem' }}>
+                  {/* Preview button */}
+                  <button
+                    type="button"
+                    data-tour="reports-release"
+                    className="rc-preview-btn"
+                    style={{ margin: 0 }}
+                    onClick={handlePreview}
+                    disabled={!canPreview}
+                  >
+                    <i className="fas fa-eye" />
+                    Preview Report Cards
+                  </button>
+
+                  {/* Print Class Broadsheet button */}
+                  <button
+                    type="button"
+                    className="rc-broadsheet-btn"
+                    style={{ margin: 0 }}
+                    onClick={() => setIsBroadsheetOpen(true)}
+                    disabled={!selectedClass}
+                  >
+                    <i className="fas fa-print" />
+                    Print Class Broadsheet
+                  </button>
+                </div>
 
                 {/* Promotions logic moved to Promotions page */}
               </div>
@@ -2836,6 +2885,14 @@ const Reports = () => {
                     <i className="fas fa-print" /> Print All ({previewLearners.length})
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn"
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: '#1e40af', color: '#fff' }}
+                  onClick={() => setIsBroadsheetOpen(true)}
+                >
+                  <i className="fas fa-table" /> Class Broadsheet
+                </button>
                 {generateMode === 'all' && isAdmin && (
                   <button
                     type="button"
@@ -3012,6 +3069,21 @@ const Reports = () => {
           </div>
         )}
       </div>
+
+      {/* ── PRINTABLE CLASS BROADSHEET MODAL ────────────────────────────────────── */}
+      <ClassBroadsheetModal
+        isOpen={isBroadsheetOpen}
+        onClose={() => setIsBroadsheetOpen(false)}
+        schoolInfo={schoolInfo}
+        classes={advisedClasses && advisedClasses.length > 0 ? advisedClasses : (classes || [])}
+        selectedClassId={selectedClass}
+        selectedTerm={selectedTerm}
+        selectedAcademicYear={academicYear}
+        learners={classLearners && classLearners.length > 0 ? classLearners : (learners || [])}
+        subjects={subjects || []}
+        classSubjects={classSubjects || []}
+        scores={scores || []}
+      />
     </Layout>
   );
 };
