@@ -492,6 +492,100 @@ const LearnerList = () => {
     }
   };
 
+  const handleDownloadTemplate = () => {
+    try {
+      const headers = [
+        'Full Name',
+        'Class',
+        'Gender',
+        'Registration Number',
+        'Ghanaian Language',
+        'Guardian Name',
+        'Guardian Relation',
+        'Primary Contact',
+        'Secondary Contact',
+        'Profession',
+        'Location'
+      ];
+
+      const sampleClass1 = classes && classes.length > 0 ? classes[0].name : 'Basic 1';
+      const sampleClass2 = classes && classes.length > 1 ? classes[1].name : (classes && classes.length > 0 ? classes[0].name : 'Basic 2');
+
+      const sampleRows = [
+        [
+          'Ama Mensah',
+          sampleClass1,
+          'Female',
+          '',
+          'Twi',
+          'Kwabena Mensah',
+          'Father',
+          '0244123456',
+          '0550123456',
+          'Teacher',
+          'Kumasi'
+        ],
+        [
+          'Kwame Asante',
+          sampleClass2,
+          'Male',
+          '',
+          'Fante',
+          'Akosua Asante',
+          'Mother',
+          '0201234567',
+          '',
+          'Trader',
+          'Accra'
+        ]
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+
+      ws['!cols'] = [
+        { wch: 24 }, // Full Name
+        { wch: 16 }, // Class
+        { wch: 12 }, // Gender
+        { wch: 22 }, // Registration Number
+        { wch: 20 }, // Ghanaian Language
+        { wch: 22 }, // Guardian Name
+        { wch: 18 }, // Guardian Relation
+        { wch: 18 }, // Primary Contact
+        { wch: 18 }, // Secondary Contact
+        { wch: 18 }, // Profession
+        { wch: 20 }  // Location
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Learners');
+
+      // Reference Sheet with instructions & exact class names
+      const refHeaders = ['Your School Classes (Copy Exactly)', 'Supported Ghanaian Languages', 'Important Instructions'];
+      const maxRows = Math.max(classes?.length || 0, GHANAIAN_LANGUAGE_OPTIONS?.length || 0, 4);
+      const refRows = [];
+
+      for (let i = 0; i < maxRows; i++) {
+        refRows.push([
+          classes?.[i]?.name || '',
+          GHANAIAN_LANGUAGE_OPTIONS?.[i]?.label || '',
+          i === 0 ? '1. Do not rename or delete header columns in Row 1.' :
+          i === 1 ? '2. "Full Name" and "Class" are required for every learner.' :
+          i === 2 ? '3. Leave "Registration Number" blank to automatically generate IDs.' :
+          i === 3 ? '4. Enter exact Class Names matching your school classes.' : ''
+        ]);
+      }
+
+      const wsRef = XLSX.utils.aoa_to_sheet([refHeaders, ...refRows]);
+      wsRef['!cols'] = [{ wch: 32 }, { wch: 30 }, { wch: 65 }];
+      XLSX.utils.book_append_sheet(wb, wsRef, 'Classes & Guide');
+
+      XLSX.writeFile(wb, 'Learners_Registration_Template.xlsx');
+    } catch (err) {
+      console.error('Failed to download Excel template:', err);
+      alert('Failed to generate template. Please try again.');
+    }
+  };
+
   const handleExcelImport = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -1302,6 +1396,88 @@ const LearnerList = () => {
         .stat-badge-total{background:#FAFAFA;border:1px solid #E4E4E7;color:#71717a;}
         .stat-badge-warning{background:#FFFBEB;color:#F59E0B;border:1px solid #FDE68A;}
         .stat-badge-valid{background:#ECFDF5;color:#10B981;border:1px solid #A7F3D0;}
+
+        /* Responsive Action Button Bar */
+        .learners-action-bar {
+          display: flex;
+          gap: .5rem;
+          flex-wrap: wrap;
+          align-items: center;
+        }
+        .learner-act-btn {
+          border-radius: 12px;
+          padding: 0 1.1rem;
+          height: 42px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: .5rem;
+          font-weight: 700;
+          font-size: .84rem;
+          font-family: inherit;
+          white-space: nowrap;
+          cursor: pointer;
+          border: none;
+          transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+          text-decoration: none;
+          user-select: none;
+        }
+        .learner-act-btn:hover {
+          transform: translateY(-1px);
+          filter: brightness(1.04);
+        }
+        .learner-act-btn:active {
+          transform: translateY(0);
+        }
+        .learner-act-btn.btn-template {
+          background: #FFFFFF;
+          color: #0D9488;
+          border: 1.5px solid #0D9488;
+          box-shadow: 0 2px 8px rgba(13, 148, 136, 0.1);
+        }
+        .learner-act-btn.btn-template:hover {
+          background: #F0FDFA;
+          border-color: #0F766E;
+        }
+        .learner-act-btn.btn-import {
+          background: #0D9488;
+          color: #FFFFFF;
+          box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
+        }
+        .learner-act-btn.btn-reassign {
+          background: #2563EB;
+          color: #FFFFFF;
+          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+        }
+        .learner-act-btn.btn-register {
+          background: #09090B;
+          color: #FFFFFF;
+          box-shadow: 0 4px 12px rgba(9, 9, 11, 0.25);
+        }
+
+        @media (max-width: 900px) {
+          .learners-action-bar {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: .5rem;
+          }
+          .learner-act-btn {
+            width: 100%;
+            height: 44px;
+            padding: 0 .65rem;
+            font-size: .8rem;
+          }
+        }
+        @media (max-width: 480px) {
+          .learners-action-bar {
+            grid-template-columns: 1fr;
+          }
+          .learner-act-btn {
+            height: 44px;
+            font-size: .85rem;
+          }
+        }
       `}</style>
 
       {/* Page Header */}
@@ -1321,26 +1497,25 @@ const LearnerList = () => {
           </div>
         </div>
         
-        <div data-tour="learners-actions" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+        <div className="learners-action-bar" data-tour="learners-actions">
+          {/* 1. Download Excel Template */}
           <button 
-            className="btn" 
+            type="button" 
+            className="learner-act-btn btn-template"
+            onClick={handleDownloadTemplate}
+            title="Download formatted Excel registration template"
+          >
+            <i className="fas fa-file-arrow-down"></i>
+            <span>Download Template</span>
+          </button>
+
+          {/* 2. Import Excel */}
+          <button 
+            type="button"
+            className="learner-act-btn btn-import" 
             onClick={() => fileInputExcelRef.current?.click()} 
             disabled={importing}
-            style={{ 
-              borderRadius: 12, 
-              padding: '0 1.25rem', 
-              height: 44, 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '.5rem', 
-              fontWeight: 700, 
-              background: '#2563eb',
-              color: '#fff',
-              border: 'none',
-              boxShadow: '0 4px 12px rgba(37,99,235,.2)', 
-              whiteSpace: 'nowrap',
-              cursor: 'pointer'
-            }}
+            title="Import learners from filled Excel file"
           >
             {importing ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-file-excel"></i>}
             <span>{importing ? 'Processing…' : 'Import Excel'}</span>
@@ -1354,31 +1529,26 @@ const LearnerList = () => {
             onChange={handleExcelImport} 
           />
 
+          {/* 3. Reassign Numbers */}
           <button 
             type="button" 
-            className="btn" 
-            onClick={openReassignModal} 
-            style={{ 
-              borderRadius: 12, 
-              padding: '0 1.25rem', 
-              height: 44, 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '.5rem', 
-              fontWeight: 700, 
-              background: '#3b82f6',
-              color: '#fff',
-              border: 'none',
-              boxShadow: '0 4px 12px rgba(59,130,246,.15)', 
-              whiteSpace: 'nowrap',
-              cursor: 'pointer'
-            }}
+            className="learner-act-btn btn-reassign" 
+            onClick={openReassignModal}
+            title="Batch reassign registration numbers"
           >
-            <i className="fas fa-sort-numeric-down"></i><span>Reassign Numbers</span>
+            <i className="fas fa-sort-numeric-down"></i>
+            <span>Reassign Numbers</span>
           </button>
 
-          <button className="btn btn-accent" onClick={openModal} style={{ borderRadius: 12, padding: '0 1.25rem', height: 44, display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 700, boxShadow: '0 4px 12px rgba(13,148,136,.2)', whiteSpace: 'nowrap' }}>
-            <i className="fas fa-user-plus"></i><span>Register Learner</span>
+          {/* 4. Register Learner */}
+          <button 
+            type="button"
+            className="learner-act-btn btn-register" 
+            onClick={openModal}
+            title="Register a new learner"
+          >
+            <i className="fas fa-user-plus"></i>
+            <span>Register Learner</span>
           </button>
         </div>
       </div>
