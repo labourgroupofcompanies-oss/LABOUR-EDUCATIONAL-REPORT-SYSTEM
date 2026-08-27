@@ -1115,7 +1115,7 @@ const Settings = () => {
                           <input 
                             type="number" 
                             className="settings-input" 
-                            style={{ textAlign: 'center', width: '70px', margin: '0 auto' }}
+                            style={{ textAlign: 'center', width: '90px', padding: '0.5rem 0.6rem', margin: '0 auto', fontSize: '0.9rem' }}
                             value={item.count || ''}
                             onChange={(e) => {
                               const newBreakdown = [...settings.caBreakdown];
@@ -1129,7 +1129,7 @@ const Settings = () => {
                           <input 
                             type="number" 
                             className="settings-input" 
-                            style={{ textAlign: 'center', width: '70px', margin: '0 auto' }}
+                            style={{ textAlign: 'center', width: '90px', padding: '0.5rem 0.6rem', margin: '0 auto', fontSize: '0.9rem' }}
                             value={item.maxScore || ''}
                             onChange={(e) => {
                               const newBreakdown = [...settings.caBreakdown];
@@ -1189,7 +1189,7 @@ const Settings = () => {
                           <input 
                             type="number" 
                             className="settings-input" 
-                            style={{ width: '60px' }}
+                            style={{ width: '90px', padding: '0.5rem 0.6rem', textAlign: 'center', fontWeight: 600, fontSize: '0.9rem' }}
                             value={row.min ?? ''} 
                             onChange={(e) => {
                               const newScale = [...settings.gradingScale];
@@ -1202,7 +1202,7 @@ const Settings = () => {
                           <input 
                             type="number" 
                             className="settings-input" 
-                            style={{ width: '60px' }}
+                            style={{ width: '90px', padding: '0.5rem 0.6rem', textAlign: 'center', fontWeight: 600, fontSize: '0.9rem' }}
                             value={row.max ?? ''} 
                             onChange={(e) => {
                               const newScale = [...settings.gradingScale];
@@ -1215,7 +1215,7 @@ const Settings = () => {
                           <input 
                             type="text" 
                             className="settings-input" 
-                            style={{ width: '50px', fontWeight: 800, textAlign: 'center' }}
+                            style={{ width: '75px', padding: '0.5rem 0.6rem', fontWeight: 800, textAlign: 'center', fontSize: '0.9rem' }}
                             value={row.grade || ''} 
                             onChange={(e) => {
                               const newScale = [...settings.gradingScale];
@@ -1228,6 +1228,7 @@ const Settings = () => {
                           <input 
                             type="text" 
                             className="settings-input" 
+                            style={{ minWidth: '160px', padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
                             value={row.remark || ''} 
                             onChange={(e) => {
                               const newScale = [...settings.gradingScale];
