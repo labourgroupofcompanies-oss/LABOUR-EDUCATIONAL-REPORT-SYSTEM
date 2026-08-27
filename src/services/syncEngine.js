@@ -348,8 +348,17 @@ async function processSingleItem(item) {
           let { error: insErr } = await supabase.from(item.table).insert(cleanRows);
 
           // 4. If unique constraint or conflict occurs, heal row-by-row
-          if (insErr && (insErr.code === '23505' || String(insErr.message || '').toLowerCase().includes('duplicate') || insErr.code === '409')) {
-            console.log(`[SyncEngine] 🔄 Healing conflict on ${item.table} via targeted delete-insert...`);
+          const isConflict = insErr && (
+            insErr.code === '23505' ||
+            insErr.status === 409 ||
+            String(insErr.code || '') === '409' ||
+            String(insErr.message || '').toLowerCase().includes('duplicate') ||
+            String(insErr.message || '').toLowerCase().includes('conflict') ||
+            String(insErr.message || '').toLowerCase().includes('already exists')
+          );
+
+          if (isConflict) {
+            console.log(`[SyncEngine] 🔄 Healing conflict on ${item.table} via targeted delete-insert & upsert...`);
             let hasFailures = false;
             for (const r of cleanRows) {
               if (item.table === 'report_scores') {
@@ -362,8 +371,12 @@ async function processSingleItem(item) {
                     .eq('term', r.term);
                 } catch (_) {}
               }
-              const { error: singleErr } = await supabase.from(item.table).insert(r);
-              if (singleErr) hasFailures = true;
+              const { error: singleErr } = await supabase.from(item.table).upsert(r);
+              if (singleErr) {
+                // If upsert failed, try one more plain insert
+                const { error: insRetryErr } = await supabase.from(item.table).insert(r);
+                if (insRetryErr) hasFailures = true;
+              }
             }
             if (!hasFailures) insErr = null;
           }
@@ -539,12 +552,16 @@ const reconcileInsertedRow = async (table, row, payload) => {
   }
 };
 
-// ─── Self-healing: unique key conflicts (23505) ───────────────────────────────
+// ─── Self-healing: unique key conflicts (23505 / 409) ─────────────────────────
 const healUniqueConflict = async (opError, item, payload) => {
   if (!opError) return opError;
   const isUniqueErr = opError.code === '23505' ||
-    String(opError.message).toLowerCase().includes('unique constraint') ||
-    String(opError.message).toLowerCase().includes('duplicate key');
+    opError.status === 409 ||
+    String(opError.code || '') === '409' ||
+    String(opError.message || '').toLowerCase().includes('unique constraint') ||
+    String(opError.message || '').toLowerCase().includes('duplicate key') ||
+    String(opError.message || '').toLowerCase().includes('conflict') ||
+    String(opError.message || '').toLowerCase().includes('already exists');
   if (!isUniqueErr) return opError;
 
   console.log(`[SyncEngine] 🔄 Unique conflict on ${item.table} — attempting self-heal...`);
@@ -651,7 +668,10 @@ const healUniqueConflict = async (opError, item, payload) => {
                 .eq('subject_id', r.subject_id)
                 .eq('academic_year', r.academic_year)
                 .eq('term', r.term);
-              await supabase.from('report_scores').insert(r);
+              const { error: upErr } = await supabase.from('report_scores').upsert(r);
+              if (upErr) {
+                await supabase.from('report_scores').insert(r).catch(() => null);
+              }
             } catch (_) {}
           }
         }
