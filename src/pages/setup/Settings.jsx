@@ -7,7 +7,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { enqueueSync, drainOutbox } from '../../services/syncEngine';
 import { compressImageToBlob, processSchoolLogo, blobToDataURL } from '../../utils/imageUtils';
 import authService from '../../services/authService';
-import { DEFAULT_GRADING_SCALE } from '../../lib/grading';
+import { DEFAULT_GRADING_SCALE, BECE_GES_GRADING_SCALE, LETTER_GRADING_SCALE } from '../../lib/grading';
 
 const Settings = () => {
   const { user, updateProfile } = useAuth();
@@ -680,6 +680,32 @@ const Settings = () => {
     }
   };
 
+  const applyBeceGradingPreset = () => {
+    if (settings.gradingScale && settings.gradingScale.length > 0) {
+      if (!window.confirm('Replace current grading scale with the Official WAEC/GES BECE 9-Point Grading Scale (Grades 1 to 9)?')) {
+        return;
+      }
+    }
+    setSettings({
+      ...settings,
+      gradingScale: JSON.parse(JSON.stringify(BECE_GES_GRADING_SCALE))
+    });
+    alert('Official WAEC/GES BECE 9-Point Grading Scale loaded! Click "Save & Synchronize Settings" below to apply it.');
+  };
+
+  const applyLetterGradingPreset = () => {
+    if (settings.gradingScale && settings.gradingScale.length > 0) {
+      if (!window.confirm('Replace current grading scale with the Standard Letter Grading Scale (Grades A to F)?')) {
+        return;
+      }
+    }
+    setSettings({
+      ...settings,
+      gradingScale: JSON.parse(JSON.stringify(LETTER_GRADING_SCALE))
+    });
+    alert('Standard Letter Grading Scale (A - F) loaded! Click "Save & Synchronize Settings" below to apply it.');
+  };
+
   const addGradingRow = () => {
     setSettings({
       ...settings,
@@ -1227,28 +1253,86 @@ const Settings = () => {
 
             {/* Grading Scale Table */}
             <div className="settings-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <i className="fas fa-chart-simple" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
-                  Grading Scale Matrix
-                </h3>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#09090B', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-chart-simple" style={{ color: '#2563EB', fontSize: '0.95rem' }}></i>
+                    Grading Scale Matrix
+                  </h3>
+                  <div style={{ fontSize: '0.78rem', color: '#64748B', marginTop: '3px' }}>
+                    Configure score boundaries, stanine or letter grades, and remarks
+                  </div>
+                </div>
 
-                <button
-                  type="button"
-                  onClick={addGradingRow}
-                  style={{
-                    padding: '0.4rem 0.8rem',
-                    borderRadius: '8px',
-                    background: '#EFF6FF',
-                    border: '1px solid #BFDBFE',
-                    color: '#1D4ED8',
-                    fontSize: '0.78rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  <i className="fas fa-plus" style={{ marginRight: '4px' }}></i> Add Row
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  {/* 1-Click BECE / GES Preset Button */}
+                  <button
+                    type="button"
+                    onClick={applyBeceGradingPreset}
+                    style={{
+                      padding: '0.45rem 0.9rem',
+                      borderRadius: '8px',
+                      background: '#F0FDF4',
+                      border: '1.5px solid #86EFAC',
+                      color: '#15803D',
+                      fontSize: '0.8rem',
+                      fontWeight: 800,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                      transition: 'all 0.15s ease'
+                    }}
+                    title="Import Official WAEC / GES BECE 9-Point Grading Scale (Grades 1 to 9)"
+                  >
+                    <i className="fas fa-graduation-cap" style={{ fontSize: '0.88rem' }}></i>
+                    Import BECE Scale (1 - 9)
+                  </button>
+
+                  {/* 1-Click Letter Preset Button */}
+                  <button
+                    type="button"
+                    onClick={applyLetterGradingPreset}
+                    style={{
+                      padding: '0.45rem 0.8rem',
+                      borderRadius: '8px',
+                      background: '#F8FAFC',
+                      border: '1px solid #CBD5E1',
+                      color: '#334155',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                    title="Import Standard Letter Grades (A to F)"
+                  >
+                    <i className="fas fa-font" style={{ fontSize: '0.78rem' }}></i>
+                    Letter Scale (A - F)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={addGradingRow}
+                    style={{
+                      padding: '0.45rem 0.8rem',
+                      borderRadius: '8px',
+                      background: '#EFF6FF',
+                      border: '1px solid #BFDBFE',
+                      color: '#1D4ED8',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px'
+                    }}
+                  >
+                    <i className="fas fa-plus"></i> Add Row
+                  </button>
+                </div>
               </div>
 
               <div style={{ overflowX: 'auto', marginBottom: '1.25rem' }}>

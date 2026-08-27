@@ -106,7 +106,7 @@ export const calculateTotal = (caTotal, examTotal) => {
   return Math.round((parseFloat(caTotal) || 0) + (parseFloat(examTotal) || 0));
 };
 
-export const DEFAULT_GRADING_SCALE = [
+export const BECE_GES_GRADING_SCALE = [
   { min: 80, max: 100, grade: '1', remark: 'HIGHEST' },
   { min: 70, max: 79,  grade: '2', remark: 'HIGHER' },
   { min: 60, max: 69,  grade: '3', remark: 'HIGH' },
@@ -117,6 +117,17 @@ export const DEFAULT_GRADING_SCALE = [
   { min: 30, max: 34,  grade: '8', remark: 'LOWER' },
   { min: 0,  max: 29,  grade: '9', remark: 'LOWEST' }
 ];
+
+export const LETTER_GRADING_SCALE = [
+  { min: 80, max: 100, grade: 'A', remark: 'EXCELLENT' },
+  { min: 70, max: 79,  grade: 'B', remark: 'VERY GOOD' },
+  { min: 60, max: 69,  grade: 'C', remark: 'GOOD' },
+  { min: 50, max: 59,  grade: 'D', remark: 'CREDIT' },
+  { min: 40, max: 49,  grade: 'E', remark: 'PASS' },
+  { min: 0,  max: 39,  grade: 'F', remark: 'FAIL' }
+];
+
+export const DEFAULT_GRADING_SCALE = BECE_GES_GRADING_SCALE;
 
 /**
  * Evaluates the total score against the dynamic grading scale.
