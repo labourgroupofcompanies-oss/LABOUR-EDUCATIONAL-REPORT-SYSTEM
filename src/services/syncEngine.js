@@ -739,30 +739,90 @@ const healForeignKey = async (opError, item, payload) => {
   if (!isFkErr) return opError;
 
   try {
-    if (item.table === 'report_scores' && item.operation === 'delete_insert') {
-      if (Array.isArray(payload.insertData)) {
-        const validRows = [];
-        for (const row of payload.insertData) {
-          if (row.learner_id) {
-            const { data } = await supabase.from('report_learners').select('id').eq('id', row.learner_id).maybeSingle();
-            if (data?.id) validRows.push(row);
+    if (item.table === 'report_scores') {
+      const rows = Array.isArray(payload.insertData)
+        ? payload.insertData
+        : (Array.isArray(payload) ? payload : (payload.data ? [payload.data] : [payload]));
+
+      if (rows && rows.length > 0) {
+        const subIds = [...new Set(rows.map(r => r.subject_id).filter(Boolean))];
+        const clsIds = [...new Set(rows.map(r => r.class_id).filter(Boolean))];
+
+        // 1. Ensure all referenced subjects exist in Supabase report_subjects
+        for (const sId of subIds) {
+          const { data: subRemote } = await supabase.from('report_subjects').select('id').eq('id', sId).maybeSingle();
+          if (!subRemote?.id) {
+            const localSub = await db.subjects.get(sId).catch(() => null) ||
+              await db.subjects.get(Number(sId)).catch(() => null);
+            if (localSub) {
+              console.log(`[SyncEngine] 🔄 Self-healing: Upserting missing subject ${localSub.name} (ID: ${sId}) to Supabase...`);
+              await supabase.from('report_subjects').upsert({
+                id: sId,
+                name: localSub.name,
+                school_id: localSub.schoolId || localSub.school_id || item.schoolId,
+                created_at: localSub.createdAt || new Date().toISOString()
+              });
+            }
           }
         }
+
+        // 2. Ensure all referenced classes exist in Supabase report_classes
+        for (const cId of clsIds) {
+          const { data: clsRemote } = await supabase.from('report_classes').select('id').eq('id', cId).maybeSingle();
+          if (!clsRemote?.id) {
+            const localCls = await db.classes.get(cId).catch(() => null) ||
+              await db.classes.get(Number(cId)).catch(() => null);
+            if (localCls) {
+              console.log(`[SyncEngine] 🔄 Self-healing: Upserting missing class ${localCls.name} (ID: ${cId}) to Supabase...`);
+              await supabase.from('report_classes').upsert({
+                id: cId,
+                name: localCls.name,
+                school_id: localCls.schoolId || localCls.school_id || item.schoolId,
+                created_at: localCls.createdAt || new Date().toISOString()
+              });
+            }
+          }
+        }
+
+        // 3. Filter valid rows whose parents exist
+        const validRows = [];
+        for (const row of rows) {
+          if (!row.learner_id || !row.subject_id || !row.school_id) continue;
+
+          const [{ data: lData }, { data: sData }, { data: cData }] = await Promise.all([
+            supabase.from('report_learners').select('id').eq('id', row.learner_id).maybeSingle(),
+            supabase.from('report_subjects').select('id').eq('id', row.subject_id).maybeSingle(),
+            row.class_id ? supabase.from('report_classes').select('id').eq('id', row.class_id).maybeSingle() : Promise.resolve({ data: { id: null } })
+          ]);
+
+          if (lData?.id && sData?.id && (!row.class_id || cData?.id)) {
+            validRows.push(row);
+          } else {
+            console.warn(`[SyncEngine] ⚠️ Skipping orphan score row (Learner:${lData?.id}, Subject:${sData?.id})`);
+          }
+        }
+
         if (validRows.length === 0) {
-          console.log('[SyncEngine] All score rows invalid — discarding.');
+          console.log('[SyncEngine] All score rows reference missing entities — safely discarding item to unblock sync.');
           return null;
         }
-        let delQ = supabase.from(item.table).delete();
-        Object.entries(payload.deleteFilter).forEach(([k, v]) => {
-          delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
-        });
-        await delQ;
-        const { error: retryErr } = await supabase.from(item.table).insert(validRows);
-        return retryErr || null;
+
+        if (item.operation === 'delete_insert') {
+          let delQ = supabase.from(item.table).delete();
+          Object.entries(payload.deleteFilter || {}).forEach(([k, v]) => {
+            delQ = Array.isArray(v) ? delQ.in(k, v) : delQ.eq(k, v);
+          });
+          await delQ;
+          const { error: retryErr } = await supabase.from(item.table).insert(validRows);
+          return retryErr || null;
+        } else {
+          const { error: retryErr } = await supabase.from(item.table).upsert(validRows);
+          return retryErr || null;
+        }
       }
     }
 
-    if ((item.table === 'report_scores' || item.table === 'report_summaries')) {
+    if (item.table === 'report_summaries') {
       const lId = payload.learner_id || payload.data?.learner_id;
       if (lId) {
         const { data } = await supabase.from('report_learners').select('id').eq('id', lId).maybeSingle();
