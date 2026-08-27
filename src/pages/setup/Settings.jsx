@@ -368,16 +368,13 @@ const Settings = () => {
       .sort((a, b) => Number(b.min) - Number(a.min));
 
     const finalScale = sortedScale.map((item, index) => {
-      if (item.max === '') {
-        const calculatedMax = index === 0 ? 100 : (Number(sortedScale[index - 1].min) - 1);
-        return {
-          ...item,
-          max: Math.max(0, calculatedMax)
-        };
-      }
+      const calculatedMax = item.max === ''
+        ? (index === 0 ? 100 : (Number(sortedScale[index - 1].min) - 1))
+        : Number(item.max);
       return {
         ...item,
-        max: Number(item.max)
+        min: Math.max(0, Math.min(100, Number(item.min))),
+        max: Math.max(0, Math.min(100, Number(calculatedMax)))
       };
     });
 

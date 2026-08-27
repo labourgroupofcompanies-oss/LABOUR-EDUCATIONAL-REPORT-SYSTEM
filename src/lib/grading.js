@@ -82,28 +82,31 @@ export const calculateCaTotal = (caScores = [], settings) => {
   }
 
   // Scale the final percentage to the configured caWeight
+  const maxCaWeight = Number(settings?.caWeight) || 100;
   const scaledScore = averagePercentage * (settings.caWeight / 100);
-  return Math.round(scaledScore);
+  return Math.min(maxCaWeight, Math.max(0, Math.round(scaledScore)));
 };
 
 /**
- * Scales the raw Exam Score to the configured Exam Weight.
+ * Scales the raw Exam Score to the configured Exam Weight (max bounded).
  * @param {number} examScore - Raw exam score out of 100.
  * @param {object} settings - Global settings object.
  * @returns {number}
  */
 export const calculateExamTotal = (examScore, settings) => {
   if (!settings || isNaN(parseFloat(examScore))) return 0;
-  const raw = parseFloat(examScore);
+  const maxExamWeight = Number(settings?.examWeight) || 100;
+  const raw = Math.min(100, Math.max(0, parseFloat(examScore)));
   const scaled = raw * (settings.examWeight / 100);
-  return Math.round(scaled);
+  return Math.min(maxExamWeight, Math.max(0, Math.round(scaled)));
 };
 
 /**
- * Calculates the final Total Score (CA + Exam).
+ * Calculates the final Total Score (CA + Exam), strictly clamped between 0 and 100.
  */
 export const calculateTotal = (caTotal, examTotal) => {
-  return Math.round((parseFloat(caTotal) || 0) + (parseFloat(examTotal) || 0));
+  const rawTotal = (parseFloat(caTotal) || 0) + (parseFloat(examTotal) || 0);
+  return Math.min(100, Math.max(0, Math.round(rawTotal)));
 };
 
 export const BECE_GES_GRADING_SCALE = [
@@ -131,18 +134,19 @@ export const DEFAULT_GRADING_SCALE = BECE_GES_GRADING_SCALE;
 
 /**
  * Evaluates the total score against the dynamic grading scale.
- * @param {number} total - The total score.
+ * @param {number} total - The total score (0 - 100).
  * @param {Array} gradingScale - Array of grading tiers sorted descending by min score.
  */
 export const calculateGrade = (total, gradingScale = []) => {
+  const safeTotal = Math.min(100, Math.max(0, Number(total) || 0));
   const activeScale = (Array.isArray(gradingScale) && gradingScale.length > 0) ? gradingScale : DEFAULT_GRADING_SCALE;
 
   for (const tier of activeScale) {
-    if (total >= tier.min) {
+    if (safeTotal >= Number(tier.min)) {
       return { grade: tier.grade, remark: tier.remark };
     }
   }
 
   const lowest = activeScale[activeScale.length - 1];
-  return { grade: lowest.grade, remark: lowest.remark };
+  return { grade: lowest?.grade || '9', remark: lowest?.remark || 'LOWEST' };
 };
