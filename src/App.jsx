@@ -62,6 +62,7 @@ import BlogManager from './pages/operations/BlogManager';
 import KnowledgeBase from './pages/knowledge/KnowledgeBase';
 import PrivacyPolicy from './pages/legal/PrivacyPolicy';
 import BroadcastManager from './pages/operations/BroadcastManager';
+import GesNewsWatcher from './pages/operations/GesNewsWatcher';
 
 
 const ParentProtectedRoute = ({ children }) => {
@@ -298,6 +299,7 @@ function App() {
               {/* Platform Operations Center Sub-Routes */}
               <Route path="operations" element={<OperationsLayout />}>
                 <Route index element={<OperationsDashboard />} />
+                <Route path="ges-radar" element={<GesNewsWatcher />} />
                 <Route path="broadcasts" element={<BroadcastManager />} />
                 <Route path="schools" element={<OperationsSchoolsDirectory />} />
                 <Route path="schools/:schoolId" element={<SchoolDetailView />} />
