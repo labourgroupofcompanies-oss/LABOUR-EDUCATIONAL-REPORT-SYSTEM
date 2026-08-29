@@ -8,6 +8,7 @@ const OperationsLayout = () => {
 
   const opsNavItems = [
     { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
+    { to: '/platform/operations/broadcasts', icon: 'fa-bullhorn', label: 'Broadcasts & Alerts' },
     { to: '/platform/operations/schools', icon: 'fa-school-flag', label: 'Schools', badge: categoryCounts?.schools, badgeColor: '#3B82F6' },
     { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support', badge: categoryCounts?.support, badgeColor: '#EF4444' },
     { to: '/platform/operations/subscriptions', icon: 'fa-receipt', label: 'Billing & Transactions', badge: categoryCounts?.billing, badgeColor: '#10B981' },

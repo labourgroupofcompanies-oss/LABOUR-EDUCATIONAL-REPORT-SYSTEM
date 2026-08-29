@@ -61,6 +61,7 @@ import PlatformDeveloperRegister from './pages/auth/PlatformDeveloperRegister';
 import BlogManager from './pages/operations/BlogManager';
 import KnowledgeBase from './pages/knowledge/KnowledgeBase';
 import PrivacyPolicy from './pages/legal/PrivacyPolicy';
+import BroadcastManager from './pages/operations/BroadcastManager';
 
 
 const ParentProtectedRoute = ({ children }) => {
@@ -297,6 +298,7 @@ function App() {
               {/* Platform Operations Center Sub-Routes */}
               <Route path="operations" element={<OperationsLayout />}>
                 <Route index element={<OperationsDashboard />} />
+                <Route path="broadcasts" element={<BroadcastManager />} />
                 <Route path="schools" element={<OperationsSchoolsDirectory />} />
                 <Route path="schools/:schoolId" element={<SchoolDetailView />} />
                 <Route path="support" element={<OperationsSupportCenter />} />

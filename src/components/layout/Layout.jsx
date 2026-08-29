@@ -4,6 +4,7 @@ import Header from './Header';
 import MobileNavBar from './MobileNavBar';
 import PortalGuide from '../common/PortalGuide';
 import ImpersonationBanner from '../common/ImpersonationBanner';
+import PlatformBroadcastBanner from '../common/PlatformBroadcastBanner';
 import { SchoolNotificationProvider } from '../../context/SchoolNotificationContext';
 import PortalToastContainer from '../common/PortalToastContainer';
 
@@ -25,6 +26,7 @@ const LayoutContent = ({ children, title }) => {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
       <ImpersonationBanner />
+      <PlatformBroadcastBanner />
       <PortalToastContainer />
       
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
