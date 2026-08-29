@@ -16,7 +16,8 @@ const PlatformNotificationBell = () => {
   } = usePlatformNotifications();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [activeFilter, setActiveFilter] = useState('all'); // 'all' | 'schools' | 'support' | 'billing' | 'dashboard'
+  const [activeCategory, setActiveCategory] = useState('all'); // 'all' | 'schools' | 'support' | 'billing' | 'dashboard'
+  const [showOnlyUnread, setShowOnlyUnread] = useState(true); // Default to unread so read messages vanish
   const [showTestMenu, setShowTestMenu] = useState(false);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
@@ -38,8 +39,9 @@ const PlatformNotificationBell = () => {
   }, [isOpen]);
 
   const filteredNotifications = notifications.filter(n => {
-    if (activeFilter === 'all') return true;
-    return n.category === activeFilter;
+    const matchesCategory = activeCategory === 'all' || n.category === activeCategory;
+    const matchesUnread = showOnlyUnread ? !n.isRead : true;
+    return matchesCategory && matchesUnread;
   });
 
   const formatRelativeTime = (timestamp) => {
@@ -57,6 +59,14 @@ const PlatformNotificationBell = () => {
       case 'support': return { icon: 'fa-headset', color: '#F87171', bg: 'rgba(239, 68, 68, 0.18)' };
       case 'billing': return { icon: 'fa-credit-card', color: '#34D399', bg: 'rgba(16, 185, 129, 0.18)' };
       case 'dashboard': default: return { icon: 'fa-tower-observation', color: '#FBBF24', bg: 'rgba(245, 158, 11, 0.18)' };
+    }
+  };
+
+  const handleNotificationClick = (notif) => {
+    markAsRead(notif.id);
+    if (notif.actionUrl) {
+      setIsOpen(false);
+      navigate(notif.actionUrl);
     }
   };
 
@@ -113,9 +123,9 @@ const PlatformNotificationBell = () => {
           position: 'absolute',
           top: '48px',
           right: 0,
-          width: '420px',
+          width: '430px',
           maxWidth: '92vw',
-          maxHeight: '560px',
+          maxHeight: '580px',
           background: '#0e0e12',
           border: '1px solid #27272a',
           borderRadius: '18px',
@@ -149,6 +159,25 @@ const PlatformNotificationBell = () => {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {/* Toggle Unread vs All */}
+              <button
+                type="button"
+                onClick={() => setShowOnlyUnread(prev => !prev)}
+                title={showOnlyUnread ? 'Switch to All History' : 'Switch to Unread Only'}
+                style={{
+                  background: showOnlyUnread ? '#27272a' : '#1f1f23',
+                  border: '1px solid #3f3f46',
+                  color: showOnlyUnread ? '#93C5FD' : '#71717a',
+                  padding: '0.3rem 0.6rem',
+                  borderRadius: '7px',
+                  cursor: 'pointer',
+                  fontSize: '0.72rem',
+                  fontWeight: 700
+                }}
+              >
+                {showOnlyUnread ? 'Unread' : 'All'}
+              </button>
+
               {/* Sound Toggle */}
               <button
                 type="button"
@@ -171,7 +200,7 @@ const PlatformNotificationBell = () => {
               {unreadCount > 0 && (
                 <button
                   type="button"
-                  onClick={() => markAllAsRead(activeFilter === 'all' ? null : activeFilter)}
+                  onClick={() => markAllAsRead(activeCategory === 'all' ? null : activeCategory)}
                   style={{
                     background: 'transparent',
                     border: 'none',
@@ -182,9 +211,9 @@ const PlatformNotificationBell = () => {
                     padding: '0.3rem 0.5rem',
                     borderRadius: '6px'
                   }}
-                  title="Mark current view as read"
+                  title="Mark current view as read and vanish"
                 >
-                  Mark all read
+                  Mark read
                 </button>
               )}
             </div>
@@ -210,13 +239,13 @@ const PlatformNotificationBell = () => {
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setActiveFilter(tab.id)}
+                onClick={() => setActiveCategory(tab.id)}
                 style={{
                   padding: '0.35rem 0.75rem',
                   borderRadius: '8px',
-                  border: activeFilter === tab.id ? '1px solid #2563eb' : '1px solid #27272a',
-                  background: activeFilter === tab.id ? '#2563eb' : '#18181b',
-                  color: activeFilter === tab.id ? '#FFFFFF' : '#A1A1AA',
+                  border: activeCategory === tab.id ? '1px solid #2563eb' : '1px solid #27272a',
+                  background: activeCategory === tab.id ? '#2563eb' : '#18181b',
+                  color: activeCategory === tab.id ? '#FFFFFF' : '#A1A1AA',
                   fontSize: '0.74rem',
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -229,8 +258,8 @@ const PlatformNotificationBell = () => {
                 <span>{tab.label}</span>
                 {tab.count > 0 && (
                   <span style={{
-                    background: activeFilter === tab.id ? '#FFFFFF' : '#EF4444',
-                    color: activeFilter === tab.id ? '#2563eb' : '#FFFFFF',
+                    background: activeCategory === tab.id ? '#FFFFFF' : '#EF4444',
+                    color: activeCategory === tab.id ? '#2563eb' : '#FFFFFF',
                     fontSize: '0.65rem',
                     fontWeight: 900,
                     padding: '0.05rem 0.35rem',
@@ -246,11 +275,11 @@ const PlatformNotificationBell = () => {
           {/* Notification List Container */}
           <div style={{ flex: 1, overflowY: 'auto', maxHeight: '340px' }}>
             {filteredNotifications.length === 0 ? (
-              <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: '#71717a' }}>
+              <div style={{ padding: '3.5rem 1.5rem', textAlign: 'center', color: '#71717a' }}>
                 <i className="fas fa-bell-slash" style={{ fontSize: '2.2rem', color: '#27272a', marginBottom: '0.75rem', display: 'block' }}></i>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem', color: '#D4D4D8' }}>All Caught Up!</div>
                 <div style={{ fontSize: '0.78rem', color: '#71717a', marginTop: '4px' }}>
-                  No new platform notifications in this category.
+                  {showOnlyUnread ? 'No unread notifications in this category.' : 'No notification history available.'}
                 </div>
               </div>
             ) : (
@@ -260,21 +289,21 @@ const PlatformNotificationBell = () => {
                   return (
                     <div
                       key={notif.id}
-                      onClick={() => markAsRead(notif.id)}
+                      onClick={() => handleNotificationClick(notif)}
                       style={{
                         padding: '1rem 1.25rem',
                         borderBottom: '1px solid #1f1f23',
-                        background: notif.isRead ? 'transparent' : 'rgba(37, 99, 235, 0.06)',
+                        background: notif.isRead ? 'transparent' : 'rgba(37, 99, 235, 0.07)',
                         display: 'flex',
                         gap: '12px',
                         cursor: 'pointer',
                         transition: 'background 0.15s ease',
                         position: 'relative'
                       }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'}
-                      onMouseLeave={e => e.currentTarget.style.background = notif.isRead ? 'transparent' : 'rgba(37, 99, 235, 0.06)'}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'}
+                      onMouseLeave={e => e.currentTarget.style.background = notif.isRead ? 'transparent' : 'rgba(37, 99, 235, 0.07)'}
                     >
-                      {/* Icon */}
+                      {/* Category Icon */}
                       <div style={{
                         width: '36px',
                         height: '36px',
@@ -311,9 +340,7 @@ const PlatformNotificationBell = () => {
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                markAsRead(notif.id);
-                                setIsOpen(false);
-                                navigate(notif.actionUrl);
+                                handleNotificationClick(notif);
                               }}
                               style={{
                                 background: '#1e293b',
@@ -329,7 +356,7 @@ const PlatformNotificationBell = () => {
                                 gap: '5px'
                               }}
                             >
-                              <span>{notif.actionLabel || 'View'}</span>
+                              <span>{notif.actionLabel || 'View & Open'}</span>
                               <i className="fas fa-arrow-right" style={{ fontSize: '0.65rem' }}></i>
                             </button>
                           </div>
@@ -438,7 +465,7 @@ const PlatformNotificationBell = () => {
             {filteredNotifications.length > 0 && (
               <button
                 type="button"
-                onClick={() => clearAll(activeFilter === 'all' ? null : activeFilter)}
+                onClick={() => clearAll(activeCategory === 'all' ? null : activeCategory)}
                 style={{
                   background: 'transparent',
                   border: 'none',

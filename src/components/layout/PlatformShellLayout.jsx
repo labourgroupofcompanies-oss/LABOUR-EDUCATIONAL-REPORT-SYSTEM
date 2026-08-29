@@ -1,7 +1,4 @@
-import React from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../store/AuthContext';
-import { PlatformNotificationProvider } from '../../context/PlatformNotificationContext';
+import { usePlatformNotifications } from '../../context/PlatformNotificationContext';
 import PlatformNotificationBell from '../operations/PlatformNotificationBell';
 import PlatformToastContainer from '../operations/PlatformToastContainer';
 
@@ -9,9 +6,26 @@ const PlatformShellContent = () => {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const { markAllAsRead } = usePlatformNotifications();
 
   const isDevPortal = location.pathname.startsWith('/platform/developer');
   const isOpsCenter = location.pathname.startsWith('/platform/operations');
+
+  // Automatically vanish / mark notifications as read when the Super Admin opens that specific page
+  React.useEffect(() => {
+    if (location.pathname.startsWith('/platform/operations/schools')) {
+      markAllAsRead('schools');
+    } else if (location.pathname.startsWith('/platform/operations/support')) {
+      markAllAsRead('support');
+    } else if (
+      location.pathname.startsWith('/platform/operations/subscriptions') ||
+      location.pathname.startsWith('/platform/operations/transactions')
+    ) {
+      markAllAsRead('billing');
+    } else if (location.pathname === '/platform/operations' || location.pathname === '/platform/operations/') {
+      markAllAsRead('dashboard');
+    }
+  }, [location.pathname, markAllAsRead]);
 
   return (
     <div style={{ minHeight: '100vh', background: '#09090b', color: '#FAFAFA', fontFamily: 'Inter, sans-serif', display: 'flex', flexDirection: 'column' }}>
