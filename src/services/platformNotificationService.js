@@ -146,6 +146,22 @@ class PlatformNotificationService {
     this.notifyListeners();
   }
 
+  removeNotification(id) {
+    this.notifications = this.notifications.filter(n => n.id !== id);
+    this.readIds.delete(id);
+    this.notifyListeners();
+  }
+
+  removeCategoryNotifications(category) {
+    if (!category || category === 'all') {
+      this.notifications = [];
+      this.readIds.clear();
+    } else {
+      this.notifications = this.notifications.filter(n => n.category !== category);
+    }
+    this.notifyListeners();
+  }
+
   markAllAsRead(category = null) {
     this.notifications.forEach(n => {
       if (!category || n.category === category) {
@@ -156,13 +172,7 @@ class PlatformNotificationService {
   }
 
   clearAll(category = null) {
-    if (!category) {
-      this.notifications = [];
-      this.readIds.clear();
-    } else {
-      this.notifications = this.notifications.filter(n => n.category !== category);
-    }
-    this.notifyListeners();
+    this.removeCategoryNotifications(category);
   }
 
   /**

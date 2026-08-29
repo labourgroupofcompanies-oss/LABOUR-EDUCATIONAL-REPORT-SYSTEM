@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePlatformNotifications } from '../../context/PlatformNotificationContext';
 
 const PlatformToastContainer = () => {
-  const { toasts, dismissToast, markAsRead } = usePlatformNotifications();
+  const { toasts, dismissToast, removeNotification } = usePlatformNotifications();
   const navigate = useNavigate();
 
   if (!toasts || toasts.length === 0) return null;
@@ -103,7 +103,7 @@ const PlatformToastContainer = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
                 <button
                   onClick={() => {
-                    markAsRead(toast.id);
+                    removeNotification(toast.id);
                     dismissToast(toast.id);
                     navigate(toast.actionUrl);
                   }}

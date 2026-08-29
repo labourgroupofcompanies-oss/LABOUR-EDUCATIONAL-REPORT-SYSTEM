@@ -46,6 +46,8 @@ export const PlatformNotificationProvider = ({ children }) => {
   }, [dismissToast]);
 
   const markAsRead = (id) => platformNotificationService.markAsRead(id);
+  const removeNotification = (id) => platformNotificationService.removeNotification(id);
+  const removeCategoryNotifications = (category) => platformNotificationService.removeCategoryNotifications(category);
   const markAllAsRead = (category) => platformNotificationService.markAllAsRead(category);
   const clearAll = (category) => platformNotificationService.clearAll(category);
   const addNotification = (item) => platformNotificationService.addNotification(item, soundEnabled);
@@ -102,6 +104,8 @@ export const PlatformNotificationProvider = ({ children }) => {
         unreadCount: state.unreadCount,
         categoryCounts: state.categoryCounts,
         markAsRead,
+        removeNotification,
+        removeCategoryNotifications,
         markAllAsRead,
         clearAll,
         addNotification,
