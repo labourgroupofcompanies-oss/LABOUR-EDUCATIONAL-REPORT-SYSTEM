@@ -21,20 +21,23 @@ const PrivacyPolicy = () => {
         padding: '0 2rem'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }} onClick={() => navigate('/')}>
-          <div style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: '10px',
-            background: '#2563eb',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: '#FFFFFF',
-            fontWeight: 900,
-            fontSize: '1.1rem'
-          }}>
-            L
-          </div>
+          <img
+            src="/logo.png"
+            alt="Labour Logo"
+            style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              objectFit: 'contain',
+              background: '#18181b',
+              border: '1px solid #27272a',
+              padding: '3px'
+            }}
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = '/app-icon.png';
+            }}
+          />
           <div>
             <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: '1.05rem', color: '#FFFFFF' }}>
               Labour Educational Report System

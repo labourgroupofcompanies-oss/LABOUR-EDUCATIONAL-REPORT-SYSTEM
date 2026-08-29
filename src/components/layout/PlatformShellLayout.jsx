@@ -57,21 +57,24 @@ const PlatformShellContent = () => {
         {/* Brand Logo & Platform Console Badge */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }} onClick={() => navigate('/platform/operations')}>
-            <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '11px',
-              background: '#2563eb',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'white',
-              fontSize: '1.05rem',
-              fontWeight: 900,
-              boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
-            }}>
-              P
-            </div>
+            <img
+              src="/logo.png"
+              alt="Labour Logo"
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '11px',
+                objectFit: 'contain',
+                background: '#18181b',
+                border: '1px solid #27272a',
+                padding: '3px',
+                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)'
+              }}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = '/app-icon.png';
+              }}
+            />
             <div>
               <div style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: '1rem', color: '#FFFFFF', letterSpacing: '0.01em' }}>
                 Platform Administration
