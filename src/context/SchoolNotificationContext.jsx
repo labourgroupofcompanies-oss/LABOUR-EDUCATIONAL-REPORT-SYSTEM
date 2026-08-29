@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../store/AuthContext';
 import authService from '../services/authService';
 import schoolNotificationService from '../services/schoolNotificationService';
@@ -17,14 +17,14 @@ export const SchoolNotificationProvider = ({ children }) => {
     return saved !== null ? saved === 'true' : true;
   });
 
-  const toggleSound = () => {
+  const toggleSound = useCallback(() => {
     setSoundEnabled(prev => {
       const next = !prev;
       localStorage.setItem('school_notif_sound_enabled', String(next));
       if (next) playNotificationChime();
       return next;
     });
-  };
+  }, []);
 
   const dismissToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -69,29 +69,42 @@ export const SchoolNotificationProvider = ({ children }) => {
     };
   }, [user?.role, user?.schoolId, user?.id, parent?.phone_number, dismissToast]);
 
-  const markAsRead = (id) => schoolNotificationService.markAsRead(id);
-  const removeNotification = (id) => schoolNotificationService.removeNotification(id);
-  const markAllAsRead = () => schoolNotificationService.markAllAsRead();
-  const clearAll = () => schoolNotificationService.clearAll();
-  const addNotification = (item) => schoolNotificationService.addNotification(item, soundEnabled);
+  const markAsRead = useCallback((id) => schoolNotificationService.markAsRead(id), []);
+  const removeNotification = useCallback((id) => schoolNotificationService.removeNotification(id), []);
+  const markAllAsRead = useCallback(() => schoolNotificationService.markAllAsRead(), []);
+  const clearAll = useCallback(() => schoolNotificationService.clearAll(), []);
+  const addNotification = useCallback((item) => schoolNotificationService.addNotification(item, soundEnabled), [soundEnabled]);
+
+  const value = useMemo(() => ({
+    notifications: state.notifications,
+    unreadCount: state.unreadCount,
+    unreadNotifications: state.unreadNotifications,
+    markAsRead,
+    removeNotification,
+    markAllAsRead,
+    clearAll,
+    addNotification,
+    toasts,
+    dismissToast,
+    soundEnabled,
+    toggleSound
+  }), [
+    state.notifications,
+    state.unreadCount,
+    state.unreadNotifications,
+    markAsRead,
+    removeNotification,
+    markAllAsRead,
+    clearAll,
+    addNotification,
+    toasts,
+    dismissToast,
+    soundEnabled,
+    toggleSound
+  ]);
 
   return (
-    <SchoolNotificationContext.Provider
-      value={{
-        notifications: state.notifications,
-        unreadCount: state.unreadCount,
-        unreadNotifications: state.unreadNotifications,
-        markAsRead,
-        removeNotification,
-        markAllAsRead,
-        clearAll,
-        addNotification,
-        toasts,
-        dismissToast,
-        soundEnabled,
-        toggleSound
-      }}
-    >
+    <SchoolNotificationContext.Provider value={value}>
       {children}
     </SchoolNotificationContext.Provider>
   );

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import platformNotificationService, { playNotificationChime } from '../services/platformNotificationService';
 
 const PlatformNotificationContext = createContext(null);
@@ -11,14 +11,14 @@ export const PlatformNotificationProvider = ({ children }) => {
     return saved !== null ? saved === 'true' : true;
   });
 
-  const toggleSound = () => {
+  const toggleSound = useCallback(() => {
     setSoundEnabled(prev => {
       const next = !prev;
       localStorage.setItem('platform_notif_sound_enabled', String(next));
       if (next) playNotificationChime();
       return next;
     });
-  };
+  }, []);
 
   const dismissToast = useCallback((id) => {
     setToasts(prev => prev.filter(t => t.id !== id));
@@ -45,15 +45,32 @@ export const PlatformNotificationProvider = ({ children }) => {
     };
   }, [dismissToast]);
 
-  const markAsRead = (id) => platformNotificationService.markAsRead(id);
-  const removeNotification = (id) => platformNotificationService.removeNotification(id);
-  const removeCategoryNotifications = (category) => platformNotificationService.removeCategoryNotifications(category);
-  const markAllAsRead = (category) => platformNotificationService.markAllAsRead(category);
-  const clearAll = (category) => platformNotificationService.clearAll(category);
-  const addNotification = (item) => platformNotificationService.addNotification(item, soundEnabled);
+  const markAsRead = useCallback((id) => {
+    platformNotificationService.markAsRead(id);
+  }, []);
+
+  const removeNotification = useCallback((id) => {
+    platformNotificationService.removeNotification(id);
+  }, []);
+
+  const removeCategoryNotifications = useCallback((category) => {
+    platformNotificationService.removeCategoryNotifications(category);
+  }, []);
+
+  const markAllAsRead = useCallback((category) => {
+    platformNotificationService.markAllAsRead(category);
+  }, []);
+
+  const clearAll = useCallback((category) => {
+    platformNotificationService.clearAll(category);
+  }, []);
+
+  const addNotification = useCallback((item) => {
+    return platformNotificationService.addNotification(item, soundEnabled);
+  }, [soundEnabled]);
 
   // Quick helper to simulate a notification for testing / demonstration
-  const simulateNotification = (type = 'school') => {
+  const simulateNotification = useCallback((type = 'school') => {
     const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     if (type === 'school') {
       const mockSchools = ['St. Augustine Basic School', 'Achimota Preparatory Academy', 'Presby Model JHS', 'Crown International School', 'Tema Community Model Basic'];
@@ -95,27 +112,42 @@ export const PlatformNotificationProvider = ({ children }) => {
         severity: 'info'
       });
     }
-  };
+  }, [addNotification]);
+
+  const value = useMemo(() => ({
+    notifications: state.notifications,
+    unreadCount: state.unreadCount,
+    categoryCounts: state.categoryCounts,
+    markAsRead,
+    removeNotification,
+    removeCategoryNotifications,
+    markAllAsRead,
+    clearAll,
+    addNotification,
+    simulateNotification,
+    toasts,
+    dismissToast,
+    soundEnabled,
+    toggleSound
+  }), [
+    state.notifications,
+    state.unreadCount,
+    state.categoryCounts,
+    markAsRead,
+    removeNotification,
+    removeCategoryNotifications,
+    markAllAsRead,
+    clearAll,
+    addNotification,
+    simulateNotification,
+    toasts,
+    dismissToast,
+    soundEnabled,
+    toggleSound
+  ]);
 
   return (
-    <PlatformNotificationContext.Provider
-      value={{
-        notifications: state.notifications,
-        unreadCount: state.unreadCount,
-        categoryCounts: state.categoryCounts,
-        markAsRead,
-        removeNotification,
-        removeCategoryNotifications,
-        markAllAsRead,
-        clearAll,
-        addNotification,
-        simulateNotification,
-        toasts,
-        dismissToast,
-        soundEnabled,
-        toggleSound
-      }}
-    >
+    <PlatformNotificationContext.Provider value={value}>
       {children}
     </PlatformNotificationContext.Provider>
   );

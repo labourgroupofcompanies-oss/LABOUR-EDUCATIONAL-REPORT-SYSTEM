@@ -16,18 +16,22 @@ const PlatformShellContent = () => {
 
   // Automatically vanish / mark notifications as read when the Super Admin opens that specific page
   useEffect(() => {
-    if (location.pathname.startsWith('/platform/operations/schools')) {
-      markAllAsRead('schools');
-    } else if (location.pathname.startsWith('/platform/operations/support')) {
-      markAllAsRead('support');
-    } else if (
-      location.pathname.startsWith('/platform/operations/subscriptions') ||
-      location.pathname.startsWith('/platform/operations/transactions')
-    ) {
-      markAllAsRead('billing');
-    } else if (location.pathname === '/platform/operations' || location.pathname === '/platform/operations/') {
-      markAllAsRead('dashboard');
-    }
+    const timer = setTimeout(() => {
+      if (location.pathname.startsWith('/platform/operations/schools')) {
+        markAllAsRead('schools');
+      } else if (location.pathname.startsWith('/platform/operations/support')) {
+        markAllAsRead('support');
+      } else if (
+        location.pathname.startsWith('/platform/operations/subscriptions') ||
+        location.pathname.startsWith('/platform/operations/transactions')
+      ) {
+        markAllAsRead('billing');
+      } else if (location.pathname === '/platform/operations' || location.pathname === '/platform/operations/') {
+        markAllAsRead('dashboard');
+      }
+    }, 50);
+
+    return () => clearTimeout(timer);
   }, [location.pathname, markAllAsRead]);
 
   return (
