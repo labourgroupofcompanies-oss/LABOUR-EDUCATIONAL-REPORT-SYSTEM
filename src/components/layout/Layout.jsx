@@ -4,8 +4,10 @@ import Header from './Header';
 import MobileNavBar from './MobileNavBar';
 import PortalGuide from '../common/PortalGuide';
 import ImpersonationBanner from '../common/ImpersonationBanner';
+import { SchoolNotificationProvider } from '../../context/SchoolNotificationContext';
+import PortalToastContainer from '../common/PortalToastContainer';
 
-const Layout = ({ children, title }) => {
+const LayoutContent = ({ children, title }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Close sidebar when resizing to desktop
@@ -23,6 +25,8 @@ const Layout = ({ children, title }) => {
   return (
     <div style={{ display: 'flex', minHeight: '100vh', flexDirection: 'column' }}>
       <ImpersonationBanner />
+      <PortalToastContainer />
+      
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         {/* Mobile Overlay */}
         <div
@@ -54,6 +58,16 @@ const Layout = ({ children, title }) => {
       {/* Mobile Native App Bottom Navigation Bar */}
       <MobileNavBar />
     </div>
+  );
+};
+
+const Layout = ({ children, title }) => {
+  return (
+    <SchoolNotificationProvider>
+      <LayoutContent title={title}>
+        {children}
+      </LayoutContent>
+    </SchoolNotificationProvider>
   );
 };
 

@@ -6,6 +6,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import subscriptionService from '../../services/subscriptionService';
 import TopUpWalletModal from '../subscription/TopUpWalletModal';
+import PortalNotificationBell from '../common/PortalNotificationBell';
 
 const Header = ({ title, onMenuClick }) => {
   const { user, logout } = useAuth();
@@ -387,6 +388,9 @@ const Header = ({ title, onMenuClick }) => {
           <i className="fas fa-compass" style={{ fontSize: '0.8rem', color: '#2563eb' }}></i>
           <span className="header-guide-text">Guide</span>
         </button>
+
+        {/* Real-time Portal Notifications for Headteachers and Teachers */}
+        <PortalNotificationBell />
 
         {/* Dedicated Sign Out / Logout Button (Icon Only) */}
         <button
