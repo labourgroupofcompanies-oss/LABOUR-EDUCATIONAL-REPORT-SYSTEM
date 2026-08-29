@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 
 const NOTIFICATIONS_STORAGE_KEY = 'platform_super_admin_notifications';
 const READ_IDS_STORAGE_KEY = 'platform_super_admin_read_notification_ids';
+const DISMISSED_IDS_STORAGE_KEY = 'platform_super_admin_dismissed_notification_ids';
 
 // Web Audio synthesizer for pleasant notification chime
 export const playNotificationChime = () => {
@@ -47,6 +48,7 @@ class PlatformNotificationService {
     this.listeners = new Set();
     this.notifications = this.loadStoredNotifications();
     this.readIds = this.loadReadIds();
+    this.dismissedIds = this.loadDismissedIds();
     this.realtimeChannels = [];
     this.isInitialized = false;
   }
@@ -69,10 +71,20 @@ class PlatformNotificationService {
     }
   }
 
+  loadDismissedIds() {
+    try {
+      const stored = localStorage.getItem(DISMISSED_IDS_STORAGE_KEY);
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch (e) {
+      return new Set();
+    }
+  }
+
   saveNotifications() {
     try {
       localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(this.notifications.slice(0, 100)));
       localStorage.setItem(READ_IDS_STORAGE_KEY, JSON.stringify(Array.from(this.readIds)));
+      localStorage.setItem(DISMISSED_IDS_STORAGE_KEY, JSON.stringify(Array.from(this.dismissedIds)));
     } catch (e) {}
   }
 
@@ -89,10 +101,12 @@ class PlatformNotificationService {
   }
 
   getNotificationsState() {
-    const list = this.notifications.map(n => ({
-      ...n,
-      isRead: this.readIds.has(n.id)
-    }));
+    const list = this.notifications
+      .filter(n => !this.dismissedIds.has(n.id))
+      .map(n => ({
+        ...n,
+        isRead: this.readIds.has(n.id)
+      }));
 
     const unread = list.filter(n => !n.isRead);
 
@@ -111,8 +125,12 @@ class PlatformNotificationService {
     };
   }
 
-  addNotification(item, triggerChime = true) {
+  addNotification(item, triggerChime = true, isNewLiveEvent = true) {
     const id = item.id || `notif_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    
+    // If the user already dismissed this notification, ignore it
+    if (this.dismissedIds.has(id)) return null;
+
     const notification = {
       id,
       title: item.title || 'Platform Notification',
@@ -122,22 +140,27 @@ class PlatformNotificationService {
       actionUrl: item.actionUrl || null,
       actionLabel: item.actionLabel || 'View Details',
       meta: item.meta || {},
-      severity: item.severity || 'info' // 'info' | 'success' | 'warning' | 'urgent'
+      severity: item.severity || 'info'
     };
 
-    // Avoid duplicate notifications with same title/school within 10 seconds
+    // If it's a historical past record loaded on refresh, mark it as read so it doesn't alert as new
+    if (!isNewLiveEvent && !this.readIds.has(id)) {
+      this.readIds.add(id);
+    }
+
+    // Avoid duplicate notifications with same title/school within 15 seconds
     const isDuplicate = this.notifications.some(
-      n => n.title === notification.title && Math.abs(new Date(n.timestamp) - new Date(notification.timestamp)) < 10000
+      n => n.title === notification.title && Math.abs(new Date(n.timestamp) - new Date(notification.timestamp)) < 15000
     );
-    if (isDuplicate) return;
+    if (isDuplicate) return null;
 
     this.notifications = [notification, ...this.notifications.filter(n => n.id !== id)].slice(0, 100);
     
-    if (triggerChime) {
+    if (triggerChime && isNewLiveEvent) {
       playNotificationChime();
     }
 
-    this.notifyListeners(notification);
+    this.notifyListeners(isNewLiveEvent ? notification : null);
     return notification;
   }
 
@@ -147,6 +170,7 @@ class PlatformNotificationService {
   }
 
   removeNotification(id) {
+    this.dismissedIds.add(id);
     this.notifications = this.notifications.filter(n => n.id !== id);
     this.readIds.delete(id);
     this.notifyListeners();
@@ -154,9 +178,13 @@ class PlatformNotificationService {
 
   removeCategoryNotifications(category) {
     if (!category || category === 'all') {
+      this.notifications.forEach(n => this.dismissedIds.add(n.id));
       this.notifications = [];
       this.readIds.clear();
     } else {
+      this.notifications
+        .filter(n => n.category === category)
+        .forEach(n => this.dismissedIds.add(n.id));
       this.notifications = this.notifications.filter(n => n.category !== category);
     }
     this.notifyListeners();
@@ -176,112 +204,44 @@ class PlatformNotificationService {
   }
 
   /**
-   * Seed initial recent notifications from Supabase on start
+   * Fetch initial recent notifications from Supabase on first run, marked as read history
    */
   async fetchInitialData() {
     try {
-      // 1. Fetch recent new schools
-      const { data: recentSchools } = await supabase
-        .from('report_schools')
-        .select('id, name, district, region, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5);
+      // If we already have stored notifications in localStorage, don't re-seed
+      const alreadySeeded = localStorage.getItem('platform_initial_seed_completed');
 
-      if (Array.isArray(recentSchools)) {
-        recentSchools.forEach(s => {
-          const id = `school_${s.id}`;
-          if (!this.notifications.some(n => n.id === id)) {
-            this.notifications.push({
-              id,
-              title: '🏫 New School Registered',
-              message: `${s.name || 'New School'} has joined the platform (${s.district || s.region || 'Ghana'}).`,
-              category: 'schools',
-              timestamp: s.created_at || new Date().toISOString(),
-              actionUrl: `/platform/operations/schools/${s.id}`,
-              actionLabel: 'Inspect School',
-              severity: 'success'
-            });
-          }
-        });
+      if (!alreadySeeded) {
+        // 1. Fetch recent new schools
+        const { data: recentSchools } = await supabase
+          .from('report_schools')
+          .select('id, name, district, region, created_at')
+          .order('created_at', { ascending: false })
+          .limit(3);
+
+        if (Array.isArray(recentSchools)) {
+          recentSchools.forEach(s => {
+            const id = `school_${s.id}`;
+            if (!this.dismissedIds.has(id)) {
+              this.readIds.add(id); // Mark as read historical record
+              this.notifications.push({
+                id,
+                title: '🏫 Registered School Profile',
+                message: `${s.name || 'School'} on platform (${s.district || s.region || 'Ghana'}).`,
+                category: 'schools',
+                timestamp: s.created_at || new Date().toISOString(),
+                actionUrl: `/platform/operations/schools/${s.id}`,
+                actionLabel: 'Inspect School',
+                severity: 'info'
+              });
+            }
+          });
+        }
+
+        localStorage.setItem('platform_initial_seed_completed', 'true');
       }
 
-      // 2. Fetch recent support tickets
-      const { data: recentTickets } = await supabase
-        .from('platform_support_tickets')
-        .select('id, school_name, title, priority, status, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (Array.isArray(recentTickets)) {
-        recentTickets.forEach(t => {
-          const id = `ticket_${t.id}`;
-          if (!this.notifications.some(n => n.id === id)) {
-            this.notifications.push({
-              id,
-              title: `🎧 Support Ticket: ${t.title || 'Inquiry'}`,
-              message: `${t.school_name ? `From ${t.school_name}: ` : ''}Priority: ${t.priority.toUpperCase()} · Status: ${t.status}`,
-              category: 'support',
-              timestamp: t.created_at || new Date().toISOString(),
-              actionUrl: '/platform/operations/support',
-              actionLabel: 'Open Support',
-              severity: t.priority === 'urgent' || t.priority === 'high' ? 'urgent' : 'info'
-            });
-          }
-        });
-      }
-
-      // 3. Fetch recent payments & wallet transactions
-      const { data: recentTx } = await supabase
-        .from('wallet_transactions')
-        .select('id, school_id, amount, description, type, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (Array.isArray(recentTx)) {
-        recentTx.forEach(tx => {
-          const id = `tx_${tx.id}`;
-          if (!this.notifications.some(n => n.id === id)) {
-            this.notifications.push({
-              id,
-              title: `💳 New Transaction: GHS ${(Number(tx.amount) || 0).toFixed(2)}`,
-              message: `${tx.description || tx.type || 'Wallet Deposit'} recorded for school.`,
-              category: 'billing',
-              timestamp: tx.created_at || new Date().toISOString(),
-              actionUrl: '/platform/operations/subscriptions',
-              actionLabel: 'View Billing',
-              severity: 'success'
-            });
-          }
-        });
-      }
-
-      // 4. Fetch recent timeline events
-      const { data: recentEvents } = await supabase
-        .from('platform_school_timeline_events')
-        .select('id, school_id, title, description, event_type, created_at')
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      if (Array.isArray(recentEvents)) {
-        recentEvents.forEach(ev => {
-          const id = `event_${ev.id}`;
-          if (!this.notifications.some(n => n.id === id)) {
-            this.notifications.push({
-              id,
-              title: `⚡ System Change: ${ev.title}`,
-              message: ev.description || `Event logged in operations audit.`,
-              category: 'dashboard',
-              timestamp: ev.created_at || new Date().toISOString(),
-              actionUrl: '/platform/operations',
-              actionLabel: 'View Dashboard',
-              severity: 'info'
-            });
-          }
-        });
-      }
-
-      // Sort all descending by timestamp
-      this.notifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      this.saveNotifications();
       this.notifyListeners();
     } catch (err) {
       console.warn('[PlatformNotificationService] Error fetching initial data:', err);
@@ -289,7 +249,7 @@ class PlatformNotificationService {
   }
 
   /**
-   * Initialize Supabase Realtime Channels
+   * Initialize Supabase Realtime Channels for Live Events Only
    */
   initRealtime() {
     if (this.isInitialized) return;
@@ -307,13 +267,14 @@ class PlatformNotificationService {
           (payload) => {
             const s = payload.new;
             this.addNotification({
+              id: `school_live_${s.id}_${Date.now()}`,
               title: '🏫 New School Joined!',
               message: `${s.name || 'New School'} has just registered on the platform.`,
               category: 'schools',
               actionUrl: `/platform/operations/schools/${s.id}`,
               actionLabel: 'Inspect School',
               severity: 'success'
-            });
+            }, true, true);
           }
         )
         .on(
@@ -322,13 +283,14 @@ class PlatformNotificationService {
           (payload) => {
             const s = payload.new;
             this.addNotification({
+              id: `school_update_${s.id}_${Date.now()}`,
               title: '🏫 School Profile Updated',
               message: `Configuration or term status changed for ${s.name || 'a school'}.`,
               category: 'schools',
               actionUrl: `/platform/operations/schools/${s.id}`,
               actionLabel: 'View School',
               severity: 'info'
-            });
+            }, true, true);
           }
         )
         .subscribe();
@@ -342,13 +304,14 @@ class PlatformNotificationService {
           (payload) => {
             const t = payload.new;
             this.addNotification({
+              id: `ticket_live_${t.id}`,
               title: '🎧 New Support Ticket Submitted',
               message: `${t.school_name ? `[${t.school_name}] ` : ''}${t.title || 'New inquiry'}. Priority: ${(t.priority || 'Medium').toUpperCase()}`,
               category: 'support',
               actionUrl: '/platform/operations/support',
               actionLabel: 'Respond to Ticket',
               severity: t.priority === 'urgent' || t.priority === 'high' ? 'urgent' : 'warning'
-            });
+            }, true, true);
           }
         )
         .subscribe();
@@ -362,13 +325,14 @@ class PlatformNotificationService {
           (payload) => {
             const tx = payload.new;
             this.addNotification({
+              id: `tx_live_${tx.id}`,
               title: '💳 New Payment / Top-up Received',
               message: `Amount: GHS ${(Number(tx.amount) || 0).toFixed(2)} (${tx.type || 'Deposit'})`,
               category: 'billing',
               actionUrl: '/platform/operations/subscriptions',
               actionLabel: 'Review Transactions',
               severity: 'success'
-            });
+            }, true, true);
           }
         )
         .subscribe();
@@ -382,13 +346,14 @@ class PlatformNotificationService {
           (payload) => {
             const ev = payload.new;
             this.addNotification({
+              id: `event_live_${ev.id}`,
               title: `⚡ Dashboard Update: ${ev.title}`,
               message: ev.description || 'A critical platform event or intervention was recorded.',
               category: 'dashboard',
               actionUrl: '/platform/operations',
               actionLabel: 'View Dashboard',
               severity: 'info'
-            });
+            }, true, true);
           }
         )
         .subscribe();

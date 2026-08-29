@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase';
 import { playNotificationChime } from './platformNotificationService';
 
 const SCHOOL_NOTIF_STORAGE_PREFIX = 'labour_edu_notifications_';
+const SCHOOL_NOTIF_READ_PREFIX = 'labour_edu_read_notifs_';
+const SCHOOL_NOTIF_DISMISSED_PREFIX = 'labour_edu_dismissed_notifs_';
 
 /**
  * Service to manage real-time notifications for Headteachers, Teachers, and Parents
@@ -13,12 +15,22 @@ class SchoolNotificationService {
     this.currentRole = null; // 'headteacher' | 'teacher' | 'parent'
     this.currentContextId = null; // schoolId for staff, phoneNumber for parents
     this.notifications = [];
+    this.readIds = new Set();
+    this.dismissedIds = new Set();
     this.realtimeChannels = [];
     this.isInitialized = false;
   }
 
   getStorageKey() {
     return `${SCHOOL_NOTIF_STORAGE_PREFIX}${this.currentRole || 'guest'}_${this.currentContextId || 'default'}`;
+  }
+
+  getReadKey() {
+    return `${SCHOOL_NOTIF_READ_PREFIX}${this.currentRole || 'guest'}_${this.currentContextId || 'default'}`;
+  }
+
+  getDismissedKey() {
+    return `${SCHOOL_NOTIF_DISMISSED_PREFIX}${this.currentRole || 'guest'}_${this.currentContextId || 'default'}`;
   }
 
   loadStoredNotifications() {
@@ -30,9 +42,29 @@ class SchoolNotificationService {
     }
   }
 
+  loadReadIds() {
+    try {
+      const stored = localStorage.getItem(this.getReadKey());
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch (e) {
+      return new Set();
+    }
+  }
+
+  loadDismissedIds() {
+    try {
+      const stored = localStorage.getItem(this.getDismissedKey());
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch (e) {
+      return new Set();
+    }
+  }
+
   saveNotifications() {
     try {
       localStorage.setItem(this.getStorageKey(), JSON.stringify(this.notifications.slice(0, 50)));
+      localStorage.setItem(this.getReadKey(), JSON.stringify(Array.from(this.readIds)));
+      localStorage.setItem(this.getDismissedKey(), JSON.stringify(Array.from(this.dismissedIds)));
     } catch (e) {}
   }
 
@@ -45,6 +77,8 @@ class SchoolNotificationService {
     this.currentRole = role;
     this.currentContextId = contextId;
     this.notifications = this.loadStoredNotifications();
+    this.readIds = this.loadReadIds();
+    this.dismissedIds = this.loadDismissedIds();
     this.isInitialized = true;
 
     this.fetchInitialRoleData(role, contextId, userId);
@@ -65,125 +99,124 @@ class SchoolNotificationService {
   }
 
   getState() {
-    const unread = this.notifications.filter(n => !n.isRead);
+    const list = this.notifications
+      .filter(n => !this.dismissedIds.has(n.id))
+      .map(n => ({
+        ...n,
+        isRead: this.readIds.has(n.id) || n.isRead
+      }));
+
+    const unread = list.filter(n => !n.isRead);
+
     return {
-      notifications: this.notifications,
+      notifications: list,
       unreadCount: unread.length,
       unreadNotifications: unread
     };
   }
 
-  addNotification(item, triggerChime = true) {
+  addNotification(item, triggerChime = true, isNewLiveEvent = true) {
     const id = item.id || `s_notif_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    
+    // Ignore dismissed items
+    if (this.dismissedIds.has(id)) return null;
+
     const notification = {
       id,
       title: item.title || 'Notification',
       message: item.message || '',
-      category: item.category || 'general', // 'scores' | 'admissions' | 'finance' | 'reports' | 'general'
+      category: item.category || 'general',
       timestamp: item.timestamp || new Date().toISOString(),
       actionUrl: item.actionUrl || null,
       actionLabel: item.actionLabel || 'View',
-      severity: item.severity || 'info', // 'info' | 'success' | 'warning' | 'urgent'
-      isRead: false
+      severity: item.severity || 'info',
+      isRead: !isNewLiveEvent
     };
 
-    // Avoid exact duplicate within 15 seconds
+    // If historical, mark read
+    if (!isNewLiveEvent && !this.readIds.has(id)) {
+      this.readIds.add(id);
+    }
+
+    // Avoid duplicate within 15 seconds
     const isDuplicate = this.notifications.some(
       n => n.title === notification.title && Math.abs(new Date(n.timestamp) - new Date(notification.timestamp)) < 15000
     );
-    if (isDuplicate) return;
+    if (isDuplicate) return null;
 
     this.notifications = [notification, ...this.notifications.filter(n => n.id !== id)].slice(0, 50);
 
-    if (triggerChime) {
+    if (triggerChime && isNewLiveEvent) {
       playNotificationChime();
     }
 
-    this.notifyListeners(notification);
+    this.notifyListeners(isNewLiveEvent ? notification : null);
     return notification;
   }
 
   removeNotification(id) {
+    this.dismissedIds.add(id);
     this.notifications = this.notifications.filter(n => n.id !== id);
+    this.readIds.delete(id);
     this.notifyListeners();
   }
 
   markAsRead(id) {
+    this.readIds.add(id);
     this.notifications = this.notifications.map(n => n.id === id ? { ...n, isRead: true } : n);
     this.notifyListeners();
   }
 
   markAllAsRead() {
+    this.notifications.forEach(n => this.readIds.add(n.id));
     this.notifications = this.notifications.map(n => ({ ...n, isRead: true }));
     this.notifyListeners();
   }
 
   clearAll() {
+    this.notifications.forEach(n => this.dismissedIds.add(n.id));
     this.notifications = [];
+    this.readIds.clear();
     this.notifyListeners();
   }
 
   /**
-   * Fetch initial notifications based on role
+   * Fetch initial notifications on first boot (marked as read historical baseline)
    */
   async fetchInitialRoleData(role, contextId, userId) {
     if (!contextId) return;
 
     try {
+      const seedKey = `labour_edu_seed_done_${role}_${contextId}`;
+      const alreadySeeded = localStorage.getItem(seedKey);
+      if (alreadySeeded) return;
+
       if (role === 'headteacher') {
-        // Fetch recent score submissions from teachers
         const recentScores = await db.scores
           .where('schoolId')
           .equals(contextId)
           .reverse()
-          .limit(5)
+          .limit(1)
           .toArray();
 
         if (recentScores && recentScores.length > 0) {
-          const sample = recentScores[0];
           const id = `score_recent_${contextId}`;
-          if (!this.notifications.some(n => n.id === id)) {
+          if (!this.dismissedIds.has(id)) {
+            this.readIds.add(id);
             this.notifications.push({
               id,
               title: '📝 Teacher Score Entry Active',
               message: `Class assessment & exam marks are being synchronized.`,
               category: 'scores',
               timestamp: new Date().toISOString(),
-              actionUrl: '/score-entry',
+              actionUrl: '/scores',
               actionLabel: 'View Scores',
               severity: 'info',
               isRead: true
             });
           }
         }
-
-        // Fetch recent learners registered
-        const recentLearners = await db.learners
-          .where('schoolId')
-          .equals(contextId)
-          .reverse()
-          .limit(3)
-          .toArray();
-
-        if (recentLearners && recentLearners.length > 0) {
-          const lastLearner = recentLearners[0];
-          const id = `learner_${lastLearner.id || lastLearner.supabaseId}`;
-          if (!this.notifications.some(n => n.id === id)) {
-            this.notifications.push({
-              id,
-              title: '🎒 Active Class Roster',
-              message: `Learners enrolled for the current academic term.`,
-              category: 'admissions',
-              timestamp: new Date().toISOString(),
-              actionUrl: '/learners',
-              actionLabel: 'View Learners',
-              severity: 'success',
-              isRead: true
-            });
-          }
-        }
       } else if (role === 'teacher') {
-        // Teacher assigned classes reminder
         const assignments = await db.teacherAssignments
           .where('teacherId')
           .equals(userId || contextId)
@@ -191,14 +224,15 @@ class SchoolNotificationService {
 
         if (assignments && assignments.length > 0) {
           const id = `assignment_notice_${userId}`;
-          if (!this.notifications.some(n => n.id === id)) {
+          if (!this.dismissedIds.has(id)) {
+            this.readIds.add(id);
             this.notifications.push({
               id,
-              title: '📚 Assigned Classes & Subjects Ready',
+              title: '📚 Assigned Classes Ready',
               message: `You are assigned to ${assignments.length} class subject module(s).`,
               category: 'scores',
               timestamp: new Date().toISOString(),
-              actionUrl: '/score-entry',
+              actionUrl: '/scores',
               actionLabel: 'Enter Scores',
               severity: 'info',
               isRead: true
@@ -206,9 +240,9 @@ class SchoolNotificationService {
           }
         }
       } else if (role === 'parent') {
-        // Parent terminal report notices
         const id = `parent_portal_ready_${contextId}`;
-        if (!this.notifications.some(n => n.id === id)) {
+        if (!this.dismissedIds.has(id)) {
+          this.readIds.add(id);
           this.notifications.push({
             id,
             title: '🎓 Parent Portal Connected',
@@ -223,6 +257,8 @@ class SchoolNotificationService {
         }
       }
 
+      localStorage.setItem(seedKey, 'true');
+      this.saveNotifications();
       this.notifyListeners();
     } catch (e) {
       console.warn('[SchoolNotificationService] Error loading role data:', e);
@@ -245,13 +281,14 @@ class SchoolNotificationService {
             { event: 'INSERT', schema: 'public', table: 'report_scores', filter: `school_id=eq.${contextId}` },
             (payload) => {
               this.addNotification({
+                id: `score_live_${Date.now()}`,
                 title: '📝 New Scores Submitted by Teacher',
                 message: `Assessment records updated for student marks.`,
                 category: 'scores',
-                actionUrl: '/score-entry',
+                actionUrl: '/scores',
                 actionLabel: 'Inspect Broadsheet',
                 severity: 'info'
-              });
+              }, true, true);
             }
           )
           .subscribe();
@@ -265,13 +302,14 @@ class SchoolNotificationService {
             (payload) => {
               const tx = payload.new;
               this.addNotification({
+                id: `wallet_live_${tx?.id || Date.now()}`,
                 title: '💳 Wallet Deposit Confirmed',
                 message: `GHS ${(Number(tx?.amount) || 0).toFixed(2)} credited via Mobile Money / Paystack.`,
                 category: 'finance',
                 actionUrl: '/financials',
                 actionLabel: 'View Wallet',
                 severity: 'success'
-              });
+              }, true, true);
             }
           )
           .subscribe();
@@ -279,7 +317,6 @@ class SchoolNotificationService {
         this.realtimeChannels.push(scoreChannel, walletChannel);
 
       } else if (role === 'teacher') {
-        // Listen for new assignments from Headteacher
         const assignChannel = supabase
           .channel(`teacher_assignments_${userId || contextId}`)
           .on(
@@ -287,13 +324,14 @@ class SchoolNotificationService {
             { event: 'INSERT', schema: 'public', table: 'report_teacher_assignments', filter: `teacher_id=eq.${userId || contextId}` },
             (payload) => {
               this.addNotification({
+                id: `assign_live_${Date.now()}`,
                 title: '🎯 New Class/Subject Assigned!',
                 message: `The Headteacher has updated your teaching assignments.`,
                 category: 'scores',
-                actionUrl: '/score-entry',
+                actionUrl: '/scores',
                 actionLabel: 'Open Score Entry',
                 severity: 'success'
-              });
+              }, true, true);
             }
           )
           .subscribe();
@@ -301,7 +339,6 @@ class SchoolNotificationService {
         this.realtimeChannels.push(assignChannel);
 
       } else if (role === 'parent') {
-        // Listen for report card releases
         const reportChannel = supabase
           .channel(`parent_reports_${contextId}`)
           .on(
@@ -310,13 +347,14 @@ class SchoolNotificationService {
             (payload) => {
               if (payload.new && payload.new.reports_released) {
                 this.addNotification({
+                  id: `report_rel_${Date.now()}`,
                   title: '🎉 Terminal Report Cards Released!',
                   message: `The Headteacher has released the official terminal report cards.`,
                   category: 'reports',
                   actionUrl: '/parent/dashboard',
                   actionLabel: 'View Report Card',
                   severity: 'success'
-                });
+                }, true, true);
               }
             }
           )
