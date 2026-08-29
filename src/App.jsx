@@ -270,6 +270,11 @@ function App() {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
 
+            {/* Public Educational Blog, Circulars & User Guides */}
+            <Route path="/blog" element={<KnowledgeBase />} />
+            <Route path="/blog/:slug" element={<KnowledgeBase />} />
+            <Route path="/guides" element={<KnowledgeBase />} />
+
             {/* Platform Console Shell (Super Admin Only) */}
             <Route 
               path="/platform" 

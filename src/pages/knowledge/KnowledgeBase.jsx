@@ -1092,6 +1092,74 @@ const KnowledgeBase = () => {
                       {selectedPost.summary}
                     </div>
                   )}
+
+                  {/* WhatsApp Headline Direct Share Bar */}
+                  <div style={{
+                    marginTop: '1.15rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '10px',
+                    padding: '0.75rem 1rem',
+                    borderRadius: '10px',
+                    background: '#F8FAFC',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <i className="fas fa-share-nodes" style={{ color: '#2563eb' }}></i>
+                      <span>Share Official Headline:</span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <a
+                        href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`${selectedPost.title}\n\n${window.location.origin}/blog/${selectedPost.slug || selectedPost.id}`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          background: '#25D366',
+                          color: '#FFFFFF',
+                          padding: '0.4rem 0.85rem',
+                          borderRadius: '8px',
+                          textDecoration: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 800,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 2px 6px rgba(37, 211, 102, 0.25)'
+                        }}
+                      >
+                        <i className="fab fa-whatsapp" style={{ fontSize: '0.95rem' }}></i>
+                        <span>Share on WhatsApp</span>
+                      </a>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const textToCopy = `${selectedPost.title}\n\n${window.location.origin}/blog/${selectedPost.slug || selectedPost.id}`;
+                          navigator.clipboard.writeText(textToCopy);
+                          alert('Headline & article link copied to clipboard!');
+                        }}
+                        style={{
+                          background: '#FFFFFF',
+                          color: '#0F172A',
+                          border: '1px solid #CBD5E1',
+                          padding: '0.4rem 0.75rem',
+                          borderRadius: '8px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px'
+                        }}
+                      >
+                        <i className="fas fa-copy"></i>
+                        <span>Copy Link</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Article Body */}

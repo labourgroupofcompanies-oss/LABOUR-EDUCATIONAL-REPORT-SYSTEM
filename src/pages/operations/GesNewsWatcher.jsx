@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import gesNewsWatcherService, { MONITORED_SOURCES } from '../../services/gesNewsWatcherService';
 import broadcastService from '../../services/broadcastService';
+import blogService from '../../services/blogService';
 
 const GesNewsWatcher = () => {
   const navigate = useNavigate();
@@ -43,17 +44,78 @@ const GesNewsWatcher = () => {
   const handleConvertToBroadcast = (item) => {
     setBroadcastModalItem({
       title: item.title,
-      content: `${item.summary}\n\nSource: ${item.sourceName} (${item.sourceUrl})`,
+      content: `${item.summary}\n\nOfficial Source: ${item.sourceName}`,
       targetAudience: item.targetAudience || 'all',
       severity: item.urgency === 'urgent' ? 'urgent' : item.urgency === 'high' ? 'warning' : 'info',
-      actionUrl: item.sourceUrl.startsWith('http') ? '/' : item.sourceUrl,
-      actionLabel: 'Read Directive'
+      actionUrl: item.sourceUrl, // Deep-link to specific notice page
+      actionLabel: 'Read Official Notice',
+      originalItem: item,
+      mode: 'broadcast_only'
+    });
+  };
+
+  const handleConvertToBlogAndBroadcast = async (item) => {
+    // Generate clean, formatted blog content with direct official deep link
+    const cleanTitle = item.title.replace(/^[^\w\s]+/, '').trim();
+    const blogSlug = `ges-directive-${cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '').slice(0, 50)}-${Date.now().toString().slice(-4)}`;
+    
+    const blogMarkdownContent = `# ${cleanTitle}
+
+## Executive Summary
+${item.summary}
+
+## Key Takeaways for Ghanaian Basic Schools
+- **For Headteachers:** Verify class assessment records and broadsheets in your school dashboard to ensure compliance with this directive.
+- **For Subject Teachers:** Ensure all continuous assessment scores and terminal exam marks are recorded and synchronized before deadlines.
+- **For Parents & Guardians:** You can view terminal report cards, continuous assessment updates, and fee summaries directly on the Labour Edu Parent Portal.
+
+---
+
+## 🏛️ Official Verification & Reference Document
+This simplified guide is published by the **Labour Edu Editorial Team** to assist schools in understanding national curriculum directives. 
+
+For the complete official document, statutory tables, and signed government circulars, please inspect the original official page:
+
+👉 **[View Original Directive on ${item.sourceName} (Direct Official Page)](${item.sourceUrl})**
+`;
+
+    setBroadcastModalItem({
+      title: item.title,
+      content: `A simple breakdown of the latest directive from ${item.sourceName} has been published on the Labour Edu Blog.`,
+      targetAudience: item.targetAudience || 'all',
+      severity: item.urgency === 'urgent' ? 'urgent' : item.urgency === 'high' ? 'warning' : 'info',
+      actionUrl: '/manuals', // Direct readers to Blog & Manuals
+      actionLabel: 'Read Blog Guide',
+      originalItem: item,
+      blogPayload: {
+        title: cleanTitle,
+        slug: blogSlug,
+        category: 'GES Directives & Policy',
+        target_role: item.targetAudience === 'teacher' ? 'Teachers' : item.targetAudience === 'headteacher' ? 'Headteachers' : 'All Schools & Parents',
+        featured_badge: 'Official Policy Guide',
+        read_time: '2 min read',
+        author: 'Labour Edu Editorial Desk',
+        summary: item.summary,
+        content: blogMarkdownContent,
+        is_published: true
+      },
+      mode: 'blog_and_broadcast'
     });
   };
 
   const handleDispatchPreparedBroadcast = async () => {
     if (!broadcastModalItem) return;
     try {
+      // If blog mode is enabled, publish the blog post first!
+      if (broadcastModalItem.mode === 'blog_and_broadcast' && broadcastModalItem.blogPayload) {
+        try {
+          await blogService.createPost(broadcastModalItem.blogPayload);
+        } catch (blogErr) {
+          console.warn('[GesNewsWatcher] Blog post auto-create note:', blogErr);
+        }
+      }
+
+      // Then dispatch the broadcast announcement across all schools
       await broadcastService.createBroadcast({
         title: broadcastModalItem.title,
         content: broadcastModalItem.content,
@@ -65,7 +127,11 @@ const GesNewsWatcher = () => {
         actionLabel: broadcastModalItem.actionLabel
       });
 
-      setDispatchSuccess(`Broadcast dispatched to all ${broadcastModalItem.targetAudience === 'all' ? 'schools & portals' : broadcastModalItem.targetAudience + 's'}!`);
+      const msg = broadcastModalItem.mode === 'blog_and_broadcast'
+        ? `Blog guide published & broadcast dispatched across all ${broadcastModalItem.targetAudience === 'all' ? 'portals' : broadcastModalItem.targetAudience + 's'}!`
+        : `Broadcast dispatched with direct official link!`;
+
+      setDispatchSuccess(msg);
       setBroadcastModalItem(null);
       setTimeout(() => setDispatchSuccess(''), 5000);
     } catch (e) {
@@ -365,12 +431,12 @@ const GesNewsWatcher = () => {
                       <span>Read Original Notice on {source.shortName || 'Official Website'}</span>
                     </a>
 
-                    {/* Quick 1-Click Convert to Broadcast Action */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {/* Action Buttons */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <button
-                        onClick={() => handleConvertToBroadcast(item)}
+                        onClick={() => handleConvertToBlogAndBroadcast(item)}
                         style={{
-                          background: '#09090b',
+                          background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                           color: '#FFFFFF',
                           border: 'none',
                           padding: '0.45rem 0.95rem',
@@ -381,11 +447,33 @@ const GesNewsWatcher = () => {
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '6px',
-                          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                          boxShadow: '0 2px 10px rgba(37, 99, 235, 0.25)'
                         }}
+                        title="Draft a simplified blog article on Labour Edu and broadcast it to schools"
+                      >
+                        <i className="fas fa-pen-nib"></i>
+                        <span>+ Convert to Blog Guide &amp; Broadcast</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleConvertToBroadcast(item)}
+                        style={{
+                          background: '#18181b',
+                          color: '#FFFFFF',
+                          border: '1px solid #27272a',
+                          padding: '0.45rem 0.85rem',
+                          borderRadius: '8px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                        title="Broadcast notice with direct official link"
                       >
                         <i className="fas fa-bullhorn" style={{ color: '#F59E0B' }}></i>
-                        <span>+ Convert into School Broadcast</span>
+                        <span>Quick Broadcast</span>
                       </button>
                     </div>
                   </div>
