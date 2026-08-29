@@ -232,6 +232,115 @@ const OperationsDashboard = () => {
               </div>
             )}
           </div>
+          {/* Live Platform Activity & Notification Stream */}
+          <div style={{
+            background: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)',
+            borderRadius: '18px',
+            border: '1px solid #27272a',
+            padding: '1.6rem',
+            color: '#FFFFFF',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.2)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.15rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFFFFF', fontSize: '0.9rem' }}>
+                  <i className="fas fa-tower-broadcast"></i>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontFamily: 'Outfit, sans-serif', fontSize: '1.15rem', color: '#FFFFFF', fontWeight: 800 }}>
+                    Live Platform Alerts &amp; Activity Stream
+                  </h3>
+                  <div style={{ fontSize: '0.72rem', color: '#A1A1AA', marginTop: '2px' }}>
+                    Real-time notifications for school registrations, support tickets, billing events, and telemetry updates.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => navigate('/platform/operations/support')}
+                  style={{ background: '#27272a', border: '1px solid #3f3f46', color: '#E4E4E7', padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  <i className="fas fa-headset" style={{ marginRight: '6px', color: '#F87171' }}></i>
+                  Support Hub
+                </button>
+                <button
+                  onClick={() => navigate('/platform/operations/subscriptions')}
+                  style={{ background: '#27272a', border: '1px solid #3f3f46', color: '#E4E4E7', padding: '0.4rem 0.85rem', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  <i className="fas fa-receipt" style={{ marginRight: '6px', color: '#34D399' }}></i>
+                  Billing Hub
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Live Alerts Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.9rem' }}>
+              <div
+                onClick={() => navigate('/platform/operations/schools')}
+                style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1rem', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#60A5FA', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <i className="fas fa-school-flag" style={{ marginRight: '5px' }}></i> Schools Alert
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: '#10B981', background: 'rgba(16, 185, 129, 0.15)', padding: '0.1rem 0.45rem', borderRadius: '999px', fontWeight: 800 }}>LIVE</span>
+                </div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FAFAFA' }}>
+                  {metrics?.totalSchools ?? 0} Schools Connected
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#A1A1AA', marginTop: '3px' }}>
+                  Click to inspect new school onboarding &amp; credentials.
+                </div>
+              </div>
+
+              <div
+                onClick={() => navigate('/platform/operations/support')}
+                style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1rem', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#F87171', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <i className="fas fa-headset" style={{ marginRight: '5px' }}></i> Support Tickets
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: metrics?.openTickets > 0 ? '#F59E0B' : '#10B981', background: metrics?.openTickets > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)', padding: '0.1rem 0.45rem', borderRadius: '999px', fontWeight: 800 }}>
+                    {metrics?.openTickets ?? 0} OPEN
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FAFAFA' }}>
+                  {metrics?.openTickets > 0 ? `${metrics.openTickets} tickets awaiting response` : 'No urgent support requests'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#A1A1AA', marginTop: '3px' }}>
+                  Click to open Support &amp; Remote Interventions Hub.
+                </div>
+              </div>
+
+              <div
+                onClick={() => navigate('/platform/operations/subscriptions')}
+                style={{ background: 'rgba(255, 255, 255, 0.04)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: '12px', padding: '1rem', cursor: 'pointer', transition: 'all 0.2s ease' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'}
+                onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)'}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+                  <span style={{ fontSize: '0.72rem', color: '#34D399', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <i className="fas fa-credit-card" style={{ marginRight: '5px' }}></i> Billing &amp; Subscriptions
+                  </span>
+                  <span style={{ fontSize: '0.68rem', color: '#34D399', background: 'rgba(52, 211, 153, 0.15)', padding: '0.1rem 0.45rem', borderRadius: '999px', fontWeight: 800 }}>
+                    {metrics?.activeSubscriptions ?? 0} ACTIVE
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#FAFAFA' }}>
+                  {metrics?.trialSubscriptions ?? 0} Onboarding Trials · MoMo Ready
+                </div>
+                <div style={{ fontSize: '0.75rem', color: '#A1A1AA', marginTop: '3px' }}>
+                  Click to review Paystack &amp; Mobile Money deposits.
+                </div>
+              </div>
+            </div>
+          </div>
         </>
       )}
     </div>

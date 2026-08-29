@@ -1,8 +1,11 @@
 import React from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
+import { PlatformNotificationProvider } from '../../context/PlatformNotificationContext';
+import PlatformNotificationBell from '../operations/PlatformNotificationBell';
+import PlatformToastContainer from '../operations/PlatformToastContainer';
 
-const PlatformShellLayout = () => {
+const PlatformShellContent = () => {
   const { user } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
@@ -12,6 +15,9 @@ const PlatformShellLayout = () => {
 
   return (
     <div style={{ minHeight: '100vh', background: '#09090b', color: '#FAFAFA', fontFamily: 'Inter, sans-serif', display: 'flex', flexDirection: 'column' }}>
+      {/* Live Floating Toast Container */}
+      <PlatformToastContainer />
+
       {/* Topmost Platform Header */}
       <header style={{
         height: '58px',
@@ -101,11 +107,15 @@ const PlatformShellLayout = () => {
           </div>
         </div>
 
-        {/* User Badge & Exit */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+        {/* Notification Bell, User Badge & Exit */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Real-time Notification Bell */}
+          <PlatformNotificationBell />
+
           <span style={{ fontSize: '0.78rem', color: '#71717a', background: '#18181b', border: '1px solid #27272a', padding: '0.3rem 0.75rem', borderRadius: '8px', fontWeight: 600 }}>
             Super Admin: <strong style={{ color: '#FAFAFA' }}>{user?.email || 'admin@laboureducation.com'}</strong>
           </span>
+
           <button
             onClick={() => navigate('/')}
             style={{
@@ -134,6 +144,14 @@ const PlatformShellLayout = () => {
         <Outlet />
       </div>
     </div>
+  );
+};
+
+const PlatformShellLayout = () => {
+  return (
+    <PlatformNotificationProvider>
+      <PlatformShellContent />
+    </PlatformNotificationProvider>
   );
 };
 

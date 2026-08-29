@@ -1,14 +1,16 @@
 import React from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { usePlatformNotifications } from '../../context/PlatformNotificationContext';
 
 const OperationsLayout = () => {
   const location = useLocation();
+  const { categoryCounts } = usePlatformNotifications();
 
   const opsNavItems = [
-    { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', end: true },
-    { to: '/platform/operations/schools', icon: 'fa-school-flag', label: 'Schools' },
-    { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support' },
-    { to: '/platform/operations/subscriptions', icon: 'fa-receipt', label: 'Billing & Transactions' },
+    { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
+    { to: '/platform/operations/schools', icon: 'fa-school-flag', label: 'Schools', badge: categoryCounts?.schools, badgeColor: '#3B82F6' },
+    { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support', badge: categoryCounts?.support, badgeColor: '#EF4444' },
+    { to: '/platform/operations/subscriptions', icon: 'fa-receipt', label: 'Billing & Transactions', badge: categoryCounts?.billing, badgeColor: '#10B981' },
     { to: '/platform/operations/referrals', icon: 'fa-gift', label: 'Referrals & Rewards' },
     { to: '/platform/operations/calendar', icon: 'fa-calendar-alt', label: 'Academic Calendar' },
     { to: '/platform/operations/blog', icon: 'fa-newspaper', label: 'Blog & Manuals' },
@@ -57,7 +59,7 @@ const OperationsLayout = () => {
                   style={({ isActive }) => ({
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '12px',
+                    justifyContent: 'space-between',
                     padding: '0.7rem 0.9rem',
                     borderRadius: '10px',
                     color: isActive ? '#FFFFFF' : '#A1A1AA',
@@ -71,8 +73,26 @@ const OperationsLayout = () => {
                 >
                   {({ isActive }) => (
                     <>
-                      <i className={`fas ${item.icon}`} style={{ width: '18px', textAlign: 'center', color: isActive ? '#FFFFFF' : '#71717a' }}></i>
-                      <span>{item.label}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <i className={`fas ${item.icon}`} style={{ width: '18px', textAlign: 'center', color: isActive ? '#FFFFFF' : '#71717a' }}></i>
+                        <span>{item.label}</span>
+                      </div>
+
+                      {/* Dynamic Notification Badge */}
+                      {item.badge > 0 && (
+                        <span style={{
+                          background: isActive ? '#FFFFFF' : (item.badgeColor || '#EF4444'),
+                          color: isActive ? '#2563eb' : '#FFFFFF',
+                          fontSize: '0.7rem',
+                          fontWeight: 900,
+                          padding: '0.1rem 0.45rem',
+                          borderRadius: '999px',
+                          lineHeight: 1,
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+                        }}>
+                          {item.badge}
+                        </span>
+                      )}
                     </>
                   )}
                 </NavLink>

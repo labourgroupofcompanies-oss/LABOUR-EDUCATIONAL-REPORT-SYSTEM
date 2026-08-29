@@ -693,9 +693,13 @@ const Login = () => {
 
         </div>
 
-        {/* Footer Text Below Login Page */}
-        <div style={{ marginTop: '1.25rem', textAlign: 'center', fontSize: '0.78rem', color: '#A1A1AA', fontWeight: 600 }}>
-          &copy; 2026 Labour Edu System &bull; Ghana Basic
+        {/* Footer Text & Privacy Policy Link */}
+        <div style={{ marginTop: '1.25rem', textAlign: 'center', fontSize: '0.76rem', color: '#A1A1AA', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span>&copy; 2026 Labour Group of Companies</span>
+          <span>&bull;</span>
+          <Link to="/privacy-policy" style={{ color: '#2563eb', textDecoration: 'none', fontWeight: 700 }}>
+            Privacy Policy &amp; Terms
+          </Link>
         </div>
 
       </div>

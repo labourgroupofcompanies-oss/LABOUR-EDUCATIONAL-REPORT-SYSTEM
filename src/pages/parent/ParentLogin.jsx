@@ -480,6 +480,11 @@ const ParentLogin = () => {
           </form>
         )}
 
+        <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+          <span>&copy; 2026 Labour Group of Companies</span>
+          <span>&bull;</span>
+          <a href="/privacy-policy" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}>Privacy Policy</a>
+        </div>
       </div>
     </div>
   );

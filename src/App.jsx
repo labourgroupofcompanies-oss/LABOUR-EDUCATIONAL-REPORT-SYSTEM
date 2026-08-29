@@ -60,6 +60,7 @@ import ReferralManagementDashboard from './pages/developer/ReferralManagementDas
 import PlatformDeveloperRegister from './pages/auth/PlatformDeveloperRegister';
 import BlogManager from './pages/operations/BlogManager';
 import KnowledgeBase from './pages/knowledge/KnowledgeBase';
+import PrivacyPolicy from './pages/legal/PrivacyPolicy';
 
 
 const ParentProtectedRoute = ({ children }) => {
@@ -262,6 +263,10 @@ function App() {
 
             {/* Public Receipt Verification Route */}
             <Route path="/verify-receipt/:receiptNumber" element={<PublicReceiptVerification />} />
+
+            {/* Public Privacy Policy & Legal Terms */}
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/privacy" element={<PrivacyPolicy />} />
 
             {/* Platform Console Shell (Super Admin Only) */}
             <Route 
