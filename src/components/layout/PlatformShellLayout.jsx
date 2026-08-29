@@ -17,7 +17,9 @@ const PlatformShellContent = () => {
   // Automatically vanish / mark notifications as read when the Super Admin opens that specific page
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (location.pathname.startsWith('/platform/operations/schools')) {
+      if (location.pathname.startsWith('/platform/operations/ges-radar')) {
+        markAllAsRead('radar');
+      } else if (location.pathname.startsWith('/platform/operations/schools')) {
         markAllAsRead('schools');
       } else if (location.pathname.startsWith('/platform/operations/support')) {
         markAllAsRead('support');

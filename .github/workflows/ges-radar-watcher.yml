@@ -1,0 +1,31 @@
+name: GES & Education 24/7 Radar Watcher
+
+on:
+  schedule:
+    # Runs every 2 hours, 24/7/365
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+    # Allows manual trigger at any time from GitHub Actions tab
+
+jobs:
+  scan-educational-circulars:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Autonomous Education Radar Scan
+        run: node scripts/ges_cloud_watcher.js
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://iomlghdphvovxwqfqwgs.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.VITE_SUPABASE_ANON_KEY }}

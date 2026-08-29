@@ -112,6 +112,7 @@ class PlatformNotificationService {
 
     const categoryCounts = {
       all: unread.length,
+      radar: unread.filter(n => n.category === 'radar').length,
       schools: unread.filter(n => n.category === 'schools').length,
       support: unread.filter(n => n.category === 'support').length,
       billing: unread.filter(n => n.category === 'billing').length,

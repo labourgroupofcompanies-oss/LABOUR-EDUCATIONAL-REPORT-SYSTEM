@@ -8,7 +8,7 @@ const OperationsLayout = () => {
 
   const opsNavItems = [
     { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
-    { to: '/platform/operations/ges-radar', icon: 'fa-satellite-dish', label: 'GES & Education Radar' },
+    { to: '/platform/operations/ges-radar', icon: 'fa-satellite-dish', label: 'GES & Education Radar', badge: categoryCounts?.radar, badgeColor: '#0891B2' },
     { to: '/platform/operations/broadcasts', icon: 'fa-bullhorn', label: 'Broadcasts & Alerts' },
     { to: '/platform/operations/schools', icon: 'fa-school-flag', label: 'Schools', badge: categoryCounts?.schools, badgeColor: '#3B82F6' },
     { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support', badge: categoryCounts?.support, badgeColor: '#EF4444' },

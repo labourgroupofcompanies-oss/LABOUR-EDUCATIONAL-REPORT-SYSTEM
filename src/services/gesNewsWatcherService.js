@@ -1,3 +1,4 @@
+import { supabase } from '../lib/supabase';
 import platformNotificationService from './platformNotificationService';
 
 const GES_WATCHER_STORAGE_KEY = 'labour_edu_ges_radar_news';
@@ -64,10 +65,20 @@ export const MONITORED_SOURCES = [
     category: 'Breaking Education Circulars',
     badgeColor: '#0891B2',
     icon: 'fa-newspaper'
+  },
+  {
+    id: 'ghanaeducationnews',
+    name: 'GhanaEducationNews.org',
+    shortName: 'GhanaEducationNews',
+    url: 'https://ghanaeducationnews.org',
+    feedUrl: 'https://ghanaeducationnews.org/feed',
+    category: 'Educational Policy & Updates',
+    badgeColor: '#E11D48',
+    icon: 'fa-bullhorn'
   }
 ];
 
-// Baseline verified intelligence circulars tailored for Ghanaian Basic Schools
+// Baseline curated intelligence circulars tailored for Ghanaian Basic Schools
 const INITIAL_CURATED_FEED = [
   {
     id: 'ges_intel_2026_01',
@@ -153,6 +164,8 @@ class GesNewsWatcherService {
   constructor() {
     this.newsItems = this.loadStoredNews();
     this.readIds = this.loadReadIds();
+    this.isRealtimeInit = false;
+    this.initRealtimeCloudSync();
   }
 
   loadStoredNews() {
@@ -212,55 +225,104 @@ class GesNewsWatcherService {
   }
 
   /**
+   * Connect to Supabase table and Realtime channels for 24/7 cloud discoveries
+   */
+  async initRealtimeCloudSync() {
+    if (this.isRealtimeInit) return;
+    this.isRealtimeInit = true;
+
+    // 1. Fetch any cloud-discovered articles from Supabase
+    if (navigator.onLine) {
+      try {
+        const { data, error } = await supabase
+          .from('platform_ges_radar_news')
+          .select('*')
+          .order('published_date', { ascending: false })
+          .limit(30);
+
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const remoteItems = data.map(d => ({
+            id: d.id,
+            sourceId: d.source_id || 'ges',
+            sourceName: d.source_name || 'Ghana Education Service (GES)',
+            title: d.title,
+            summary: d.summary,
+            publishedDate: d.published_date || d.created_at,
+            sourceUrl: d.source_url || 'https://ges.gov.gh',
+            category: d.category || 'General Directives',
+            urgency: d.urgency || 'high',
+            targetAudience: d.target_audience || 'all',
+            isBreaking: d.is_breaking ?? false
+          }));
+
+          // Merge without losing local items
+          const existingIds = new Set(this.newsItems.map(n => n.id));
+          const newOnes = remoteItems.filter(r => !existingIds.has(r.id));
+          if (newOnes.length > 0) {
+            this.newsItems = [...newOnes, ...this.newsItems];
+            this.save();
+          }
+        }
+      } catch (err) {
+        // Supabase table may be creating
+      }
+
+      // 2. Realtime listener for incoming crawler discoveries
+      try {
+        supabase
+          .channel('platform_ges_radar_news_realtime')
+          .on(
+            'postgres_changes',
+            { event: 'INSERT', schema: 'public', table: 'platform_ges_radar_news' },
+            (payload) => {
+              const d = payload.new;
+              const newItem = {
+                id: d.id,
+                sourceId: d.source_id || 'ges',
+                sourceName: d.source_name || 'Ghana Education Service (GES)',
+                title: d.title,
+                summary: d.summary,
+                publishedDate: d.published_date || d.created_at,
+                sourceUrl: d.source_url || 'https://ges.gov.gh',
+                category: d.category || 'General Directives',
+                urgency: d.urgency || 'high',
+                targetAudience: d.target_audience || 'all',
+                isBreaking: d.is_breaking ?? false
+              };
+
+              if (!this.newsItems.some(n => n.id === newItem.id)) {
+                this.newsItems = [newItem, ...this.newsItems];
+                this.save();
+
+                // Alert Super Admin with chime
+                platformNotificationService.addNotification({
+                  title: '📡 Live GES Directive Detected by 24/7 Cloud Watcher',
+                  message: `${newItem.title} - ready to convert into a school broadcast.`,
+                  category: 'radar',
+                  actionUrl: '/platform/operations/ges-radar',
+                  actionLabel: 'Inspect Circular',
+                  severity: newItem.urgency === 'urgent' ? 'urgent' : 'warning'
+                }, true, true);
+              }
+            }
+          )
+          .subscribe();
+      } catch (e) {}
+    }
+  }
+
+  /**
    * Scans all monitored Ghanaian Education websites
    */
   async scanAllSources() {
     const scanTimestamp = new Date().toISOString();
     localStorage.setItem(LAST_SCAN_KEY, scanTimestamp);
 
-    // In a browser environment, direct cross-origin scraping is blocked by CORS.
-    // We simulate live feed polling from our curated real-time intelligence network,
-    // plus checking online availability.
-    let newItemsCount = 0;
-
-    // Simulate potential new breaking circular if online
-    if (navigator.onLine) {
-      const randomSeed = Math.random();
-      if (randomSeed > 0.6 && !this.newsItems.some(n => n.id === 'live_ges_scan_latest')) {
-        const liveCircular = {
-          id: 'live_ges_scan_latest',
-          sourceId: 'ges',
-          sourceName: 'Ghana Education Service (GES)',
-          title: '🚨 GES Management Circular: Broadsheet Verification & Term Progress Audits',
-          summary: 'District Education Directorates and Circuit Supervisors are requested to support Basic School Headteachers in finalizing and locking terminal student performance records.',
-          publishedDate: new Date().toISOString(),
-          sourceUrl: 'https://ges.gov.gh',
-          category: 'Supervision & Quality Assurance',
-          urgency: 'urgent',
-          targetAudience: 'headteacher',
-          isBreaking: true
-        };
-
-        this.newsItems = [liveCircular, ...this.newsItems];
-        newItemsCount++;
-
-        // Trigger Super Admin Platform Notification Chime & Alert
-        platformNotificationService.addNotification({
-          title: '📡 New GES Directive Detected by Radar',
-          message: `${liveCircular.title} - ready to convert into a school broadcast.`,
-          category: 'dashboard',
-          actionUrl: '/platform/operations/ges-radar',
-          actionLabel: 'Inspect Circular',
-          severity: 'urgent'
-        }, true, true);
-      }
-    }
-
-    this.save();
+    await this.initRealtimeCloudSync();
     return {
       totalSources: MONITORED_SOURCES.length,
       scannedAt: scanTimestamp,
-      newItemsFound: newItemsCount,
+      newItemsFound: 0,
       items: this.getNews()
     };
   }
