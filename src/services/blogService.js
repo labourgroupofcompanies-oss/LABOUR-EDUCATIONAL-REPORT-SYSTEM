@@ -91,7 +91,14 @@ const blogService = {
         try {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.filter(m => !deletedIds.has(String(m.id)));
+            const updated = parsed.map(item => {
+              if (isOfflineId(item.id)) {
+                const fresh = DEFAULT_OFFLINE_MANUALS.find(m => String(m.id) === String(item.id) || m.slug === item.slug);
+                return fresh || item;
+              }
+              return item;
+            });
+            return updated.filter(m => !deletedIds.has(String(m.id)));
           }
         } catch (e) {
           console.warn('[blogService] Failed to parse cached manuals:', e);
@@ -107,7 +114,14 @@ const blogService = {
         try {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            return parsed.filter(m => !deletedIds.has(String(m.id)));
+            const updated = parsed.map(item => {
+              if (isOfflineId(item.id)) {
+                const fresh = DEFAULT_OFFLINE_MANUALS.find(m => String(m.id) === String(item.id) || m.slug === item.slug);
+                return fresh || item;
+              }
+              return item;
+            });
+            return updated.filter(m => !deletedIds.has(String(m.id)));
           }
         } catch (e) {}
       }

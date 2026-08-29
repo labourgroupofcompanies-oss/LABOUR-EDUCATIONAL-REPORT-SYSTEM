@@ -143,7 +143,7 @@ const BlogManager = () => {
     }));
   };
 
-  // Insert formatting markdown
+  // Insert formatting
   const insertFormatting = (prefix, suffix = '') => {
     const textarea = document.getElementById('content-textarea');
     if (!textarea) return;
@@ -164,7 +164,7 @@ const BlogManager = () => {
 
   // Insert step template
   const insertStepTemplate = () => {
-    const stepTemplate = `\n### Step Title\n1. First action step here...\n2. Second action step here...\n3. Third action step here...\n`;
+    const stepTemplate = `\n1. First action step here...\n2. Second action step here...\n3. Third action step here...\n`;
     setFormData(prev => ({ ...prev, content: prev.content + stepTemplate }));
   };
 
@@ -221,46 +221,123 @@ const BlogManager = () => {
     }
   };
 
-  // Live markdown renderer helper
+  // Helper to format inline text cleanly without raw markdown symbols (*, **, #, etc.)
+  const formatInlineText = (text) => {
+    if (!text) return '';
+    const clean = text
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/^>\s*/, '');
+
+    const parts = [];
+    const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3/g;
+    let lastIndex = 0;
+    let match;
+    let key = 0;
+
+    while ((match = regex.exec(clean)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(clean.substring(lastIndex, match.index).replace(/[*#]/g, ''));
+      }
+      if (match[2] !== undefined) {
+        parts.push(
+          <strong key={key++} style={{ fontWeight: 700, color: 'inherit' }}>
+            {match[2].replace(/[*#_]/g, '')}
+          </strong>
+        );
+      } else if (match[4] !== undefined) {
+        parts.push(
+          <span key={key++} style={{ fontStyle: 'italic' }}>
+            {match[4].replace(/[*#_]/g, '')}
+          </span>
+        );
+      }
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < clean.length) {
+      parts.push(clean.substring(lastIndex).replace(/[*#]/g, ''));
+    }
+
+    return parts.length > 0 ? parts : clean.replace(/[*#]/g, '');
+  };
+
+  // Live content renderer helper
   const renderMarkdown = (text) => {
     if (!text) return <p style={{ color: '#71717a' }}>No content yet...</p>;
     
     const lines = text.split('\n');
     return (
       <div style={{ lineHeight: '1.7', color: '#18181b', fontSize: '0.95rem' }}>
-        {lines.map((line, idx) => {
-          if (line.startsWith('## ')) {
-            return <h2 key={idx} style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: '1.25rem', marginBottom: '0.5rem', color: '#09090b', borderBottom: '1px solid #E4E4E7', paddingBottom: '0.3rem' }}>{line.replace('## ', '')}</h2>;
+        {lines.map((rawLine, idx) => {
+          const line = rawLine.trim();
+
+          // Headings with # or ## or ###
+          if (/^#{1,2}\s+/.test(line)) {
+            const headingText = line.replace(/^#{1,2}\s+/, '');
+            return (
+              <h2 key={idx} style={{ fontSize: '1.35rem', fontWeight: 800, marginTop: '1.25rem', marginBottom: '0.5rem', color: '#09090b', borderBottom: '1px solid #E4E4E7', paddingBottom: '0.3rem' }}>
+                {formatInlineText(headingText)}
+              </h2>
+            );
           }
-          if (line.startsWith('### ')) {
-            return <h3 key={idx} style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '1rem', marginBottom: '0.4rem', color: '#18181b' }}>{line.replace('### ', '')}</h3>;
+          if (/^#{3,6}\s+/.test(line)) {
+            const headingText = line.replace(/^#{3,6}\s+/, '');
+            return (
+              <h3 key={idx} style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '1rem', marginBottom: '0.4rem', color: '#18181b' }}>
+                {formatInlineText(headingText)}
+              </h3>
+            );
           }
-          if (line.startsWith('#### ')) {
-            return <h4 key={idx} style={{ fontSize: '1rem', fontWeight: 700, marginTop: '0.8rem', marginBottom: '0.3rem', color: '#27272a' }}>{line.replace('#### ', '')}</h4>;
-          }
-          if (line.startsWith('---')) {
+
+          // Horizontal divider
+          if (line === '---' || line === '***' || line === '___') {
             return <hr key={idx} style={{ border: 'none', borderTop: '1px solid #E4E4E7', margin: '1rem 0' }} />;
           }
-          if (/^\d+\.\s/.test(line)) {
+
+          // Numbered steps: e.g. "1. Open...", "Step 1: Open...", "Step 1. Open..."
+          if (/^(?:Step\s+)?\d+[\.:\)]\s+/i.test(line)) {
+            const match = line.match(/^(?:Step\s+)?(\d+)[\.:\)]\s*(.*)/i);
+            const num = match ? match[1] : '1';
+            const content = match ? match[2] : line;
             return (
-              <div key={idx} style={{ paddingLeft: '1.25rem', marginBottom: '0.35rem', position: 'relative' }}>
-                <span style={{ fontWeight: 700, color: '#2563eb', marginRight: '6px' }}>{line.match(/^\d+\./)[0]}</span>
-                <span>{line.replace(/^\d+\.\s*/, '')}</span>
+              <div key={idx} style={{ paddingLeft: '0.5rem', marginBottom: '0.45rem', display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+                <span style={{ fontWeight: 800, color: '#2563eb', background: '#EFF6FF', padding: '0.1rem 0.45rem', borderRadius: '6px', fontSize: '0.78rem', marginTop: '2px', border: '1px solid #DBEAFE' }}>
+                  {num}
+                </span>
+                <span style={{ flex: 1 }}>{formatInlineText(content)}</span>
               </div>
             );
           }
-          if (line.startsWith('* ') || line.startsWith('- ')) {
+
+          // Bullet items: "- ", "* ", "• "
+          if (/^(\*|-|•)\s+/.test(line)) {
+            const content = line.replace(/^(\*|-|•)\s+/, '');
             return (
-              <div key={idx} style={{ paddingLeft: '1.25rem', marginBottom: '0.35rem', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+              <div key={idx} style={{ paddingLeft: '0.75rem', marginBottom: '0.35rem', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
                 <span style={{ color: '#2563eb', fontSize: '0.8rem' }}>●</span>
-                <span>{line.replace(/^(\*|-)\s*/, '')}</span>
+                <span style={{ flex: 1 }}>{formatInlineText(content)}</span>
               </div>
             );
           }
-          if (!line.trim()) {
+
+          // Callout boxes: "> ...", "Note: ...", "Tip: ...", "Important: ..."
+          if (/^>\s+/.test(line) || /^(Note|Tip|Important|Warning):\s*/i.test(line)) {
+            const content = line.replace(/^>\s*/, '');
+            return (
+              <div key={idx} style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: '10px', padding: '0.75rem 1rem', margin: '0.75rem 0', color: '#1E40AF', fontSize: '0.88rem', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+                <i className="fas fa-circle-info" style={{ marginTop: '3px', flexShrink: 0 }}></i>
+                <div>{formatInlineText(content)}</div>
+              </div>
+            );
+          }
+
+          // Empty line spacing
+          if (!line) {
             return <div key={idx} style={{ height: '0.6rem' }} />;
           }
-          return <p key={idx} style={{ margin: '0 0 0.5rem 0' }}>{line}</p>;
+
+          // Standard paragraph
+          return <p key={idx} style={{ margin: '0 0 0.5rem 0' }}>{formatInlineText(line)}</p>;
         })}
       </div>
     );
@@ -1226,32 +1303,33 @@ const BlogManager = () => {
 
                   {activeTab === 'write' ? (
                     <div>
-                      {/* Markdown Toolbar */}
+                      {/* Content Formatting Toolbar */}
                       <div style={{
                         display: 'flex',
                         flexWrap: 'wrap',
-                        gap: '4px',
-                        padding: '0.4rem 0.6rem',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '0.45rem 0.65rem',
                         background: '#F4F4F5',
                         borderTopLeftRadius: '10px',
                         borderTopRightRadius: '10px',
                         border: '1px solid #E4E4E7',
                         borderBottom: 'none'
                       }}>
-                        <button type="button" onClick={() => insertFormatting('### ')} title="Heading 3" style={{ padding: '0.25rem 0.5rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}>H3</button>
-                        <button type="button" onClick={() => insertFormatting('**', '**')} title="Bold" style={{ padding: '0.25rem 0.5rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-bold"></i></button>
-                        <button type="button" onClick={() => insertFormatting('*', '*')} title="Italic" style={{ padding: '0.25rem 0.5rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-italic"></i></button>
-                        <button type="button" onClick={() => insertFormatting('\n1. ')} title="Numbered List" style={{ padding: '0.25rem 0.5rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-list-ol"></i></button>
-                        <button type="button" onClick={() => insertFormatting('\n* ')} title="Bullet List" style={{ padding: '0.25rem 0.5rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-list-ul"></i></button>
-                        <button type="button" onClick={() => insertFormatting('\n---\n')} title="Divider" style={{ padding: '0.25rem 0.5rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-minus"></i></button>
-                        <button type="button" onClick={insertStepTemplate} title="Insert Step Template" style={{ padding: '0.25rem 0.6rem', background: '#EFF6FF', color: '#2563eb', border: '1px solid #BFDBFE', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}>+ Insert Steps</button>
+                        <button type="button" onClick={() => insertFormatting('\nSection Heading\n')} title="Insert Section Title" style={{ padding: '0.25rem 0.55rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}>Heading</button>
+                        <button type="button" onClick={() => insertFormatting('**', '**')} title="Bold Text" style={{ padding: '0.25rem 0.55rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-bold"></i></button>
+                        <button type="button" onClick={() => insertFormatting('*', '*')} title="Italic Text" style={{ padding: '0.25rem 0.55rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-italic"></i></button>
+                        <button type="button" onClick={() => insertFormatting('\n1. ')} title="Numbered Step" style={{ padding: '0.25rem 0.55rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-list-ol"></i> Step</button>
+                        <button type="button" onClick={() => insertFormatting('\n- ')} title="Bullet Point" style={{ padding: '0.25rem 0.55rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-list-ul"></i> Bullet</button>
+                        <button type="button" onClick={() => insertFormatting('\nNote: ')} title="Note Box" style={{ padding: '0.25rem 0.55rem', background: '#FFFFFF', border: '1px solid #D4D4D8', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}><i className="fas fa-circle-info"></i> Note</button>
+                        <button type="button" onClick={insertStepTemplate} title="Insert Step-by-Step Template" style={{ padding: '0.25rem 0.65rem', background: '#EFF6FF', color: '#2563eb', border: '1px solid #BFDBFE', borderRadius: '5px', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer' }}>+ Add Steps</button>
                       </div>
 
                       <textarea
                         id="content-textarea"
                         rows={12}
                         required
-                        placeholder="Write your step-by-step manual or blog content using standard markdown..."
+                        placeholder="Write your step-by-step manual or guide cleanly. Use numbers (1., 2.) for action steps, dashes (- ) for lists, or Note: for important reminders..."
                         value={formData.content}
                         onChange={e => setFormData({ ...formData, content: e.target.value })}
                         style={{

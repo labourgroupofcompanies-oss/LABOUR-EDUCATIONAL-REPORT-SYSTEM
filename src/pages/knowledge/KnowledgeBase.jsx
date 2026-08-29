@@ -141,70 +141,123 @@ const KnowledgeBase = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Helper to render formatted markdown
+  // Helper to format inline text cleanly without raw markdown symbols (*, **, #, etc.)
+  const formatInlineText = (text) => {
+    if (!text) return '';
+    const clean = text
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/^>\s*/, '');
+
+    const parts = [];
+    const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3/g;
+    let lastIndex = 0;
+    let match;
+    let key = 0;
+
+    while ((match = regex.exec(clean)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(clean.substring(lastIndex, match.index).replace(/[*#]/g, ''));
+      }
+      if (match[2] !== undefined) {
+        parts.push(
+          <strong key={key++} style={{ fontWeight: 700, color: 'inherit' }}>
+            {match[2].replace(/[*#_]/g, '')}
+          </strong>
+        );
+      } else if (match[4] !== undefined) {
+        parts.push(
+          <span key={key++} style={{ fontStyle: 'italic' }}>
+            {match[4].replace(/[*#_]/g, '')}
+          </span>
+        );
+      }
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < clean.length) {
+      parts.push(clean.substring(lastIndex).replace(/[*#]/g, ''));
+    }
+
+    return parts.length > 0 ? parts : clean.replace(/[*#]/g, '');
+  };
+
+  // Helper to render formatted article and manual content
   const renderMarkdown = (text) => {
     if (!text) return <p style={{ color: '#71717a' }}>Select an article to view instructions...</p>;
 
     const lines = text.split('\n');
     return (
       <div className="kb-article-content">
-        {lines.map((line, idx) => {
-          if (line.startsWith('## ')) {
+        {lines.map((rawLine, idx) => {
+          const line = rawLine.trim();
+
+          // Headings with # or ## or ###
+          if (/^#{1,2}\s+/.test(line)) {
+            const headingText = line.replace(/^#{1,2}\s+/, '');
             return (
               <h2 key={idx} className="kb-h2">
-                {line.replace('## ', '')}
+                {formatInlineText(headingText)}
               </h2>
             );
           }
-          if (line.startsWith('### ')) {
+          if (/^#{3,6}\s+/.test(line)) {
+            const headingText = line.replace(/^#{3,6}\s+/, '');
             return (
               <h3 key={idx} className="kb-h3">
-                {line.replace('### ', '')}
+                {formatInlineText(headingText)}
               </h3>
             );
           }
-          if (line.startsWith('#### ')) {
-            return (
-              <h4 key={idx} className="kb-h4">
-                {line.replace('#### ', '')}
-              </h4>
-            );
-          }
-          if (line.startsWith('---')) {
+
+          // Horizontal divider
+          if (line === '---' || line === '***' || line === '___') {
             return <hr key={idx} className="kb-divider" />;
           }
-          if (/^\d+\.\s/.test(line)) {
-            const num = line.match(/^\d+\./)[0];
-            const content = line.replace(/^\d+\.\s*/, '');
+
+          // Numbered steps: e.g. "1. Open...", "Step 1: Open...", "Step 1. Open..."
+          if (/^(?:Step\s+)?\d+[\.:\)]\s+/i.test(line)) {
+            const match = line.match(/^(?:Step\s+)?(\d+)[\.:\)]\s*(.*)/i);
+            const num = match ? match[1] : '1';
+            const content = match ? match[2] : line;
             return (
               <div key={idx} className="kb-step-item">
                 <span className="kb-step-badge">
-                  {num.replace('.', '')}
+                  {num}
                 </span>
-                <span className="kb-step-text">{content}</span>
+                <span className="kb-step-text">{formatInlineText(content)}</span>
               </div>
             );
           }
-          if (line.startsWith('* ') || line.startsWith('- ')) {
+
+          // Bullet items: "- ", "* ", "• "
+          if (/^(\*|-|•)\s+/.test(line)) {
+            const content = line.replace(/^(\*|-|•)\s+/, '');
             return (
               <div key={idx} className="kb-bullet-item">
                 <span className="kb-bullet-dot">●</span>
-                <span className="kb-bullet-text">{line.replace(/^(\*|-)\s*/, '')}</span>
+                <span className="kb-bullet-text">{formatInlineText(content)}</span>
               </div>
             );
           }
-          if (line.startsWith('> ')) {
+
+          // Callout boxes: "> ...", "Note: ...", "Tip: ...", "Important: ..."
+          if (/^>\s+/.test(line) || /^(Note|Tip|Important|Warning):\s*/i.test(line)) {
+            const content = line.replace(/^>\s*/, '');
             return (
               <div key={idx} className="kb-callout-box">
                 <i className="fas fa-circle-info" style={{ color: '#2563eb', marginTop: '2px', flexShrink: 0 }}></i>
-                <div>{line.replace(/^>\s*/, '')}</div>
+                <div>{formatInlineText(content)}</div>
               </div>
             );
           }
-          if (!line.trim()) {
+
+          // Empty line spacing
+          if (!line) {
             return <div key={idx} style={{ height: '0.65rem' }} />;
           }
-          return <p key={idx} className="kb-paragraph">{line}</p>;
+
+          // Standard paragraph
+          return <p key={idx} className="kb-paragraph">{formatInlineText(line)}</p>;
         })}
       </div>
     );
