@@ -1,4 +1,7 @@
-import { usePlatformNotifications } from '../../context/PlatformNotificationContext';
+import React, { useEffect } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../store/AuthContext';
+import { PlatformNotificationProvider, usePlatformNotifications } from '../../context/PlatformNotificationContext';
 import PlatformNotificationBell from '../operations/PlatformNotificationBell';
 import PlatformToastContainer from '../operations/PlatformToastContainer';
 
@@ -12,7 +15,7 @@ const PlatformShellContent = () => {
   const isOpsCenter = location.pathname.startsWith('/platform/operations');
 
   // Automatically vanish / mark notifications as read when the Super Admin opens that specific page
-  React.useEffect(() => {
+  useEffect(() => {
     if (location.pathname.startsWith('/platform/operations/schools')) {
       markAllAsRead('schools');
     } else if (location.pathname.startsWith('/platform/operations/support')) {
