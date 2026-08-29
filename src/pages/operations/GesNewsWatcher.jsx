@@ -11,8 +11,10 @@ const GesNewsWatcher = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [scanning, setScanning] = useState(false);
   const [lastScanned, setLastScanned] = useState('');
+  const [blogModalItem, setBlogModalItem] = useState(null);
   const [broadcastModalItem, setBroadcastModalItem] = useState(null);
   const [dispatchSuccess, setDispatchSuccess] = useState('');
+  const [publishingBlog, setPublishingBlog] = useState(false);
 
   const loadNews = () => {
     const list = gesNewsWatcherService.getNews();
@@ -42,24 +44,25 @@ const GesNewsWatcher = () => {
   };
 
   const handleConvertToBroadcast = (item) => {
+    const cleanTitle = item.title.replace(/^[^\w\s]+/, '').trim();
+    const blogSlug = `ges-${cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '').slice(0, 45)}`;
+
     setBroadcastModalItem({
       title: item.title,
-      content: `${item.summary}\n\nOfficial Source: ${item.sourceName}`,
+      content: `${item.summary}\n\nRead the simplified 2-minute breakdown on the Labour Edu Blog.`,
       targetAudience: item.targetAudience || 'all',
       severity: item.urgency === 'urgent' ? 'urgent' : item.urgency === 'high' ? 'warning' : 'info',
-      actionUrl: item.sourceUrl, // Deep-link to specific notice page
-      actionLabel: 'Read Official Notice',
-      originalItem: item,
-      mode: 'broadcast_only'
+      actionUrl: `/blog/${blogSlug}`,
+      actionLabel: 'Read Blog Guide',
+      officialSourceUrl: item.sourceUrl
     });
   };
 
-  const handleConvertToBlogAndBroadcast = async (item) => {
-    // Generate clean, formatted blog content with direct official deep link
+  const handleOpenConvertToBlogModal = (item) => {
     const cleanTitle = item.title.replace(/^[^\w\s]+/, '').trim();
-    const blogSlug = `ges-directive-${cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '').slice(0, 50)}-${Date.now().toString().slice(-4)}`;
-    
-    const blogMarkdownContent = `# ${cleanTitle}
+    const blogSlug = `ges-${cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '').slice(0, 45)}-${Date.now().toString().slice(-4)}`;
+
+    const generatedMarkdown = `# ${cleanTitle}
 
 ## Executive Summary
 ${item.summary}
@@ -72,50 +75,81 @@ ${item.summary}
 ---
 
 ## 🏛️ Official Verification & Reference Document
-This simplified guide is published by the **Labour Edu Editorial Team** to assist schools in understanding national curriculum directives. 
+This simplified breakdown is prepared by the **Labour Edu Editorial Team** to assist schools in understanding national educational directives.
 
-For the complete official document, statutory tables, and signed government circulars, please inspect the original official page:
+For the complete official document, statutory tables, and signed government notices, please inspect the original official page:
 
-👉 **[View Original Directive on ${item.sourceName} (Direct Official Page)](${item.sourceUrl})**
+👉 **[View Original Directive on ${item.sourceName} (Direct Information Page)](${item.sourceUrl})**
 `;
 
-    setBroadcastModalItem({
-      title: item.title,
-      content: `A simple breakdown of the latest directive from ${item.sourceName} has been published on the Labour Edu Blog.`,
-      targetAudience: item.targetAudience || 'all',
-      severity: item.urgency === 'urgent' ? 'urgent' : item.urgency === 'high' ? 'warning' : 'info',
-      actionUrl: '/manuals', // Direct readers to Blog & Manuals
-      actionLabel: 'Read Blog Guide',
-      originalItem: item,
-      blogPayload: {
-        title: cleanTitle,
-        slug: blogSlug,
-        category: 'GES Directives & Policy',
-        target_role: item.targetAudience === 'teacher' ? 'Teachers' : item.targetAudience === 'headteacher' ? 'Headteachers' : 'All Schools & Parents',
-        featured_badge: 'Official Policy Guide',
-        read_time: '2 min read',
-        author: 'Labour Edu Editorial Desk',
-        summary: item.summary,
-        content: blogMarkdownContent,
-        is_published: true
-      },
-      mode: 'blog_and_broadcast'
+    setBlogModalItem({
+      title: cleanTitle,
+      slug: blogSlug,
+      category: 'GES Directives & Policy',
+      targetRole: item.targetAudience === 'teacher' ? 'Teachers' : item.targetAudience === 'headteacher' ? 'Headteachers' : 'All Schools & Parents',
+      featuredBadge: 'Official Policy Guide',
+      readTime: '2 min read',
+      author: 'Labour Edu Editorial Desk',
+      summary: item.summary,
+      content: generatedMarkdown,
+      sourceName: item.sourceName,
+      sourceUrl: item.sourceUrl,
+      dispatchAsBroadcast: true
     });
+  };
+
+  const handlePublishBlogPost = async (e) => {
+    e.preventDefault();
+    if (!blogModalItem) return;
+
+    setPublishingBlog(true);
+    try {
+      // 1. Create and publish the blog post
+      const newPost = await blogService.createPost({
+        title: blogModalItem.title,
+        slug: blogModalItem.slug,
+        category: blogModalItem.category || 'GES Directives & Policy',
+        target_role: blogModalItem.targetRole || 'All Schools & Parents',
+        featured_badge: blogModalItem.featuredBadge || 'Official Policy Guide',
+        read_time: blogModalItem.readTime || '2 min read',
+        author: blogModalItem.author || 'Labour Edu Editorial Desk',
+        summary: blogModalItem.summary,
+        content: blogModalItem.content,
+        is_published: true
+      });
+
+      // 2. Optionally dispatch as a top announcement banner across the app
+      if (blogModalItem.dispatchAsBroadcast) {
+        try {
+          await broadcastService.createBroadcast({
+            title: `🇬🇭 ${blogModalItem.title}`,
+            content: blogModalItem.summary,
+            targetAudience: 'all',
+            severity: 'warning',
+            bannerEnabled: true,
+            modalEnabled: false,
+            actionUrl: `/blog/${newPost.slug || blogModalItem.slug}`,
+            actionLabel: 'Read Blog Guide'
+          });
+        } catch (bErr) {
+          console.warn('[GesNewsWatcher] Broadcast creation note:', bErr);
+        }
+      }
+
+      setDispatchSuccess(`Blog post published to Blog & Manuals! Accessible at /blog/${newPost.slug || blogModalItem.slug}`);
+      setBlogModalItem(null);
+      setTimeout(() => setDispatchSuccess(''), 6000);
+    } catch (err) {
+      console.error('Error publishing blog post:', err);
+      alert('Could not publish blog post. Please check console.');
+    } finally {
+      setPublishingBlog(false);
+    }
   };
 
   const handleDispatchPreparedBroadcast = async () => {
     if (!broadcastModalItem) return;
     try {
-      // If blog mode is enabled, publish the blog post first!
-      if (broadcastModalItem.mode === 'blog_and_broadcast' && broadcastModalItem.blogPayload) {
-        try {
-          await blogService.createPost(broadcastModalItem.blogPayload);
-        } catch (blogErr) {
-          console.warn('[GesNewsWatcher] Blog post auto-create note:', blogErr);
-        }
-      }
-
-      // Then dispatch the broadcast announcement across all schools
       await broadcastService.createBroadcast({
         title: broadcastModalItem.title,
         content: broadcastModalItem.content,
@@ -127,11 +161,7 @@ For the complete official document, statutory tables, and signed government circ
         actionLabel: broadcastModalItem.actionLabel
       });
 
-      const msg = broadcastModalItem.mode === 'blog_and_broadcast'
-        ? `Blog guide published & broadcast dispatched across all ${broadcastModalItem.targetAudience === 'all' ? 'portals' : broadcastModalItem.targetAudience + 's'}!`
-        : `Broadcast dispatched with direct official link!`;
-
-      setDispatchSuccess(msg);
+      setDispatchSuccess(`Broadcast dispatched to all ${broadcastModalItem.targetAudience === 'all' ? 'schools & portals' : broadcastModalItem.targetAudience + 's'}!`);
       setBroadcastModalItem(null);
       setTimeout(() => setDispatchSuccess(''), 5000);
     } catch (e) {
@@ -216,22 +246,46 @@ For the complete official document, statutory tables, and signed government circ
         </div>
       </div>
 
-      {/* Success Notification Alert */}
+      {/* Success Notification Alert with Direct Link to Blog */}
       {dispatchSuccess && (
         <div style={{
           background: '#ECFDF5',
           border: '1px solid #A7F3D0',
           color: '#065F46',
-          padding: '1rem 1.25rem',
+          padding: '1.1rem 1.25rem',
           borderRadius: '14px',
           fontWeight: 700,
           fontSize: '0.88rem',
           display: 'flex',
           alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
           gap: '10px'
         }}>
-          <i className="fas fa-check-circle" style={{ fontSize: '1.1rem', color: '#10B981' }}></i>
-          <span>{dispatchSuccess}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <i className="fas fa-check-circle" style={{ fontSize: '1.2rem', color: '#10B981' }}></i>
+            <span>{dispatchSuccess}</span>
+          </div>
+
+          <button
+            onClick={() => navigate('/platform/operations/blog')}
+            style={{
+              background: '#065F46',
+              color: '#FFFFFF',
+              border: 'none',
+              padding: '0.35rem 0.85rem',
+              borderRadius: '8px',
+              fontSize: '0.78rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <span>Open Blog &amp; Manuals CMS</span>
+            <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
+          </button>
         </div>
       )}
 
@@ -387,7 +441,7 @@ For the complete official document, statutory tables, and signed government circ
                         {item.category}
                       </span>
                       {item.isBreaking && (
-                        <span style={{ fontSize: '0.68rem', fontWeight: 900, background: '#FEF3C7', color: '#B45309', padding: '0.15rem 0.5rem', borderRadius: '999px', animation: 'pulse 2s infinite' }}>
+                        <span style={{ fontSize: '0.68rem', fontWeight: 900, background: '#FEF3C7', color: '#B45309', padding: '0.15rem 0.5rem', borderRadius: '999px' }}>
                           ⚡ BREAKING DIRECTIVE
                         </span>
                       )}
@@ -411,7 +465,7 @@ For the complete official document, statutory tables, and signed government circ
                   {/* Actions Row */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #F4F4F5', paddingTop: '0.85rem', flexWrap: 'wrap', gap: '8px' }}>
                     
-                    {/* Official Portal Source Link */}
+                    {/* Official Portal Source Link (Direct Page) */}
                     <a
                       href={item.sourceUrl}
                       target="_blank"
@@ -433,8 +487,10 @@ For the complete official document, statutory tables, and signed government circ
 
                     {/* Action Buttons */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                      
+                      {/* Convert to Blog Button */}
                       <button
-                        onClick={() => handleConvertToBlogAndBroadcast(item)}
+                        onClick={() => handleOpenConvertToBlogModal(item)}
                         style={{
                           background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
                           color: '#FFFFFF',
@@ -449,12 +505,13 @@ For the complete official document, statutory tables, and signed government circ
                           gap: '6px',
                           boxShadow: '0 2px 10px rgba(37, 99, 235, 0.25)'
                         }}
-                        title="Draft a simplified blog article on Labour Edu and broadcast it to schools"
+                        title="Generate a simple blog post on Labour Edu Blog and Manuals"
                       >
                         <i className="fas fa-pen-nib"></i>
-                        <span>+ Convert to Blog Guide &amp; Broadcast</span>
+                        <span>+ Convert to Blog</span>
                       </button>
 
+                      {/* Quick Broadcast Button */}
                       <button
                         onClick={() => handleConvertToBroadcast(item)}
                         style={{
@@ -485,7 +542,169 @@ For the complete official document, statutory tables, and signed government circ
         )}
       </div>
 
-      {/* Interactive Broadcast Modal Preview */}
+      {/* CONVERT TO BLOG POST MODAL */}
+      {blogModalItem && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: '1.5rem'
+        }}>
+          <div style={{
+            background: '#FFFFFF',
+            borderRadius: '18px',
+            width: '100%',
+            maxWidth: '680px',
+            maxHeight: '90vh',
+            overflowY: 'auto',
+            padding: '1.85rem',
+            boxShadow: '0 20px 50px rgba(0, 0, 0, 0.35)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1.2rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E4E4E7', paddingBottom: '1rem' }}>
+              <div>
+                <div style={{ fontWeight: 900, fontSize: '1.2rem', color: '#09090b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <i className="fas fa-newspaper" style={{ color: '#2563eb' }}></i>
+                  Create Blog Post from GES Directive
+                </div>
+                <div style={{ fontSize: '0.78rem', color: '#71717a', marginTop: '2px' }}>
+                  This will generate a clean blog post in <strong>Blog &amp; Manuals</strong> with the official deep-link verification box.
+                </div>
+              </div>
+              <button
+                onClick={() => setBlogModalItem(null)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.3rem', cursor: 'pointer', color: '#71717a' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handlePublishBlogPost} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '0.82rem', color: '#09090b', marginBottom: '0.35rem' }}>
+                  Blog Post Title *
+                </label>
+                <input
+                  type="text"
+                  value={blogModalItem.title}
+                  onChange={(e) => setBlogModalItem({ ...blogModalItem, title: e.target.value })}
+                  required
+                  style={{ width: '100%', padding: '0.7rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.88rem', fontWeight: 700 }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div>
+                  <label style={{ display: 'block', fontWeight: 800, fontSize: '0.82rem', color: '#09090b', marginBottom: '0.35rem' }}>
+                    Category
+                  </label>
+                  <input
+                    type="text"
+                    value={blogModalItem.category}
+                    onChange={(e) => setBlogModalItem({ ...blogModalItem, category: e.target.value })}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.84rem', fontWeight: 600 }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontWeight: 800, fontSize: '0.82rem', color: '#09090b', marginBottom: '0.35rem' }}>
+                    Target Audience / Role
+                  </label>
+                  <input
+                    type="text"
+                    value={blogModalItem.targetRole}
+                    onChange={(e) => setBlogModalItem({ ...blogModalItem, targetRole: e.target.value })}
+                    style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.84rem', fontWeight: 600 }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '0.82rem', color: '#09090b', marginBottom: '0.35rem' }}>
+                  Executive Summary (2-Minute Overview)
+                </label>
+                <textarea
+                  value={blogModalItem.summary}
+                  onChange={(e) => setBlogModalItem({ ...blogModalItem, summary: e.target.value })}
+                  rows={2}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.85rem', lineHeight: 1.4, fontFamily: 'inherit' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '0.82rem', color: '#09090b', marginBottom: '0.35rem' }}>
+                  Full Blog Article Content (Markdown)
+                </label>
+                <textarea
+                  value={blogModalItem.content}
+                  onChange={(e) => setBlogModalItem({ ...blogModalItem, content: e.target.value })}
+                  rows={7}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.84rem', lineHeight: 1.45, fontFamily: 'monospace' }}
+                />
+              </div>
+
+              {/* Direct Official Link Citation Box */}
+              <div style={{ background: '#F8FAFC', padding: '0.85rem 1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                <div style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', marginBottom: '3px' }}>
+                  Direct Official Deep-Link Citation:
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#2563eb', fontWeight: 700, wordBreak: 'break-all' }}>
+                  {blogModalItem.sourceUrl}
+                </div>
+              </div>
+
+              {/* Optional Broadcast Checkbox */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', fontWeight: 700, color: '#09090b', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={blogModalItem.dispatchAsBroadcast}
+                  onChange={(e) => setBlogModalItem({ ...blogModalItem, dispatchAsBroadcast: e.target.checked })}
+                />
+                <span>Also dispatch top notification banner across school portals with "Read Blog Guide" link</span>
+              </label>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '0.75rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setBlogModalItem(null)}
+                  style={{ padding: '0.65rem 1.25rem', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', fontWeight: 700, cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={publishingBlog}
+                  style={{
+                    padding: '0.65rem 1.5rem',
+                    borderRadius: '8px',
+                    background: '#2563eb',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    fontWeight: 900,
+                    cursor: publishingBlog ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 4px 14px rgba(37, 99, 235, 0.3)'
+                  }}
+                >
+                  <i className="fas fa-check"></i>
+                  <span>{publishingBlog ? 'Publishing...' : 'Publish to Blog & Manuals'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK DIRECT BROADCAST MODAL */}
       {broadcastModalItem && (
         <div style={{
           position: 'fixed',
@@ -512,7 +731,7 @@ For the complete official document, statutory tables, and signed government circ
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ fontWeight: 900, fontSize: '1.15rem', color: '#09090b', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <i className="fas fa-bullhorn" style={{ color: '#2563eb' }}></i>
-                Dispatch to Nationwide Schools
+                Quick Direct Broadcast
               </div>
               <button
                 onClick={() => setBroadcastModalItem(null)}
@@ -550,16 +769,35 @@ For the complete official document, statutory tables, and signed government circ
               </select>
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontWeight: 800, fontSize: '0.8rem', color: '#09090b', marginBottom: '0.3rem' }}>
-                Notice Content
-              </label>
-              <textarea
-                value={broadcastModalItem.content}
-                onChange={(e) => setBroadcastModalItem({ ...broadcastModalItem, content: e.target.value })}
-                rows={4}
-                style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.85rem', lineHeight: 1.4, fontFamily: 'inherit' }}
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
+              <div>
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '0.8rem', color: '#09090b', marginBottom: '0.3rem' }}>
+                  Button Action Text
+                </label>
+                <input
+                  type="text"
+                  value={broadcastModalItem.actionLabel}
+                  onChange={(e) => setBroadcastModalItem({ ...broadcastModalItem, actionLabel: e.target.value })}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.84rem', fontWeight: 700 }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontWeight: 800, fontSize: '0.8rem', color: '#09090b', marginBottom: '0.3rem' }}>
+                  Destination Link (URL)
+                </label>
+                <input
+                  type="text"
+                  value={broadcastModalItem.actionUrl}
+                  onChange={(e) => setBroadcastModalItem({ ...broadcastModalItem, actionUrl: e.target.value })}
+                  style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1.5px solid #D4D4D8', fontSize: '0.84rem', fontWeight: 700 }}
+                />
+              </div>
+            </div>
+
+            <div style={{ background: '#F8FAFC', padding: '0.65rem 0.85rem', borderRadius: '8px', border: '1px solid #E2E8F0', fontSize: '0.76rem', color: '#475569' }}>
+              <i className="fas fa-circle-info" style={{ color: '#2563eb', marginRight: '5px' }}></i>
+              When readers click <strong>"{broadcastModalItem.actionLabel || 'Read'}"</strong> in their dashboard, they will be taken to read the full guide on your website at <code>{broadcastModalItem.actionUrl}</code>.
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '0.5rem' }}>
