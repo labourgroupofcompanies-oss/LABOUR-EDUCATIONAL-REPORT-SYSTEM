@@ -1167,6 +1167,40 @@ const KnowledgeBase = () => {
                   {renderMarkdown(selectedPost.content)}
                 </div>
 
+                {/* Article Tags */}
+                {selectedPost.tags && (Array.isArray(selectedPost.tags) ? selectedPost.tags : selectedPost.tags.split(',')).filter(Boolean).length > 0 && (
+                  <div style={{ marginTop: '2rem', paddingTop: '1.25rem', borderTop: '1px solid #E2E8F0' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#64748B', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      Related Topics &amp; Tags:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {(Array.isArray(selectedPost.tags) ? selectedPost.tags : selectedPost.tags.split(',')).filter(Boolean).map((tag, tIdx) => (
+                        <span
+                          key={tIdx}
+                          onClick={() => {
+                            setSearchQuery(tag.trim());
+                            setMobileReadingMode(false);
+                          }}
+                          title={`Search all guides on #${tag.trim()}`}
+                          style={{
+                            cursor: 'pointer',
+                            fontSize: '0.78rem',
+                            fontWeight: 800,
+                            color: '#2563EB',
+                            background: '#EFF6FF',
+                            border: '1px solid #BFDBFE',
+                            padding: '0.25rem 0.65rem',
+                            borderRadius: '999px',
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          #{tag.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Bottom Article Help & Support Box */}
                 <div style={{ marginTop: '2rem' }}>
                   <HelpDeskSupportBox compact={true} />

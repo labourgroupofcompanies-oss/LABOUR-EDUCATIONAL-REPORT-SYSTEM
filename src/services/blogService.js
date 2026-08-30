@@ -33,22 +33,37 @@ const sanitizePayload = (postData) => {
   const slug = postData.slug?.trim() || postData.title
     ?.toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '') || 'manual';
+    .replace(/(^-|-$)+/g, '') || `post-${Date.now()}`;
 
-  return {
+  const payload = {
     title: postData.title ? postData.title.trim() : '',
     slug: slug,
     category: postData.category || 'Administration',
     target_role: postData.target_role || 'All Users',
     featured_badge: postData.featured_badge || 'User Guide',
-    read_time: postData.read_time || '5 min read',
-    author: postData.author || 'Labour Edu Editorial Team',
+    read_time: postData.read_time || '3 min read',
+    author: postData.author || 'Labour Edu Editorial Desk',
     summary: postData.summary || '',
     content: postData.content || '',
     cover_image: postData.cover_image || null,
     date: postData.date || new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
     is_published: postData.is_published !== undefined ? Boolean(postData.is_published) : true,
   };
+
+  // Optional extended blogger fields
+  if (postData.tags) {
+    if (Array.isArray(postData.tags)) {
+      payload.tags = postData.tags;
+    } else if (typeof postData.tags === 'string') {
+      payload.tags = postData.tags.split(',').map(t => t.trim()).filter(Boolean);
+    }
+  }
+  if (postData.post_type) payload.post_type = postData.post_type;
+  if (postData.official_source_url) payload.official_source_url = postData.official_source_url;
+  if (postData.official_source_name) payload.official_source_name = postData.official_source_name;
+  if (postData.meta_description) payload.meta_description = postData.meta_description;
+
+  return payload;
 };
 
 /**
@@ -141,43 +156,46 @@ const blogService = {
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          const found = parsed.find(p => String(p.id) === String(id) || p.slug === id);
+          const found = parsed.find(p => String(p.id) === String(id) || p.slug === String(id));
           if (found) return found;
         } catch (e) {}
       }
-      const defaultFound = DEFAULT_OFFLINE_MANUALS.find(p => String(p.id) === String(id) || p.slug === id);
+      const defaultFound = DEFAULT_OFFLINE_MANUALS.find(m => String(m.id) === String(id) || m.slug === String(id));
       if (defaultFound) return defaultFound;
-
-      // Try looking up by slug in Supabase
-      try {
-        const { data, error } = await supabase
-          .from('blog_posts')
-          .select('*')
-          .eq('slug', id)
-          .maybeSingle();
-        if (!error && data) return data;
-      } catch (e) {}
-
-      throw new Error(`Post not found: ${id}`);
     }
 
     try {
-      const { data, error } = await supabase
-        .from('blog_posts')
-        .select('*')
-        .eq('id', Number(id))
-        .single();
+      const isNumeric = /^\d+$/.test(String(id));
+      let query = supabase.from('blog_posts').select('*');
+
+      if (isNumeric) {
+        query = query.eq('id', Number(id));
+      } else {
+        query = query.eq('slug', String(id));
+      }
+
+      const { data, error } = await query.maybeSingle();
 
       if (error) throw error;
-      return data;
-    } catch (err) {
-      console.error('[blogService] getPostById error:', err);
-      // Try cached fallback
+      if (data) return data;
+
+      // Check fallback cache
       const cached = localStorage.getItem(CACHE_KEY);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
-          const found = parsed.find(p => String(p.id) === String(id));
+          const found = parsed.find(p => String(p.id) === String(id) || p.slug === String(id));
+          if (found) return found;
+        } catch (e) {}
+      }
+      return null;
+    } catch (err) {
+      console.error('[blogService] getPostById error:', err);
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          const found = parsed.find(p => String(p.id) === String(id) || p.slug === String(id));
           if (found) return found;
         } catch (e) {}
       }
@@ -193,10 +211,32 @@ const blogService = {
       const payload = sanitizePayload(postData);
 
       if (navigator.onLine) {
-        const { data, error } = await supabase
+        let insertData = [payload];
+        let { data, error } = await supabase
           .from('blog_posts')
-          .insert([payload])
+          .insert(insertData)
           .select();
+
+        // If error might be due to extended columns not yet added to SQL, retry with core columns only
+        if (error && error.message && (error.message.includes('column') || error.message.includes('does not exist'))) {
+          const corePayload = {
+            title: payload.title,
+            slug: payload.slug,
+            category: payload.category,
+            target_role: payload.target_role,
+            featured_badge: payload.featured_badge,
+            read_time: payload.read_time,
+            author: payload.author,
+            summary: payload.summary,
+            content: payload.content,
+            cover_image: payload.cover_image,
+            date: payload.date,
+            is_published: payload.is_published
+          };
+          const retryRes = await supabase.from('blog_posts').insert([corePayload]).select();
+          data = retryRes.data;
+          error = retryRes.error;
+        }
 
         if (error) throw error;
         const newPost = data?.[0] || { ...payload, id: Date.now() };
@@ -222,6 +262,7 @@ const blogService = {
         const list = cached ? JSON.parse(cached) : [];
         localStorage.setItem(CACHE_KEY, JSON.stringify([offlinePost, ...list]));
       } catch (e) {}
+
       return offlinePost;
     } catch (err) {
       console.error('[blogService] createPost error:', err);
@@ -230,71 +271,61 @@ const blogService = {
   },
 
   /**
-   * Update an existing blog post (safely handles offline IDs & online bigint IDs)
+   * Update an existing blog post
    */
   async updatePost(id, postData) {
     try {
       const payload = sanitizePayload(postData);
 
-      // Case 1: The ID is an offline manual (non-numeric, e.g. "offline-manual-3")
       if (isOfflineId(id)) {
-        let savedPost = null;
-
-        if (navigator.onLine) {
-          // Check if it already exists in Supabase by slug
-          const targetSlug = payload.slug || postData.slug;
-          const { data: existingPost } = await supabase
-            .from('blog_posts')
-            .select('id')
-            .eq('slug', targetSlug)
-            .maybeSingle();
-
-          if (existingPost?.id) {
-            // Update existing row in Supabase
-            const { data, error } = await supabase
-              .from('blog_posts')
-              .update(payload)
-              .eq('id', existingPost.id)
-              .select();
-
-            if (error) throw error;
-            savedPost = data?.[0];
-          } else {
-            // Insert as new row in Supabase
-            const { data, error } = await supabase
-              .from('blog_posts')
-              .insert([payload])
-              .select();
-
-            if (error) throw error;
-            savedPost = data?.[0];
-          }
-        }
-
-        if (!savedPost) {
-          savedPost = { ...payload, id };
-        }
-
-        // Update local cache: replace the old offline item with savedPost
-        try {
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
+        const updatedOffline = {
+          ...payload,
+          id: id,
+          updated_at: new Date().toISOString()
+        };
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
+          try {
             const list = JSON.parse(cached);
-            const updatedList = list.map(p => (String(p.id) === String(id) || p.slug === payload.slug) ? savedPost : p);
-            localStorage.setItem(CACHE_KEY, JSON.stringify(updatedList));
-          }
-        } catch (e) {}
-
-        return savedPost;
+            const idx = list.findIndex(p => String(p.id) === String(id));
+            if (idx !== -1) {
+              list[idx] = updatedOffline;
+            } else {
+              list.unshift(updatedOffline);
+            }
+            localStorage.setItem(CACHE_KEY, JSON.stringify(list));
+          } catch (e) {}
+        }
+        return updatedOffline;
       }
 
-      // Case 2: Standard online post with numeric bigint ID
       if (navigator.onLine) {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('blog_posts')
           .update(payload)
           .eq('id', Number(id))
           .select();
+
+        // Safe fallback for core columns
+        if (error && error.message && (error.message.includes('column') || error.message.includes('does not exist'))) {
+          const corePayload = {
+            title: payload.title,
+            slug: payload.slug,
+            category: payload.category,
+            target_role: payload.target_role,
+            featured_badge: payload.featured_badge,
+            read_time: payload.read_time,
+            author: payload.author,
+            summary: payload.summary,
+            content: payload.content,
+            cover_image: payload.cover_image,
+            date: payload.date,
+            is_published: payload.is_published
+          };
+          const retryRes = await supabase.from('blog_posts').update(corePayload).eq('id', Number(id)).select();
+          data = retryRes.data;
+          error = retryRes.error;
+        }
 
         if (error) throw error;
         const updated = data?.[0] || { ...payload, id };
@@ -304,93 +335,20 @@ const blogService = {
           const cached = localStorage.getItem(CACHE_KEY);
           if (cached) {
             const list = JSON.parse(cached);
-            const updatedList = list.map(p => String(p.id) === String(id) ? updated : p);
-            localStorage.setItem(CACHE_KEY, JSON.stringify(updatedList));
+            const idx = list.findIndex(p => String(p.id) === String(id));
+            if (idx !== -1) {
+              list[idx] = { ...list[idx], ...updated };
+              localStorage.setItem(CACHE_KEY, JSON.stringify(list));
+            }
           }
         } catch (e) {}
 
         return updated;
       }
 
-      // Offline update fallback
-      const updatedLocal = { ...payload, id };
-      try {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const list = JSON.parse(cached);
-          const updatedList = list.map(p => String(p.id) === String(id) ? updatedLocal : p);
-          localStorage.setItem(CACHE_KEY, JSON.stringify(updatedList));
-        }
-      } catch (e) {}
-      return updatedLocal;
+      throw new Error('You are currently offline. Connect to the internet to update this manual.');
     } catch (err) {
       console.error('[blogService] updatePost error:', err);
-      throw err;
-    }
-  },
-
-  /**
-   * Toggle published state
-   */
-  async togglePublishStatus(id, currentStatus) {
-    try {
-      const newStatus = !currentStatus;
-
-      if (isOfflineId(id)) {
-        // Look up item
-        let post = null;
-        try {
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
-            post = JSON.parse(cached).find(p => String(p.id) === String(id));
-          }
-        } catch (e) {}
-        if (!post) {
-          post = DEFAULT_OFFLINE_MANUALS.find(p => String(p.id) === String(id));
-        }
-
-        if (post) {
-          return await this.updatePost(id, { ...post, is_published: newStatus });
-        }
-        return { id, is_published: newStatus };
-      }
-
-      // Numeric ID
-      if (navigator.onLine) {
-        const { data, error } = await supabase
-          .from('blog_posts')
-          .update({ is_published: newStatus })
-          .eq('id', Number(id))
-          .select();
-
-        if (error) throw error;
-        const updated = data?.[0];
-
-        try {
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
-            const list = JSON.parse(cached);
-            const updatedList = list.map(p => String(p.id) === String(id) ? { ...p, is_published: newStatus } : p);
-            localStorage.setItem(CACHE_KEY, JSON.stringify(updatedList));
-          }
-        } catch (e) {}
-
-        return updated;
-      }
-
-      // Offline fallback
-      try {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const list = JSON.parse(cached);
-          const updatedList = list.map(p => String(p.id) === String(id) ? { ...p, is_published: newStatus } : p);
-          localStorage.setItem(CACHE_KEY, JSON.stringify(updatedList));
-        }
-      } catch (e) {}
-
-      return { id, is_published: newStatus };
-    } catch (err) {
-      console.error('[blogService] togglePublishStatus error:', err);
       throw err;
     }
   },
@@ -402,37 +360,17 @@ const blogService = {
     try {
       if (isOfflineId(id)) {
         markOfflineIdDeleted(id);
-
-        // Remove from local cache
-        try {
-          const cached = localStorage.getItem(CACHE_KEY);
-          if (cached) {
-            const list = JSON.parse(cached).filter(p => String(p.id) !== String(id));
-            localStorage.setItem(CACHE_KEY, JSON.stringify(list));
-          }
-        } catch (e) {}
-
-        // If it was also pushed to Supabase by slug, try deleting
-        if (navigator.onLine) {
+        const cached = localStorage.getItem(CACHE_KEY);
+        if (cached) {
           try {
-            const cached = localStorage.getItem(CACHE_KEY);
-            let post = null;
-            if (cached) {
-              post = JSON.parse(cached).find(p => String(p.id) === String(id));
-            }
-            if (!post) {
-              post = DEFAULT_OFFLINE_MANUALS.find(p => String(p.id) === String(id));
-            }
-            if (post?.slug) {
-              await supabase.from('blog_posts').delete().eq('slug', post.slug);
-            }
+            const list = JSON.parse(cached);
+            const filtered = list.filter(p => String(p.id) !== String(id));
+            localStorage.setItem(CACHE_KEY, JSON.stringify(filtered));
           } catch (e) {}
         }
-
         return true;
       }
 
-      // Numeric ID
       if (navigator.onLine) {
         const { error } = await supabase
           .from('blog_posts')
@@ -440,18 +378,21 @@ const blogService = {
           .eq('id', Number(id));
 
         if (error) throw error;
+
+        // Update cache
+        try {
+          const cached = localStorage.getItem(CACHE_KEY);
+          if (cached) {
+            const list = JSON.parse(cached);
+            const filtered = list.filter(p => String(p.id) !== String(id));
+            localStorage.setItem(CACHE_KEY, JSON.stringify(filtered));
+          }
+        } catch (e) {}
+
+        return true;
       }
 
-      // Remove from local cache
-      try {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          const list = JSON.parse(cached).filter(p => String(p.id) !== String(id));
-          localStorage.setItem(CACHE_KEY, JSON.stringify(list));
-        }
-      } catch (e) {}
-
-      return true;
+      throw new Error('Cannot delete online manual while offline.');
     } catch (err) {
       console.error('[blogService] deletePost error:', err);
       throw err;
