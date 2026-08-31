@@ -6,18 +6,38 @@ const OperationsLayout = () => {
   const location = useLocation();
   const { categoryCounts } = usePlatformNotifications();
 
-  const opsNavItems = [
-    { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
-    { to: '/platform/operations/ges-radar', icon: 'fa-satellite-dish', label: 'GES & Education Radar', badge: categoryCounts?.radar, badgeColor: '#0891B2' },
-    { to: '/platform/operations/broadcasts', icon: 'fa-bullhorn', label: 'Broadcasts & Alerts' },
-    { to: '/platform/operations/schools', icon: 'fa-school-flag', label: 'Schools', badge: categoryCounts?.schools, badgeColor: '#3B82F6' },
-    { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support', badge: categoryCounts?.support, badgeColor: '#EF4444' },
-    { to: '/platform/operations/subscriptions', icon: 'fa-receipt', label: 'Billing & Transactions', badge: categoryCounts?.billing, badgeColor: '#10B981' },
-    { to: '/platform/operations/referrals', icon: 'fa-gift', label: 'Referrals & Rewards' },
-    { to: '/platform/operations/calendar', icon: 'fa-calendar-alt', label: 'Academic Calendar' },
-    { to: '/platform/operations/blog', icon: 'fa-newspaper', label: 'Blog & Manuals' },
-    { to: '/platform/operations/interventions', icon: 'fa-user-shield', label: 'Interventions' },
-    { to: '/platform/operations/analytics', icon: 'fa-chart-pie', label: 'Analytics' },
+  const navSections = [
+    {
+      title: 'OVERVIEW & METRICS',
+      items: [
+        { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
+        { to: '/platform/operations/analytics', icon: 'fa-chart-pie', label: 'Analytics & Insights' },
+      ]
+    },
+    {
+      title: 'INTELLIGENCE & PUBLISHING',
+      items: [
+        { to: '/platform/operations/ges-radar', icon: 'fa-satellite-dish', label: 'GES & Education Radar', badge: categoryCounts?.radar, badgeColor: '#0891B2' },
+        { to: '/platform/operations/broadcasts', icon: 'fa-bullhorn', label: 'Broadcasts & Alerts' },
+        { to: '/platform/operations/blog', icon: 'fa-newspaper', label: 'Blog & Manuals' },
+      ]
+    },
+    {
+      title: 'SCHOOL OVERSIGHT',
+      items: [
+        { to: '/platform/operations/schools', icon: 'fa-school-flag', label: 'Schools Directory', badge: categoryCounts?.schools, badgeColor: '#3B82F6' },
+        { to: '/platform/operations/calendar', icon: 'fa-calendar-alt', label: 'Academic Calendar' },
+        { to: '/platform/operations/interventions', icon: 'fa-user-shield', label: 'Interventions & Audit' },
+      ]
+    },
+    {
+      title: 'FINANCE & CLIENT SERVICES',
+      items: [
+        { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support Center', badge: categoryCounts?.support, badgeColor: '#EF4444' },
+        { to: '/platform/operations/subscriptions', icon: 'fa-receipt', label: 'Billing & Transactions', badge: categoryCounts?.billing, badgeColor: '#10B981' },
+        { to: '/platform/operations/referrals', icon: 'fa-gift', label: 'Referrals & Rewards' },
+      ]
+    }
   ];
 
   return (
@@ -48,59 +68,63 @@ const OperationsLayout = () => {
         </div>
 
         {/* Nav Items */}
-        <nav style={{ flex: 1, padding: '1rem 0.85rem', overflowY: 'auto' }}>
-          <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.6rem', paddingLeft: '0.5rem' }}>
-            Operations Modules
-          </div>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            {opsNavItems.map(item => (
-              <li key={item.to}>
-                <NavLink
-                  to={item.to}
-                  end={item.end}
-                  style={({ isActive }) => ({
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '0.7rem 0.9rem',
-                    borderRadius: '10px',
-                    color: isActive ? '#FFFFFF' : '#A1A1AA',
-                    background: isActive ? '#2563eb' : 'transparent',
-                    fontWeight: isActive ? 800 : 600,
-                    fontSize: '0.88rem',
-                    textDecoration: 'none',
-                    boxShadow: isActive ? '0 4px 12px rgba(37, 99, 235, 0.3)' : 'none',
-                    transition: 'all 0.2s ease'
-                  })}
-                >
-                  {({ isActive }) => (
-                    <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <i className={`fas ${item.icon}`} style={{ width: '18px', textAlign: 'center', color: isActive ? '#FFFFFF' : '#71717a' }}></i>
-                        <span>{item.label}</span>
-                      </div>
+        <nav style={{ flex: 1, padding: '1rem 0.85rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+          {navSections.map((section, sIdx) => (
+            <div key={sIdx}>
+              <div style={{ fontSize: '0.66rem', fontWeight: 800, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.5rem', paddingLeft: '0.5rem' }}>
+                {section.title}
+              </div>
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {section.items.map(item => (
+                  <li key={item.to}>
+                    <NavLink
+                      to={item.to}
+                      end={item.end}
+                      style={({ isActive }) => ({
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: '9px',
+                        color: isActive ? '#FFFFFF' : '#A1A1AA',
+                        background: isActive ? '#2563eb' : 'transparent',
+                        fontWeight: isActive ? 800 : 600,
+                        fontSize: '0.86rem',
+                        textDecoration: 'none',
+                        boxShadow: isActive ? '0 4px 12px rgba(37, 99, 235, 0.3)' : 'none',
+                        transition: 'all 0.15s ease'
+                      })}
+                    >
+                      {({ isActive }) => (
+                        <>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <i className={`fas ${item.icon}`} style={{ width: '16px', textAlign: 'center', color: isActive ? '#FFFFFF' : '#71717a' }}></i>
+                            <span>{item.label}</span>
+                          </div>
 
-                      {/* Dynamic Notification Badge */}
-                      {item.badge > 0 && (
-                        <span style={{
-                          background: isActive ? '#FFFFFF' : (item.badgeColor || '#EF4444'),
-                          color: isActive ? '#2563eb' : '#FFFFFF',
-                          fontSize: '0.7rem',
-                          fontWeight: 900,
-                          padding: '0.1rem 0.45rem',
-                          borderRadius: '999px',
-                          lineHeight: 1,
-                          boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
-                        }}>
-                          {item.badge}
-                        </span>
+                          {/* Dynamic Notification Badge */}
+                          {item.badge > 0 && (
+                            <span style={{
+                              background: isActive ? '#FFFFFF' : (item.badgeColor || '#EF4444'),
+                              color: isActive ? '#2563eb' : '#FFFFFF',
+                              fontSize: '0.68rem',
+                              fontWeight: 900,
+                              padding: '0.1rem 0.45rem',
+                              borderRadius: '999px',
+                              lineHeight: 1,
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+                            }}>
+                              {item.badge}
+                            </span>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
       </aside>
 
