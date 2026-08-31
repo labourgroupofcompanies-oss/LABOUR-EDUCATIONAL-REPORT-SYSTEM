@@ -215,6 +215,59 @@ const BlogManager = () => {
   };
   const [formData, setFormData] = useState(initialFormState);
   const [tagInput, setTagInput] = useState('');
+  
+  // Image Inserter Modal State
+  const [imageModalOpen, setImageModalOpen] = useState(false);
+  const [imgModalData, setImgModalData] = useState({
+    url: '',
+    caption: '',
+    align: 'center',
+    width: '80%'
+  });
+  const [uploadingImg, setUploadingImg] = useState(false);
+
+  const handleImageFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please select an image file (PNG, JPG, JPEG, WebP, GIF).');
+      return;
+    }
+
+    setUploadingImg(true);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setImgModalData(prev => ({
+        ...prev,
+        url: event.target.result,
+        caption: prev.caption || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+      }));
+      setUploadingImg(false);
+    };
+    reader.onerror = () => {
+      alert('Could not read image file.');
+      setUploadingImg(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleConfirmInsertImage = () => {
+    if (!imgModalData.url.trim()) {
+      alert('Please provide an image URL or choose a file from your device.');
+      return;
+    }
+
+    const caption = imgModalData.caption.trim() || 'Article illustration';
+    const align = imgModalData.align || 'center';
+    const width = imgModalData.width || '80%';
+
+    const imageMarkdown = `\n![${caption} | ${align} | ${width}](${imgModalData.url})\n`;
+    insertMarkdown(imageMarkdown, '', '');
+
+    setImageModalOpen(false);
+    setImgModalData({ url: '', caption: '', align: 'center', width: '80%' });
+  };
 
   const textareaRef = useRef(null);
 
@@ -1228,10 +1281,32 @@ const BlogManager = () => {
                     
                     <div style={{ width: '1px', height: '20px', background: '#CBD5E1', margin: '0 3px' }} />
 
-                    {/* Image Insertion Helper Buttons */}
-                    <button type="button" title="Insert Centered Image with Caption" onClick={() => insertMarkdown('\n![Caption Description | center | 80%](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #BAE6FD', background: '#F0F9FF', color: '#0369A1', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Centered Image</button>
-                    <button type="button" title="Insert Float Left Image" onClick={() => insertMarkdown('\n![Figure Caption | left | 320px](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Left Float</button>
-                    <button type="button" title="Insert Float Right Image" onClick={() => insertMarkdown('\n![Figure Caption | right | 320px](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Right Float</button>
+                    {/* Image Insertion Buttons & Modal Trigger */}
+                    <button
+                      type="button"
+                      title="Upload or Insert Image with Full Alignment & Size Controls"
+                      onClick={() => setImageModalOpen(true)}
+                      style={{
+                        padding: '0.35rem 0.75rem',
+                        borderRadius: '6px',
+                        border: '1.5px solid #0284C7',
+                        background: 'linear-gradient(135deg, #0284C7, #0369A1)',
+                        color: '#FFFFFF',
+                        fontSize: '0.78rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        boxShadow: '0 2px 8px rgba(2, 132, 199, 0.25)'
+                      }}
+                    >
+                      <i className="fas fa-image"></i>
+                      <span>+ Insert / Upload Image</span>
+                    </button>
+
+                    <button type="button" title="Insert Float Left Image" onClick={() => insertMarkdown('\n![Figure Caption | left | 320px](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Left</button>
+                    <button type="button" title="Insert Float Right Image" onClick={() => insertMarkdown('\n![Figure Caption | right | 320px](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Right</button>
                     
                     <button type="button" title="Official Source Box" onClick={() => insertMarkdown('\n---\n\n## 🏛️ Official Verification & Reference Document\n👉 **[View Original Directive on Ghana Education Service (Direct Page)](https://ges.gov.gh)**\n', '', '')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>🏛️ Official Box</button>
                   </div>
@@ -1436,6 +1511,201 @@ const BlogManager = () => {
               </div>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* 📷 IMAGE INSERTER & UPLOADER MODAL */}
+      {imageModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(9, 9, 11, 0.75)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '1rem'
+          }}
+          onClick={() => setImageModalOpen(false)}
+        >
+          <div
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '20px',
+              width: '100%',
+              maxWidth: '560px',
+              padding: '1.75rem',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '1.25rem'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.85rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: 'linear-gradient(135deg, #0284C7, #0369A1)', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
+                  <i className="fas fa-image"></i>
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 800, color: '#09090B' }}>
+                    Insert Article Image
+                  </h3>
+                  <p style={{ margin: '2px 0 0', fontSize: '0.76rem', color: '#64748B' }}>
+                    Upload an image or paste a link and customize how it appears
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImageModalOpen(false)}
+                style={{ background: 'transparent', border: 'none', fontSize: '1.2rem', cursor: 'pointer', color: '#71717A' }}
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Option A: Upload from Device */}
+            <div style={{ background: '#F8FAFC', border: '1.5px dashed #CBD5E1', borderRadius: '14px', padding: '1.1rem', textAlign: 'center' }}>
+              <i className="fas fa-cloud-arrow-up" style={{ fontSize: '1.8rem', color: '#0284C7', marginBottom: '0.4rem' }}></i>
+              <div style={{ fontSize: '0.86rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.25rem' }}>
+                Upload from Computer / Device
+              </div>
+              <p style={{ fontSize: '0.74rem', color: '#64748B', margin: '0 0 0.75rem 0' }}>
+                Select any PNG, JPG, JPEG, or WebP photo
+              </p>
+              <label style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0.45rem 1rem',
+                borderRadius: '8px',
+                background: '#0284C7',
+                color: '#FFFFFF',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}>
+                <i className="fas fa-folder-open"></i>
+                <span>{uploadingImg ? 'Loading Image...' : 'Choose Local File'}</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageFileUpload}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+
+            {/* Option B: Or Image URL */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#09090B', marginBottom: '0.35rem' }}>
+                Or Web Image URL
+              </label>
+              <input
+                type="text"
+                value={imgModalData.url}
+                onChange={(e) => setImgModalData({ ...imgModalData, url: e.target.value })}
+                placeholder="https://example.com/photo.png"
+                style={{ width: '100%', padding: '0.65rem 0.8rem', borderRadius: '8px', border: '1.5px solid #CBD5E1', fontSize: '0.84rem' }}
+              />
+            </div>
+
+            {/* Caption */}
+            <div>
+              <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#09090B', marginBottom: '0.35rem' }}>
+                Caption / Description Subtitle (Optional)
+              </label>
+              <input
+                type="text"
+                value={imgModalData.caption}
+                onChange={(e) => setImgModalData({ ...imgModalData, caption: e.target.value })}
+                placeholder="e.g. Ghana Education Service Assessment Scoring Table"
+                style={{ width: '100%', padding: '0.65rem 0.8rem', borderRadius: '8px', border: '1.5px solid #CBD5E1', fontSize: '0.84rem' }}
+              />
+            </div>
+
+            {/* Alignment & Width Controls */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#09090B', marginBottom: '0.35rem' }}>
+                  Alignment &amp; Flow
+                </label>
+                <select
+                  value={imgModalData.align}
+                  onChange={(e) => setImgModalData({ ...imgModalData, align: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #CBD5E1', fontSize: '0.82rem', fontWeight: 700, background: '#FFFFFF' }}
+                >
+                  <option value="center">🎯 Centered (Default)</option>
+                  <option value="left">⬅️ Float Left (Text Wraps Right)</option>
+                  <option value="right">➡️ Float Right (Text Wraps Left)</option>
+                  <option value="full">↔️ Full Width (100% Span)</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 800, color: '#09090B', marginBottom: '0.35rem' }}>
+                  Display Width
+                </label>
+                <select
+                  value={imgModalData.width}
+                  onChange={(e) => setImgModalData({ ...imgModalData, width: e.target.value })}
+                  style={{ width: '100%', padding: '0.65rem', borderRadius: '8px', border: '1.5px solid #CBD5E1', fontSize: '0.82rem', fontWeight: 700, background: '#FFFFFF' }}
+                >
+                  <option value="80%">80% Width (Standard)</option>
+                  <option value="full">100% Full Width</option>
+                  <option value="medium">Medium (540px)</option>
+                  <option value="small">Small Card (320px)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Preview Image Thumbnail if available */}
+            {imgModalData.url && (
+              <div style={{ background: '#F8FAFC', padding: '0.75rem', borderRadius: '10px', border: '1px solid #E2E8F0', textAlign: 'center' }}>
+                <img
+                  src={imgModalData.url}
+                  alt="Thumbnail"
+                  style={{ maxHeight: '110px', maxWidth: '100%', objectFit: 'contain', borderRadius: '8px' }}
+                />
+              </div>
+            )}
+
+            {/* Footer Actions */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '10px', borderTop: '1px solid #E2E8F0', paddingTop: '1rem' }}>
+              <button
+                type="button"
+                onClick={() => setImageModalOpen(false)}
+                style={{ padding: '0.6rem 1.15rem', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', fontWeight: 700, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmInsertImage}
+                style={{
+                  padding: '0.6rem 1.4rem',
+                  borderRadius: '8px',
+                  background: 'linear-gradient(135deg, #0284C7, #0369A1)',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  fontWeight: 900,
+                  fontSize: '0.88rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 4px 14px rgba(2, 132, 199, 0.35)'
+                }}
+              >
+                <i className="fas fa-check"></i>
+                <span>Insert Image into Article</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
