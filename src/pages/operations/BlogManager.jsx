@@ -527,6 +527,55 @@ const BlogManager = () => {
             return <hr key={idx} style={{ border: 'none', borderTop: '1px solid #E2E8F0', margin: '1.25rem 0' }} />;
           }
 
+          // Images: ![alt text](url) or ![alt | align | size](url)
+          const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
+          if (imgMatch) {
+            const rawAlt = imgMatch[1] || '';
+            const src = imgMatch[2];
+            const parts = rawAlt.split('|').map(p => p.trim());
+            const caption = parts[0] || '';
+            const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
+            const width = parts.find(p => /^\d+(%|px|rem|em|vw)$/.test(p) || ['small', 'medium', 'large', 'full'].includes(p.toLowerCase())) || (align === 'full' ? '100%' : '100%');
+
+            const widthStyle = width === 'small' ? '320px' : width === 'medium' ? '540px' : width === 'large' ? '760px' : width === 'full' ? '100%' : width;
+
+            return (
+              <figure
+                key={idx}
+                style={{
+                  margin: align === 'left' ? '1.25rem auto 1.25rem 0' : align === 'right' ? '1.25rem 0 1.25rem auto' : '1.5rem auto',
+                  textAlign: align === 'left' ? 'left' : align === 'right' ? 'right' : 'center',
+                  maxWidth: widthStyle,
+                  width: '100%'
+                }}
+              >
+                <img
+                  src={src}
+                  alt={caption || 'Article illustration'}
+                  style={{
+                    width: '100%',
+                    maxHeight: '500px',
+                    objectFit: 'contain',
+                    borderRadius: '14px',
+                    border: '1px solid #E2E8F0',
+                    boxShadow: '0 6px 22px rgba(0, 0, 0, 0.08)',
+                    display: 'inline-block',
+                    background: '#FAFAFA'
+                  }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {caption && (
+                  <figcaption style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.45rem', textAlign: 'center', fontStyle: 'italic', fontWeight: 500 }}>
+                    <i className="fas fa-camera" style={{ marginRight: '5px', fontSize: '0.74rem', opacity: 0.7 }}></i>
+                    {caption}
+                  </figcaption>
+                )}
+              </figure>
+            );
+          }
+
           // Official Verification Box
           if (line.includes('Official Verification & Reference Document') || line.includes('View Original Directive')) {
             return (
@@ -1176,6 +1225,14 @@ const BlogManager = () => {
 
                     <button type="button" title="Table Generator" onClick={() => insertMarkdown('\n| Item | Description | Weight |\n| :--- | :--- | :---: |\n| Class Exercise | Formative Assessment | 10% |\n| Mid-Term Exam | Continuous Check | 20% |\n| Terminal Exam | Final Exam Score | 70% |\n', '', '')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📊 Table</button>
                     <button type="button" title="Insert Link" onClick={() => insertMarkdown('[', '](https://ges.gov.gh)', 'Read Official Notice')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>🔗 Link</button>
+                    
+                    <div style={{ width: '1px', height: '20px', background: '#CBD5E1', margin: '0 3px' }} />
+
+                    {/* Image Insertion Helper Buttons */}
+                    <button type="button" title="Insert Centered Image with Caption" onClick={() => insertMarkdown('\n![Caption Description | center | 80%](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #BAE6FD', background: '#F0F9FF', color: '#0369A1', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Centered Image</button>
+                    <button type="button" title="Insert Float Left Image" onClick={() => insertMarkdown('\n![Figure Caption | left | 320px](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Left Float</button>
+                    <button type="button" title="Insert Float Right Image" onClick={() => insertMarkdown('\n![Figure Caption | right | 320px](', ')\n', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>📷 Right Float</button>
+                    
                     <button type="button" title="Official Source Box" onClick={() => insertMarkdown('\n---\n\n## 🏛️ Official Verification & Reference Document\n👉 **[View Original Directive on Ghana Education Service (Direct Page)](https://ges.gov.gh)**\n', '', '')} style={{ padding: '0.3rem 0.55rem', borderRadius: '6px', border: '1px solid #CBD5E1', background: '#FFFFFF', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer' }}>🏛️ Official Box</button>
                   </div>
 

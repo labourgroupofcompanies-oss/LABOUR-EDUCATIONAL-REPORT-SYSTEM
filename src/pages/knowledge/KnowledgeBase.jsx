@@ -299,6 +299,56 @@ const KnowledgeBase = () => {
             );
           }
 
+          // Images: ![alt text](url) or ![alt | align | size](url)
+          const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
+          if (imgMatch) {
+            const rawAlt = imgMatch[1] || '';
+            const src = imgMatch[2];
+            const parts = rawAlt.split('|').map(p => p.trim());
+            const caption = parts[0] || '';
+            const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
+            const width = parts.find(p => /^\d+(%|px|rem|em|vw)$/.test(p) || ['small', 'medium', 'large', 'full'].includes(p.toLowerCase())) || (align === 'full' ? '100%' : '100%');
+
+            const widthStyle = width === 'small' ? '320px' : width === 'medium' ? '540px' : width === 'large' ? '760px' : width === 'full' ? '100%' : width;
+
+            return (
+              <figure
+                key={idx}
+                style={{
+                  margin: align === 'left' ? '1.25rem auto 1.25rem 0' : align === 'right' ? '1.25rem 0 1.25rem auto' : '1.5rem auto',
+                  textAlign: align === 'left' ? 'left' : align === 'right' ? 'right' : 'center',
+                  maxWidth: widthStyle,
+                  width: '100%'
+                }}
+                className="kb-article-image-figure"
+              >
+                <img
+                  src={src}
+                  alt={caption || 'Article illustration'}
+                  style={{
+                    width: '100%',
+                    maxHeight: '520px',
+                    objectFit: 'contain',
+                    borderRadius: '14px',
+                    border: '1px solid #E2E8F0',
+                    boxShadow: '0 6px 22px rgba(0, 0, 0, 0.08)',
+                    display: 'inline-block',
+                    background: '#FAFAFA'
+                  }}
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                  }}
+                />
+                {caption && (
+                  <figcaption style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.45rem', textAlign: 'center', fontStyle: 'italic', fontWeight: 500 }}>
+                    <i className="fas fa-camera" style={{ marginRight: '5px', fontSize: '0.74rem', opacity: 0.7 }}></i>
+                    {caption}
+                  </figcaption>
+                )}
+              </figure>
+            );
+          }
+
           // Callout boxes: "> ...", "Note: ...", "Tip: ...", "Important: ..."
           if (/^>\s+/.test(line) || /^(Note|Tip|Important|Warning):\s*/i.test(line)) {
             const content = line.replace(/^>\s*/, '');
