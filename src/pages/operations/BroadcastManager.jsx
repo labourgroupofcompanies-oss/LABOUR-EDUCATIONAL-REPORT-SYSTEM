@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import broadcastService from '../../services/broadcastService';
+import blogService from '../../services/blogService';
 
 const PRESET_TEMPLATES = [
   {
@@ -9,6 +10,8 @@ const PRESET_TEMPLATES = [
     severity: 'warning',
     bannerEnabled: true,
     modalEnabled: false,
+    blogUrl: '/blog/ges-continuous-assessment-policy-guide',
+    blogTitle: 'GES Continuous Assessment Policy Guide',
     content: 'All Basic Schools are instructed to complete class assessment entries (30%) and end-of-term examinations (70%) in alignment with the standard Ministry of Education / GES guidelines.',
     actionUrl: '/scores',
     actionLabel: 'Check Scores Status'
@@ -20,6 +23,8 @@ const PRESET_TEMPLATES = [
     severity: 'info',
     bannerEnabled: true,
     modalEnabled: false,
+    blogUrl: '/manuals',
+    blogTitle: 'System Updates & Maintenance Guide',
     content: 'The platform cloud database will undergo routine sync optimization this Sunday from 10:00 PM to 11:30 PM GMT. Offline marks entry will remain fully operational on local devices.',
     actionUrl: '/',
     actionLabel: 'View Dashboard'
@@ -31,6 +36,8 @@ const PRESET_TEMPLATES = [
     severity: 'urgent',
     bannerEnabled: true,
     modalEnabled: true,
+    blogUrl: '/guides',
+    blogTitle: 'Teacher Marks Entry & Submission Guide',
     content: 'Teaching staff are reminded that broadsheet marks entry closes this Friday at 5:00 PM. Please ensure all student assessment marks are entered and synchronized.',
     actionUrl: '/scores',
     actionLabel: 'Enter Marks Now'
@@ -42,6 +49,8 @@ const PRESET_TEMPLATES = [
     severity: 'success',
     bannerEnabled: true,
     modalEnabled: true,
+    blogUrl: '/blog/accessing-terminal-reports-parent-guide',
+    blogTitle: 'Accessing Terminal Reports Parent Guide',
     content: 'Official terminal report cards, conduct remarks, and attendance summaries have been published and signed by the Headteacher. Parents can view and download report summaries.',
     actionUrl: '/parent/dashboard',
     actionLabel: 'View Child Report'
@@ -50,6 +59,7 @@ const PRESET_TEMPLATES = [
 
 const BroadcastManager = () => {
   const [broadcasts, setBroadcasts] = useState([]);
+  const [blogPosts, setBlogPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('list'); // 'list' | 'compose'
   const [successMessage, setSuccessMessage] = useState('');
@@ -61,6 +71,7 @@ const BroadcastManager = () => {
   const [severity, setSeverity] = useState('info');
   const [bannerEnabled, setBannerEnabled] = useState(true);
   const [modalEnabled, setModalEnabled] = useState(false);
+  const [blogUrl, setBlogUrl] = useState('');
   const [actionUrl, setActionUrl] = useState('');
   const [actionLabel, setActionLabel] = useState('View Details');
   const [submitting, setSubmitting] = useState(false);
@@ -72,8 +83,18 @@ const BroadcastManager = () => {
     setLoading(false);
   };
 
+  const loadBlogPosts = async () => {
+    try {
+      const posts = await blogService.getAllPosts();
+      setBlogPosts(posts || []);
+    } catch (e) {
+      console.warn('Could not load blog posts for selector:', e);
+    }
+  };
+
   useEffect(() => {
     loadBroadcasts();
+    loadBlogPosts();
   }, []);
 
   const handleApplyTemplate = (tpl) => {
@@ -83,8 +104,20 @@ const BroadcastManager = () => {
     setSeverity(tpl.severity);
     setBannerEnabled(tpl.bannerEnabled);
     setModalEnabled(tpl.modalEnabled);
+    setBlogUrl(tpl.blogUrl || '');
     setActionUrl(tpl.actionUrl || '');
     setActionLabel(tpl.actionLabel || 'View Details');
+  };
+
+  const handleSelectBlogPost = (postSlug) => {
+    if (!postSlug) return;
+    const post = blogPosts.find(p => p.slug === postSlug || String(p.id) === postSlug);
+    if (post) {
+      const targetSlug = post.slug || `manual-${post.id}`;
+      setBlogUrl(`/blog/${targetSlug}`);
+      if (!title) setTitle(post.title);
+      if (!content && post.summary) setContent(post.summary);
+    }
   };
 
   const handleCreateBroadcast = async (e) => {
@@ -100,6 +133,7 @@ const BroadcastManager = () => {
         severity,
         bannerEnabled,
         modalEnabled,
+        blogUrl: blogUrl.trim() || null,
         actionUrl: actionUrl.trim() || null,
         actionLabel: actionLabel.trim() || 'View Details'
       });
@@ -107,6 +141,7 @@ const BroadcastManager = () => {
       setSuccessMessage('Broadcast announcement successfully dispatched across target portals!');
       setTitle('');
       setContent('');
+      setBlogUrl('');
       setActionUrl('');
       loadBroadcasts();
       setActiveTab('list');
@@ -350,13 +385,20 @@ const BroadcastManager = () => {
                       {b.content}
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.74rem', color: '#71717a', borderTop: '1px solid #E4E4E7', paddingTop: '0.6rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', fontSize: '0.74rem', color: '#71717a', borderTop: '1px solid #E4E4E7', paddingTop: '0.6rem' }}>
                       <div>Dispatched by: <strong>{b.author || 'Platform Super Admin'}</strong> · {new Date(b.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</div>
-                      {b.actionUrl && (
-                        <span style={{ color: '#2563eb', fontWeight: 700 }}>
-                          Action Link: {b.actionLabel} ({b.actionUrl})
-                        </span>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        {b.blogUrl && (
+                          <span style={{ color: '#2563eb', fontWeight: 800, background: '#EFF6FF', padding: '0.15rem 0.5rem', borderRadius: '6px', border: '1px solid #BFDBFE' }}>
+                            <i className="fas fa-book-open"></i> Read More Link: {b.blogUrl}
+                          </span>
+                        )}
+                        {b.actionUrl && (
+                          <span style={{ color: '#059669', fontWeight: 700 }}>
+                            Action Link: {b.actionLabel} ({b.actionUrl})
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -497,11 +539,74 @@ const BroadcastManager = () => {
                 />
               </div>
 
+              {/* Blog Article Link (Read More Destination) */}
+              <div style={{ background: '#F0F9FF', border: '1.5px solid #BAE6FD', borderRadius: '12px', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
+                  <label style={{ fontWeight: 800, fontSize: '0.84rem', color: '#0369A1', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <i className="fas fa-book-open" style={{ color: '#0284C7' }}></i>
+                    <span>Blog Guide Link (Attached to "Read More" Button)</span>
+                  </label>
+                  <span style={{ fontSize: '0.72rem', color: '#0284C7', fontWeight: 600 }}>
+                    When clicked, users go straight to this blog guide
+                  </span>
+                </div>
+
+                {blogPosts.length > 0 && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#0369A1', marginBottom: '0.25rem' }}>
+                      ⚡ Quick Attach from Published Blog Articles &amp; Manuals:
+                    </label>
+                    <select
+                      onChange={(e) => handleSelectBlogPost(e.target.value)}
+                      defaultValue=""
+                      style={{
+                        width: '100%',
+                        padding: '0.6rem 0.75rem',
+                        borderRadius: '8px',
+                        border: '1px solid #7DD3FC',
+                        background: '#FFFFFF',
+                        fontSize: '0.82rem',
+                        fontWeight: 600,
+                        color: '#0F172A'
+                      }}
+                    >
+                      <option value="">-- Choose a published blog post to link --</option>
+                      {blogPosts.map((post) => (
+                        <option key={post.id || post.slug} value={post.slug || post.id}>
+                          📖 {post.title} ({post.category || 'Guide'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 700, color: '#0369A1', marginBottom: '0.25rem' }}>
+                    Or Custom Blog URL / Slug:
+                  </label>
+                  <input
+                    type="text"
+                    value={blogUrl}
+                    onChange={(e) => setBlogUrl(e.target.value)}
+                    placeholder="e.g., /blog/ges-continuous-assessment-policy-guide or https://..."
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.75rem',
+                      borderRadius: '8px',
+                      border: '1px solid #7DD3FC',
+                      background: '#FFFFFF',
+                      fontSize: '0.84rem',
+                      fontWeight: 600
+                    }}
+                  />
+                </div>
+              </div>
+
               {/* Action Button Link (Optional) */}
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem' }}>
                 <div>
                   <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: '#09090b', marginBottom: '0.3rem' }}>
-                    Action URL / Route (Optional)
+                    Secondary Module Route (Optional)
                   </label>
                   <input
                     type="text"
@@ -513,7 +618,7 @@ const BroadcastManager = () => {
                 </div>
                 <div>
                   <label style={{ display: 'block', fontWeight: 700, fontSize: '0.8rem', color: '#09090b', marginBottom: '0.3rem' }}>
-                    Action Button Label
+                    Secondary Button Label
                   </label>
                   <input
                     type="text"

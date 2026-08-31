@@ -52,6 +52,7 @@ const GesNewsWatcher = () => {
       content: `${item.summary}\n\nRead the simplified 2-minute breakdown on the Labour Edu Blog.`,
       targetAudience: item.targetAudience || 'all',
       severity: item.urgency === 'urgent' ? 'urgent' : item.urgency === 'high' ? 'warning' : 'info',
+      blogUrl: `/blog/${blogSlug}`,
       actionUrl: `/blog/${blogSlug}`,
       actionLabel: 'Read Blog Guide',
       officialSourceUrl: item.sourceUrl
@@ -128,6 +129,7 @@ For the complete official document, statutory tables, and signed government noti
             severity: 'warning',
             bannerEnabled: true,
             modalEnabled: false,
+            blogUrl: `/blog/${newPost.slug || blogModalItem.slug}`,
             actionUrl: `/blog/${newPost.slug || blogModalItem.slug}`,
             actionLabel: 'Read Blog Guide'
           });
@@ -157,6 +159,7 @@ For the complete official document, statutory tables, and signed government noti
         severity: broadcastModalItem.severity,
         bannerEnabled: true,
         modalEnabled: false,
+        blogUrl: broadcastModalItem.blogUrl || broadcastModalItem.actionUrl,
         actionUrl: broadcastModalItem.actionUrl,
         actionLabel: broadcastModalItem.actionLabel
       });

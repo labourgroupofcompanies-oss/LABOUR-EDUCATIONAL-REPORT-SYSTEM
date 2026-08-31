@@ -9,6 +9,7 @@ import { startParentSync } from '../../services/syncDown';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
 import HeadteacherGuideModal from '../../components/common/HeadteacherGuideModal';
 import LogoPreloader from '../../components/common/LogoPreloader';
+import PlatformBroadcastBanner from '../../components/common/PlatformBroadcastBanner';
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
@@ -3030,6 +3031,9 @@ const ParentDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* GES & Platform Broadcast Notification Card */}
+      <PlatformBroadcastBanner isParentPortal={true} />
 
       {selectedIdx === null ? (
         /* â”€â”€ SIBLING CARDS GRID VIEW â”€â”€ */

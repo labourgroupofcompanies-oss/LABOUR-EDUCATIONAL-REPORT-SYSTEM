@@ -4,6 +4,7 @@ import { useAuth } from '../../store/AuthContext';
 import { PlatformNotificationProvider, usePlatformNotifications } from '../../context/PlatformNotificationContext';
 import PlatformNotificationBell from '../operations/PlatformNotificationBell';
 import PlatformToastContainer from '../operations/PlatformToastContainer';
+import PlatformBroadcastBanner from '../common/PlatformBroadcastBanner';
 
 const PlatformShellContent = () => {
   const { user } = useAuth();
@@ -164,6 +165,9 @@ const PlatformShellContent = () => {
           </button>
         </div>
       </header>
+
+      {/* GES & Platform Broadcast Notification Card */}
+      <PlatformBroadcastBanner />
 
       {/* Main Content Area */}
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
