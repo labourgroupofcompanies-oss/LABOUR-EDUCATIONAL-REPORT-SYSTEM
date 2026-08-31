@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import Layout from '../../components/layout/Layout';
 import blogService from '../../services/blogService';
 import { useAuth } from '../../store/AuthContext';
@@ -65,6 +66,10 @@ const SECTION_CONFIG = [
 
 const KnowledgeBase = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const { slug } = useParams();
+  const isManualsRoute = location.pathname.startsWith('/manuals');
+
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -85,15 +90,67 @@ const KnowledgeBase = () => {
     };
   }, []);
 
+  // Helper to determine if a post is specifically a manual / operational guide
+  const isManualPost = (post) => {
+    if (!post) return false;
+
+    // 1. Explicit post_type
+    if (post.post_type === 'manual') return true;
+    if (post.post_type === 'blog') return false;
+
+    // 2. Check tags for 'manual' or 'guide'
+    const tagList = Array.isArray(post.tags) 
+      ? post.tags 
+      : (typeof post.tags === 'string' ? post.tags.split(',') : []);
+    const hasManualTag = tagList.some(t => {
+      const lower = t.toLowerCase().trim();
+      return lower.includes('manual') || lower.includes('guide') || lower.includes('how-to');
+    });
+    if (hasManualTag) return true;
+
+    // 3. Exclude pure news / circular categories from Manuals section
+    const cat = (post.category || '').toLowerCase();
+    if (cat.includes('ges direct') || cat.includes('educational news') || cat.includes('directive') || cat.includes('circular')) {
+      return false;
+    }
+
+    // 4. Check featured badge
+    const badge = (post.featured_badge || '').toLowerCase();
+    if (badge.includes('manual') || badge.includes('guide') || badge.includes('admin') || badge.includes('teacher') || badge.includes('billing') || badge.includes('tutorial')) {
+      return true;
+    }
+
+    // 5. Default manual category list
+    const manualCategories = ['administration', 'academics', 'billing & subscriptions', 'user guides', 'training & tutorials', 'security & compliance', 'platform updates'];
+    return manualCategories.includes(cat);
+  };
+
   // Fetch published posts with offline guarantee
   useEffect(() => {
     const loadPosts = async () => {
       setLoading(true);
       try {
         const data = await blogService.getAllPosts();
-        const published = (data || []).filter(p => p.is_published !== false);
+        let published = (data || []).filter(p => p.is_published !== false);
+
+        // If on /manuals route, ONLY display posts tagged/classified as manuals!
+        if (isManualsRoute) {
+          published = published.filter(isManualPost);
+        }
+
         setPosts(published);
-        if (published.length > 0 && !selectedPost) {
+
+        // If specific slug is passed in URL, select that post
+        if (slug) {
+          const matched = published.find(p => p.slug === slug || String(p.id) === slug);
+          if (matched) {
+            setSelectedPost(matched);
+            setMobileReadingMode(true);
+            return;
+          }
+        }
+
+        if (published.length > 0) {
           setSelectedPost(published[0]);
         }
       } catch (err) {
@@ -103,18 +160,20 @@ const KnowledgeBase = () => {
       }
     };
     loadPosts();
-  }, []);
+  }, [isManualsRoute, slug]);
 
-  // Filter posts
+  // Filter posts by search query & category
   const filteredPosts = useMemo(() => {
     return posts.filter(post => {
+      const tagStr = Array.isArray(post.tags) ? post.tags.join(' ') : (post.tags || '');
       const matchesSearch = 
         !searchQuery ||
         post.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         post.summary?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         post.content?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         post.category?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        post.target_role?.toLowerCase().includes(searchQuery.toLowerCase());
+        post.target_role?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        tagStr.toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchesCat = 
         activeCategoryTab === 'ALL' || 
@@ -767,10 +826,13 @@ const KnowledgeBase = () => {
                 </span>
               </div>
               <h1 className="kb-hero-title">
-                User Manuals &amp; Operational Guides
+                {isManualsRoute ? 'User Manuals & Operational Guides' : 'Educational Directives & Blog'}
               </h1>
               <p className="kb-hero-desc">
-                Complete offline-accessible manuals for school setup, mark entry, MoMo wallet subscriptions, and generating terminal report cards.
+                {isManualsRoute 
+                  ? 'Complete offline-accessible manuals for school setup, score recording, wallet subscriptions, and generating terminal report cards.'
+                  : 'Official circulars, curriculum policy guides, examination updates, and school management insights.'
+                }
               </p>
             </div>
 
