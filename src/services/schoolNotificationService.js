@@ -362,6 +362,49 @@ class SchoolNotificationService {
 
         this.realtimeChannels.push(reportChannel);
       }
+
+      // Universal Blog & Directives Channel (for Headteachers, Teachers, and Parents)
+      const blogChannel = supabase
+        .channel(`school_notifications_blog_${Date.now()}`)
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'blog_posts' },
+          (payload) => {
+            const p = payload.new;
+            if (p && p.is_published !== false) {
+              this.addNotification({
+                id: `blog_post_${p.id || Date.now()}`,
+                title: `📰 New Blog Post: ${p.title}`,
+                message: p.summary || 'A new educational policy guide & article has just been published on Labour Edu.',
+                category: 'blog',
+                actionUrl: `/blog/${p.slug || p.id}`,
+                actionLabel: 'Read Article',
+                severity: 'info'
+              }, true, true);
+            }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'blog_posts' },
+          (payload) => {
+            const p = payload.new;
+            if (p && p.is_published !== false) {
+              this.addNotification({
+                id: `blog_post_update_${p.id || Date.now()}`,
+                title: `📰 Updated Blog Post: ${p.title}`,
+                message: p.summary || 'An official educational guide or directive has been updated.',
+                category: 'blog',
+                actionUrl: `/blog/${p.slug || p.id}`,
+                actionLabel: 'Read Article',
+                severity: 'info'
+              }, true, true);
+            }
+          }
+        )
+        .subscribe();
+
+      this.realtimeChannels.push(blogChannel);
     } catch (err) {
       console.warn('[SchoolNotificationService] Realtime subscription error:', err);
     }

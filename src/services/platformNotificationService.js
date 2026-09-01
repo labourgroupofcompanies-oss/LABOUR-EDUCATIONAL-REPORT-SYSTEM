@@ -359,7 +359,30 @@ class PlatformNotificationService {
         )
         .subscribe();
 
-      this.realtimeChannels = [schoolsChannel, supportChannel, billingChannel, timelineChannel];
+      // 5. Channel for Blog Posts / Knowledge Base
+      const blogChannel = supabase
+        .channel('platform_notifications_blog')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'blog_posts' },
+          (payload) => {
+            const p = payload.new;
+            if (p && p.is_published !== false) {
+              this.addNotification({
+                id: `blog_admin_${p.id || Date.now()}`,
+                title: `📰 New Blog Post: ${p.title}`,
+                message: `Category: ${p.category || 'General'} • Target: ${p.target_role || 'All'}`,
+                category: 'blog',
+                actionUrl: '/platform/operations/blog',
+                actionLabel: 'Manage Article',
+                severity: 'info'
+              }, true, true);
+            }
+          }
+        )
+        .subscribe();
+
+      this.realtimeChannels = [schoolsChannel, supportChannel, billingChannel, timelineChannel, blogChannel];
     } catch (err) {
       console.warn('[PlatformNotificationService] Realtime subscription error:', err);
     }

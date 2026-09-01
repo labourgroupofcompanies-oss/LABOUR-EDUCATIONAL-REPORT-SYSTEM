@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
 import { useSyncEngine } from '../../store/SyncEngineProvider';
+import { useSchoolNotifications } from '../../context/SchoolNotificationContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
@@ -9,9 +10,12 @@ import { supabase } from '../../lib/supabase';
 const Sidebar = ({ isOpen, onClose }) => {
   const { user, logout } = useAuth();
   const { pendingCount, failedCount, isSyncing, retryFailed, forceDrain } = useSyncEngine();
+  const { unreadNotifications, markAsRead } = useSchoolNotifications();
   const navigate = useNavigate();
   const isAdmin = user?.role === 'super_admin';
   const [logoError, setLogoError] = useState(false);
+
+  const unreadBlogCount = unreadNotifications?.filter(n => n.category === 'blog').length || 0;
 
   const schoolInfo = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null,
@@ -186,10 +190,31 @@ const Sidebar = ({ isOpen, onClose }) => {
                     end={link.to === '/'}
                     data-tour={`sidebar-${link.to.replace('/', '') || 'dashboard'}`}
                     className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-                    onClick={handleNavClick}
+                    onClick={() => {
+                      handleNavClick();
+                      if (link.to === '/blog') {
+                        unreadNotifications?.filter(n => n.category === 'blog').forEach(n => markAsRead(n.id));
+                      }
+                    }}
                   >
                     <i className={`fas ${link.icon}`}></i>
                     <span>{link.label}</span>
+                    {link.to === '/blog' && unreadBlogCount > 0 && (
+                      <span style={{
+                        marginLeft: 'auto',
+                        background: '#2563EB',
+                        color: '#FFFFFF',
+                        padding: '0.12rem 0.45rem',
+                        borderRadius: '9999px',
+                        fontSize: '0.65rem',
+                        fontWeight: 800,
+                        letterSpacing: '0.02em',
+                        boxShadow: '0 0 8px rgba(37, 99, 235, 0.6)',
+                        animation: 'pulse 2s infinite'
+                      }}>
+                        NEW
+                      </span>
+                    )}
                   </NavLink>
                 </li>
               ))}

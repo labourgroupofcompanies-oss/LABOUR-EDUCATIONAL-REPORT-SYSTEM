@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import blogService from '../../services/blogService';
 import broadcastService from '../../services/broadcastService';
+import schoolNotificationService from '../../services/schoolNotificationService';
+import platformNotificationService from '../../services/platformNotificationService';
 import { useAuth } from '../../store/AuthContext';
 import LogoPreloader from '../../components/common/LogoPreloader';
 
@@ -510,8 +512,37 @@ const BlogManager = () => {
         showToast('New blog post published successfully!');
       }
 
-      // Optional Broadcast Dispatch
-      if (formData.dispatch_broadcast && savedPost) {
+      // Trigger Instant Portal & Platform Notifications if published
+      if (savedPost && savedPost.is_published !== false) {
+        try {
+          // 1. School Notification for Headteachers, Teachers, and Parents
+          schoolNotificationService.addNotification({
+            id: `blog_post_${savedPost.id}_${Date.now()}`,
+            title: `📰 New Blog Post: ${savedPost.title}`,
+            message: savedPost.summary || 'A new educational guide & article has just been published on Labour Edu.',
+            category: 'blog',
+            actionUrl: `/blog/${savedPost.slug || savedPost.id}`,
+            actionLabel: 'Read Blog Post',
+            severity: 'info'
+          }, true, true);
+
+          // 2. Super Admin Platform Notification
+          platformNotificationService.addNotification({
+            id: `blog_admin_${savedPost.id}_${Date.now()}`,
+            title: `📰 New Article Published: ${savedPost.title}`,
+            message: `Category: ${savedPost.category || 'General'} • Target: ${savedPost.target_role || 'All'}`,
+            category: 'blog',
+            actionUrl: `/platform/operations/blog`,
+            actionLabel: 'Manage Article',
+            severity: 'info'
+          }, true, true);
+        } catch (notifErr) {
+          console.warn('[BlogManager] Notification dispatch note:', notifErr);
+        }
+      }
+
+      // Optional Broadcast Banner Dispatch
+      if (formData.dispatch_broadcast && savedPost && savedPost.is_published !== false) {
         try {
           await broadcastService.createBroadcast({
             title: `📢 ${savedPost.title}`,
@@ -521,7 +552,9 @@ const BlogManager = () => {
             bannerEnabled: true,
             modalEnabled: false,
             actionUrl: `/blog/${savedPost.slug || savedPost.id}`,
-            actionLabel: 'Read Blog Guide'
+            actionLabel: 'Read Blog Guide',
+            blogUrl: `/blog/${savedPost.slug || savedPost.id}`,
+            blogTitle: savedPost.title
           });
         } catch (bErr) {
           console.warn('Broadcast dispatch note:', bErr);
