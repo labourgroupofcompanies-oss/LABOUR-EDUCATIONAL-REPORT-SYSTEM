@@ -628,179 +628,297 @@ const BlogManager = () => {
     return trimmed;
   };
 
-  // Complete Markdown Parser & Renderer
+  // Complete Markdown Parser & Renderer with full Table support
   const renderMarkdown = (text) => {
     if (!text) return <p style={{ color: '#94A3B8', fontStyle: 'italic' }}>Live preview will appear here as you type...</p>;
 
     const lines = text.split('\n');
+    const elements = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const rawLine = lines[i];
+      const line = rawLine.trim();
+
+      // 1. Markdown Table Parser
+      if (line.startsWith('|') && (line.endsWith('|') || line.includes('|', 1))) {
+        const tableLines = [];
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          tableLines.push(lines[i].trim());
+          i++;
+        }
+
+        if (tableLines.length >= 2) {
+          const headerCells = tableLines[0].split('|').slice(1, -1).map(c => c.trim());
+          let alignments = [];
+          let dataStartIdx = 1;
+
+          if (tableLines[1].includes('---') || tableLines[1].includes('-')) {
+            const sepCells = tableLines[1].split('|').slice(1, -1).map(c => c.trim());
+            alignments = sepCells.map(c => {
+              if (c.startsWith(':') && c.endsWith(':')) return 'center';
+              if (c.endsWith(':')) return 'right';
+              return 'left';
+            });
+            dataStartIdx = 2;
+          }
+
+          const rows = [];
+          for (let r = dataStartIdx; r < tableLines.length; r++) {
+            const cells = tableLines[r].split('|').slice(1, -1).map(c => c.trim());
+            if (cells.length > 0) rows.push(cells);
+          }
+
+          elements.push(
+            <div key={`table-${i}`} style={{ overflowX: 'auto', margin: '1.25rem 0', borderRadius: '12px', border: '1.5px solid #CBD5E1', boxShadow: '0 2px 10px rgba(0,0,0,0.03)', background: '#FFFFFF' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.86rem' }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #CBD5E1' }}>
+                    {headerCells.map((th, thIdx) => (
+                      <th
+                        key={thIdx}
+                        style={{
+                          padding: '0.7rem 0.9rem',
+                          fontWeight: 800,
+                          color: '#0F172A',
+                          textAlign: alignments[thIdx] || 'left',
+                          borderRight: thIdx < headerCells.length - 1 ? '1px solid #E2E8F0' : 'none'
+                        }}
+                      >
+                        {formatInlineText(th)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rIdx) => (
+                    <tr
+                      key={rIdx}
+                      style={{
+                        background: rIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+                        borderBottom: rIdx < rows.length - 1 ? '1px solid #E2E8F0' : 'none'
+                      }}
+                    >
+                      {row.map((cell, cIdx) => (
+                        <td
+                          key={cIdx}
+                          style={{
+                            padding: '0.65rem 0.9rem',
+                            color: '#334155',
+                            textAlign: alignments[cIdx] || 'left',
+                            borderRight: cIdx < row.length - 1 ? '1px solid #E2E8F0' : 'none',
+                            lineHeight: 1.5
+                          }}
+                        >
+                          {formatInlineText(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+          continue;
+        }
+      }
+
+      // 2. Fenced Code Block: ```
+      if (line.startsWith('```')) {
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !lines[i].trim().startsWith('```')) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length && lines[i].trim().startsWith('```')) {
+          i++; // skip closing ```
+        }
+        elements.push(
+          <pre key={`code-${i}`} style={{ background: '#0F172A', color: '#38BDF8', padding: '1rem 1.25rem', borderRadius: '12px', overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, margin: '1.25rem 0', fontFamily: 'monospace' }}>
+            <code>{codeLines.join('\n')}</code>
+          </pre>
+        );
+        continue;
+      }
+
+      // 3. H1 Title
+      if (/^#\s+/.test(line)) {
+        elements.push(
+          <h1 key={`h1-${i}`} style={{ fontSize: '1.65rem', fontWeight: 900, marginTop: '1.4rem', marginBottom: '0.6rem', color: '#09090B', fontFamily: 'Outfit, sans-serif', borderBottom: '2px solid #E2E8F0', paddingBottom: '0.4rem', letterSpacing: '-0.01em' }}>
+            {formatInlineText(line.replace(/^#\s+/, ''))}
+          </h1>
+        );
+        i++;
+        continue;
+      }
+
+      // 4. H2 Subheading
+      if (/^##\s+/.test(line)) {
+        elements.push(
+          <h2 key={`h2-${i}`} style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: '1.2rem', marginBottom: '0.5rem', color: '#0F172A', fontFamily: 'Outfit, sans-serif' }}>
+            {formatInlineText(line.replace(/^##\s+/, ''))}
+          </h2>
+        );
+        i++;
+        continue;
+      }
+
+      // 5. H3 Subheading
+      if (/^###\s+/.test(line)) {
+        elements.push(
+          <h3 key={`h3-${i}`} style={{ fontSize: '1.08rem', fontWeight: 700, marginTop: '1rem', marginBottom: '0.4rem', color: '#1E293B' }}>
+            {formatInlineText(line.replace(/^###\s+/, ''))}
+          </h3>
+        );
+        i++;
+        continue;
+      }
+
+      // 6. Horizontal Divider
+      if (line === '---' || line === '***') {
+        elements.push(<hr key={`hr-${i}`} style={{ border: 'none', borderTop: '1px solid #E2E8F0', margin: '1.25rem 0' }} />);
+        i++;
+        continue;
+      }
+
+      // 7. Images: ![alt text](url) or ![alt | align | size](url)
+      const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
+      if (imgMatch) {
+        const rawAlt = imgMatch[1] || '';
+        const rawSrc = imgMatch[2];
+        const src = normalizeImageUrl(rawSrc);
+        const parts = rawAlt.split('|').map(p => p.trim());
+        const caption = parts[0] || '';
+        const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
+        const width = parts.find(p => /^\d+(%|px|rem|em|vw)$/.test(p) || ['small', 'medium', 'large', 'full'].includes(p.toLowerCase())) || (align === 'full' ? '100%' : '100%');
+
+        const widthStyle = width === 'small' ? '320px' : width === 'medium' ? '540px' : width === 'large' ? '760px' : width === 'full' ? '100%' : width;
+
+        elements.push(
+          <figure
+            key={`img-${i}`}
+            style={{
+              margin: align === 'left' ? '1.25rem auto 1.25rem 0' : align === 'right' ? '1.25rem 0 1.25rem auto' : '1.5rem auto',
+              textAlign: align === 'left' ? 'left' : align === 'right' ? 'right' : 'center',
+              maxWidth: widthStyle,
+              width: '100%'
+            }}
+          >
+            <img
+              src={src}
+              alt={caption || 'Article illustration'}
+              style={{
+                width: '100%',
+                maxHeight: '500px',
+                objectFit: 'contain',
+                borderRadius: '14px',
+                border: '1px solid #E2E8F0',
+                boxShadow: '0 6px 22px rgba(0, 0, 0, 0.08)',
+                display: 'inline-block',
+                background: '#FAFAFA'
+              }}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                if (src.includes('lh3.googleusercontent.com/d/')) {
+                  const id = src.split('/d/')[1];
+                  e.currentTarget.src = `https://drive.google.com/uc?export=view&id=${id}`;
+                }
+              }}
+            />
+            {caption && (
+              <figcaption style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.45rem', textAlign: 'center', fontStyle: 'italic', fontWeight: 500 }}>
+                <i className="fas fa-camera" style={{ marginRight: '5px', fontSize: '0.74rem', opacity: 0.7 }}></i>
+                {caption}
+              </figcaption>
+            )}
+          </figure>
+        );
+        i++;
+        continue;
+      }
+
+      // 8. Official Verification Box
+      if (line.includes('Official Verification & Reference Document') || line.includes('View Original Directive')) {
+        elements.push(
+          <div key={`verif-${i}`} style={{ background: '#F8FAFC', border: '1.5px solid #CBD5E1', borderLeft: '5px solid #2563EB', borderRadius: '12px', padding: '1rem 1.2rem', margin: '1rem 0' }}>
+            <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+              🏛️ Official Government Source Document
+            </div>
+            <div style={{ color: '#0F172A', fontWeight: 700 }}>
+              {formatInlineText(line)}
+            </div>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 9. Callout Alert: Note, Tip, Warning, Info
+      if (/^>\s*/.test(line) || /^(Note|Tip|Important|Warning):\s*/i.test(line)) {
+        const clean = line.replace(/^>\s*/, '');
+        let alertBg = '#EFF6FF', alertBorder = '#BFDBFE', alertColor = '#1E40AF', icon = 'fa-info-circle';
+
+        if (clean.toLowerCase().includes('warning') || clean.toLowerCase().includes('advisory') || /^Warning:/i.test(line)) {
+          alertBg = '#FEF2F2'; alertBorder = '#FECACA'; alertColor = '#991B1B'; icon = 'fa-triangle-exclamation';
+        } else if (clean.toLowerCase().includes('tip') || clean.toLowerCase().includes('pro tip') || /^Tip:/i.test(line)) {
+          alertBg = '#ECFDF5'; alertBorder = '#A7F3D0'; alertColor = '#065F46'; icon = 'fa-lightbulb';
+        }
+
+        elements.push(
+          <div key={`alert-${i}`} style={{ background: alertBg, border: `1px solid ${alertBorder}`, borderRadius: '10px', padding: '0.85rem 1.15rem', margin: '0.85rem 0', color: alertColor, fontSize: '0.88rem', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <i className={`fas ${icon}`} style={{ marginTop: '3px', flexShrink: 0, fontSize: '1rem' }}></i>
+            <div style={{ flex: 1 }}>{formatInlineText(clean)}</div>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 10. Step items: e.g. "Step 1. ..."
+      if (/^(?:Step\s+)?\d+[\.:\)]\s+/i.test(line)) {
+        const match = line.match(/^(?:Step\s+)?(\d+)[\.:\)]\s*(.*)/i);
+        const num = match ? match[1] : '1';
+        const content = match ? match[2] : line;
+        elements.push(
+          <div key={`step-${i}`} style={{ paddingLeft: '0.25rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+            <span style={{ fontWeight: 800, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', minWidth: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', flexShrink: 0, marginTop: '2px' }}>
+              {num}
+            </span>
+            <span style={{ flex: 1, color: '#334155' }}>{formatInlineText(content)}</span>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 11. Bullet list items
+      if (/^[-*•]\s+/.test(line)) {
+        elements.push(
+          <div key={`bullet-${i}`} style={{ paddingLeft: '0.5rem', marginBottom: '0.4rem', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ color: '#2563EB', fontSize: '0.85rem' }}>●</span>
+            <span style={{ flex: 1, color: '#334155' }}>{formatInlineText(line.replace(/^[-*•]\s+/, ''))}</span>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 12. Empty line spacing
+      if (!line) {
+        elements.push(<div key={`space-${i}`} style={{ height: '0.5rem' }} />);
+        i++;
+        continue;
+      }
+
+      // 13. Paragraph
+      elements.push(<p key={`p-${i}`} style={{ margin: '0 0 0.55rem 0', color: '#334155' }}>{formatInlineText(line)}</p>);
+      i++;
+    }
+
     return (
       <div style={{ lineHeight: '1.75', color: '#1E293B', fontSize: '0.94rem' }}>
-        {lines.map((rawLine, idx) => {
-          const line = rawLine.trim();
-
-          // H1 Title
-          if (/^#\s+/.test(line)) {
-            return (
-              <h1 key={idx} style={{ fontSize: '1.65rem', fontWeight: 900, marginTop: '1.4rem', marginBottom: '0.6rem', color: '#09090B', fontFamily: 'Outfit, sans-serif', borderBottom: '2px solid #E2E8F0', paddingBottom: '0.4rem', letterSpacing: '-0.01em' }}>
-                {formatInlineText(line.replace(/^#\s+/, ''))}
-              </h1>
-            );
-          }
-
-          // H2 Subheading
-          if (/^##\s+/.test(line)) {
-            return (
-              <h2 key={idx} style={{ fontSize: '1.3rem', fontWeight: 800, marginTop: '1.2rem', marginBottom: '0.5rem', color: '#0F172A', fontFamily: 'Outfit, sans-serif' }}>
-                {formatInlineText(line.replace(/^##\s+/, ''))}
-              </h2>
-            );
-          }
-
-          // H3 Subheading
-          if (/^###\s+/.test(line)) {
-            return (
-              <h3 key={idx} style={{ fontSize: '1.08rem', fontWeight: 700, marginTop: '1rem', marginBottom: '0.4rem', color: '#1E293B' }}>
-                {formatInlineText(line.replace(/^###\s+/, ''))}
-              </h3>
-            );
-          }
-
-          // Horizontal Divider
-          if (line === '---' || line === '***') {
-            return <hr key={idx} style={{ border: 'none', borderTop: '1px solid #E2E8F0', margin: '1.25rem 0' }} />;
-          }
-
-          // Images: ![alt text](url) or ![alt | align | size](url)
-          const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
-          if (imgMatch) {
-            const rawAlt = imgMatch[1] || '';
-            const rawSrc = imgMatch[2];
-            const src = normalizeImageUrl(rawSrc);
-            const parts = rawAlt.split('|').map(p => p.trim());
-            const caption = parts[0] || '';
-            const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
-            const width = parts.find(p => /^\d+(%|px|rem|em|vw)$/.test(p) || ['small', 'medium', 'large', 'full'].includes(p.toLowerCase())) || (align === 'full' ? '100%' : '100%');
-
-            const widthStyle = width === 'small' ? '320px' : width === 'medium' ? '540px' : width === 'large' ? '760px' : width === 'full' ? '100%' : width;
-
-            return (
-              <figure
-                key={idx}
-                style={{
-                  margin: align === 'left' ? '1.25rem auto 1.25rem 0' : align === 'right' ? '1.25rem 0 1.25rem auto' : '1.5rem auto',
-                  textAlign: align === 'left' ? 'left' : align === 'right' ? 'right' : 'center',
-                  maxWidth: widthStyle,
-                  width: '100%'
-                }}
-              >
-                <img
-                  src={src}
-                  alt={caption || 'Article illustration'}
-                  style={{
-                    width: '100%',
-                    maxHeight: '500px',
-                    objectFit: 'contain',
-                    borderRadius: '14px',
-                    border: '1px solid #E2E8F0',
-                    boxShadow: '0 6px 22px rgba(0, 0, 0, 0.08)',
-                    display: 'inline-block',
-                    background: '#FAFAFA'
-                  }}
-                  onError={(e) => {
-                    e.currentTarget.onerror = null;
-                    if (src.includes('lh3.googleusercontent.com/d/')) {
-                      const id = src.split('/d/')[1];
-                      e.currentTarget.src = `https://drive.google.com/uc?export=view&id=${id}`;
-                    }
-                  }}
-                />
-                {caption && (
-                  <figcaption style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.45rem', textAlign: 'center', fontStyle: 'italic', fontWeight: 500 }}>
-                    <i className="fas fa-camera" style={{ marginRight: '5px', fontSize: '0.74rem', opacity: 0.7 }}></i>
-                    {caption}
-                  </figcaption>
-                )}
-              </figure>
-            );
-          }
-
-          // Official Verification Box
-          if (line.includes('Official Verification & Reference Document') || line.includes('View Original Directive')) {
-            return (
-              <div key={idx} style={{ background: '#F8FAFC', border: '1.5px solid #CBD5E1', borderLeft: '5px solid #2563EB', borderRadius: '12px', padding: '1rem 1.2rem', margin: '1rem 0' }}>
-                <div style={{ fontSize: '0.78rem', color: '#64748B', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-                  🏛️ Official Government Source Document
-                </div>
-                <div style={{ color: '#0F172A', fontWeight: 700 }}>
-                  {formatInlineText(line)}
-                </div>
-              </div>
-            );
-          }
-
-          // Callout Alert: Note, Tip, Warning, Info
-          if (/^>\s*/.test(line)) {
-            const clean = line.replace(/^>\s*/, '');
-            let alertBg = '#EFF6FF', alertBorder = '#BFDBFE', alertColor = '#1E40AF', icon = 'fa-info-circle';
-
-            if (clean.toLowerCase().includes('warning') || clean.toLowerCase().includes('advisory')) {
-              alertBg = '#FEF2F2'; alertBorder = '#FECACA'; alertColor = '#991B1B'; icon = 'fa-triangle-exclamation';
-            } else if (clean.toLowerCase().includes('tip') || clean.toLowerCase().includes('pro tip')) {
-              alertBg = '#ECFDF5'; alertBorder = '#A7F3D0'; alertColor = '#065F46'; icon = 'fa-lightbulb';
-            }
-
-            return (
-              <div key={idx} style={{ background: alertBg, border: `1px solid ${alertBorder}`, borderRadius: '10px', padding: '0.85rem 1.15rem', margin: '0.85rem 0', color: alertColor, fontSize: '0.88rem', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-                <i className={`fas ${icon}`} style={{ marginTop: '3px', flexShrink: 0, fontSize: '1rem' }}></i>
-                <div style={{ flex: 1 }}>{formatInlineText(clean)}</div>
-              </div>
-            );
-          }
-
-          // Step items: e.g. "Step 1. ..."
-          if (/^(?:Step\s+)?\d+[\.:\)]\s+/i.test(line)) {
-            const match = line.match(/^(?:Step\s+)?(\d+)[\.:\)]\s*(.*)/i);
-            const num = match ? match[1] : '1';
-            const content = match ? match[2] : line;
-            return (
-              <div key={idx} style={{ paddingLeft: '0.25rem', marginBottom: '0.5rem', display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <span style={{ fontWeight: 800, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', minWidth: '24px', height: '24px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.74rem', flexShrink: 0, marginTop: '2px' }}>
-                  {num}
-                </span>
-                <span style={{ flex: 1, color: '#334155' }}>{formatInlineText(content)}</span>
-              </div>
-            );
-          }
-
-          // Bullet list items
-          if (/^[-*•]\s+/.test(line)) {
-            return (
-              <div key={idx} style={{ paddingLeft: '0.5rem', marginBottom: '0.4rem', display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                <span style={{ color: '#2563EB', fontSize: '0.85rem' }}>●</span>
-                <span style={{ flex: 1, color: '#334155' }}>{formatInlineText(line.replace(/^[-*•]\s+/, ''))}</span>
-              </div>
-            );
-          }
-
-          // Table row: | Column 1 | Column 2 |
-          if (line.startsWith('|') && line.endsWith('|')) {
-            const cells = line.split('|').filter((_, i, arr) => i > 0 && i < arr.length - 1).map(c => c.trim());
-            const isHeaderDivider = cells.every(c => /^:?-+:?$/.test(c));
-            if (isHeaderDivider) return null;
-
-            return (
-              <div key={idx} style={{ display: 'grid', gridTemplateColumns: `repeat(${cells.length}, 1fr)`, gap: '10px', background: '#F8FAFC', border: '1px solid #E2E8F0', padding: '0.5rem 0.75rem', fontSize: '0.82rem', fontWeight: 600 }}>
-                {cells.map((cell, cIdx) => (
-                  <div key={cIdx}>{formatInlineText(cell)}</div>
-                ))}
-              </div>
-            );
-          }
-
-          if (!line) return <div key={idx} style={{ height: '0.5rem' }} />;
-
-          return <p key={idx} style={{ margin: '0 0 0.55rem 0', color: '#334155' }}>{formatInlineText(line)}</p>;
-        })}
+        {elements}
       </div>
     );
   };

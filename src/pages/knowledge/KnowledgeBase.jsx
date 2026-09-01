@@ -197,7 +197,7 @@ const KnowledgeBase = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Helper to format inline text cleanly without raw markdown symbols (*, **, #, etc.)
+  // Helper to format inline text cleanly (bold, italic, inline code, links)
   const formatInlineText = (text) => {
     if (!text) return '';
     const clean = text
@@ -205,36 +205,53 @@ const KnowledgeBase = () => {
       .replace(/^>\s*/, '');
 
     const parts = [];
-    const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3/g;
+    // Matches: **bold**, *italic*, `code`, and [link](url)
+    const regex = /(\*\*|__)(.*?)\1|(\*|_)(.*?)\3|(`)(.*?)\5|\[(.*?)\]\((.*?)\)/g;
     let lastIndex = 0;
     let match;
     let key = 0;
 
     while ((match = regex.exec(clean)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(clean.substring(lastIndex, match.index).replace(/[*#]/g, ''));
+        parts.push(clean.substring(lastIndex, match.index));
       }
       if (match[2] !== undefined) {
+        // **bold**
         parts.push(
-          <strong key={key++} style={{ fontWeight: 700, color: 'inherit' }}>
-            {match[2].replace(/[*#_]/g, '')}
+          <strong key={key++} style={{ fontWeight: 800, color: 'inherit' }}>
+            {match[2]}
           </strong>
         );
       } else if (match[4] !== undefined) {
+        // *italic*
         parts.push(
           <span key={key++} style={{ fontStyle: 'italic' }}>
-            {match[4].replace(/[*#_]/g, '')}
+            {match[4]}
           </span>
+        );
+      } else if (match[6] !== undefined) {
+        // `code`
+        parts.push(
+          <code key={key++} style={{ background: '#F1F5F9', color: '#0F172A', padding: '0.15rem 0.4rem', borderRadius: '5px', fontSize: '0.85em', fontFamily: 'monospace' }}>
+            {match[6]}
+          </code>
+        );
+      } else if (match[7] !== undefined && match[8] !== undefined) {
+        // [link](url)
+        parts.push(
+          <a key={key++} href={match[8]} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', fontWeight: 700, textDecoration: 'underline' }}>
+            {match[7]}
+          </a>
         );
       }
       lastIndex = regex.lastIndex;
     }
 
     if (lastIndex < clean.length) {
-      parts.push(clean.substring(lastIndex).replace(/[*#]/g, ''));
+      parts.push(clean.substring(lastIndex));
     }
 
-    return parts.length > 0 ? parts : clean.replace(/[*#]/g, '');
+    return parts.length > 0 ? parts : clean;
   };
 
   // Helper to normalize image URLs (converting Google Drive, Dropbox, etc. to direct image CDNs)
@@ -264,140 +281,270 @@ const KnowledgeBase = () => {
     return trimmed;
   };
 
-  // Helper to render formatted article and manual content
+  // Complete Markdown Parser & Renderer with full Table support
   const renderMarkdown = (text) => {
     if (!text) return <p style={{ color: '#71717a' }}>Select an article to view instructions...</p>;
 
     const lines = text.split('\n');
+    const elements = [];
+    let i = 0;
+
+    while (i < lines.length) {
+      const rawLine = lines[i];
+      const line = rawLine.trim();
+
+      // 1. Markdown Table Parser
+      if (line.startsWith('|') && (line.endsWith('|') || line.includes('|', 1))) {
+        const tableLines = [];
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          tableLines.push(lines[i].trim());
+          i++;
+        }
+
+        if (tableLines.length >= 2) {
+          const headerCells = tableLines[0].split('|').slice(1, -1).map(c => c.trim());
+          let alignments = [];
+          let dataStartIdx = 1;
+
+          if (tableLines[1].includes('---') || tableLines[1].includes('-')) {
+            const sepCells = tableLines[1].split('|').slice(1, -1).map(c => c.trim());
+            alignments = sepCells.map(c => {
+              if (c.startsWith(':') && c.endsWith(':')) return 'center';
+              if (c.endsWith(':')) return 'right';
+              return 'left';
+            });
+            dataStartIdx = 2;
+          }
+
+          const rows = [];
+          for (let r = dataStartIdx; r < tableLines.length; r++) {
+            const cells = tableLines[r].split('|').slice(1, -1).map(c => c.trim());
+            if (cells.length > 0) rows.push(cells);
+          }
+
+          elements.push(
+            <div key={`table-${i}`} style={{ overflowX: 'auto', margin: '1.5rem 0', borderRadius: '12px', border: '1.5px solid #CBD5E1', boxShadow: '0 2px 10px rgba(0,0,0,0.03)', background: '#FFFFFF' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '2px solid #CBD5E1' }}>
+                    {headerCells.map((th, thIdx) => (
+                      <th
+                        key={thIdx}
+                        style={{
+                          padding: '0.75rem 1rem',
+                          fontWeight: 800,
+                          color: '#0F172A',
+                          textAlign: alignments[thIdx] || 'left',
+                          borderRight: thIdx < headerCells.length - 1 ? '1px solid #E2E8F0' : 'none'
+                        }}
+                      >
+                        {formatInlineText(th)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rIdx) => (
+                    <tr
+                      key={rIdx}
+                      style={{
+                        background: rIdx % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+                        borderBottom: rIdx < rows.length - 1 ? '1px solid #E2E8F0' : 'none'
+                      }}
+                    >
+                      {row.map((cell, cIdx) => (
+                        <td
+                          key={cIdx}
+                          style={{
+                            padding: '0.7rem 1rem',
+                            color: '#334155',
+                            textAlign: alignments[cIdx] || 'left',
+                            borderRight: cIdx < row.length - 1 ? '1px solid #E2E8F0' : 'none',
+                            lineHeight: 1.5
+                          }}
+                        >
+                          {formatInlineText(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+          continue;
+        }
+      }
+
+      // 2. Fenced Code Block: ```
+      if (line.startsWith('```')) {
+        const codeLines = [];
+        i++;
+        while (i < lines.length && !lines[i].trim().startsWith('```')) {
+          codeLines.push(lines[i]);
+          i++;
+        }
+        if (i < lines.length && lines[i].trim().startsWith('```')) {
+          i++; // skip closing ```
+        }
+        elements.push(
+          <pre key={`code-${i}`} style={{ background: '#0F172A', color: '#38BDF8', padding: '1rem 1.25rem', borderRadius: '12px', overflowX: 'auto', fontSize: '0.85rem', lineHeight: 1.6, margin: '1.25rem 0', fontFamily: 'monospace' }}>
+            <code>{codeLines.join('\n')}</code>
+          </pre>
+        );
+        continue;
+      }
+
+      // 3. Headings with # or ## or ###
+      if (/^#{1,2}\s+/.test(line)) {
+        const headingText = line.replace(/^#{1,2}\s+/, '');
+        elements.push(
+          <h2 key={`h2-${i}`} className="kb-h2">
+            {formatInlineText(headingText)}
+          </h2>
+        );
+        i++;
+        continue;
+      }
+      if (/^#{3,6}\s+/.test(line)) {
+        const headingText = line.replace(/^#{3,6}\s+/, '');
+        elements.push(
+          <h3 key={`h3-${i}`} className="kb-h3">
+            {formatInlineText(headingText)}
+          </h3>
+        );
+        i++;
+        continue;
+      }
+
+      // 4. Horizontal divider
+      if (line === '---' || line === '***' || line === '___') {
+        elements.push(<hr key={`hr-${i}`} className="kb-divider" />);
+        i++;
+        continue;
+      }
+
+      // 5. Images: ![alt text](url) or ![alt | align | size](url)
+      const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
+      if (imgMatch) {
+        const rawAlt = imgMatch[1] || '';
+        const rawSrc = imgMatch[2];
+        const src = normalizeImageUrl(rawSrc);
+        const parts = rawAlt.split('|').map(p => p.trim());
+        const caption = parts[0] || '';
+        const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
+        const width = parts.find(p => /^\d+(%|px|rem|em|vw)$/.test(p) || ['small', 'medium', 'large', 'full'].includes(p.toLowerCase())) || (align === 'full' ? '100%' : '100%');
+
+        const widthStyle = width === 'small' ? '320px' : width === 'medium' ? '540px' : width === 'large' ? '760px' : width === 'full' ? '100%' : width;
+
+        elements.push(
+          <figure
+            key={`img-${i}`}
+            style={{
+              margin: align === 'left' ? '1.25rem auto 1.25rem 0' : align === 'right' ? '1.25rem 0 1.25rem auto' : '1.5rem auto',
+              textAlign: align === 'left' ? 'left' : align === 'right' ? 'right' : 'center',
+              maxWidth: widthStyle,
+              width: '100%'
+            }}
+            className="kb-article-image-figure"
+          >
+            <img
+              src={src}
+              alt={caption || 'Article illustration'}
+              style={{
+                width: '100%',
+                maxHeight: '520px',
+                objectFit: 'contain',
+                borderRadius: '14px',
+                border: '1px solid #E2E8F0',
+                boxShadow: '0 6px 22px rgba(0, 0, 0, 0.08)',
+                display: 'inline-block',
+                background: '#FAFAFA'
+              }}
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                if (src.includes('lh3.googleusercontent.com/d/')) {
+                  const id = src.split('/d/')[1];
+                  e.currentTarget.src = `https://drive.google.com/uc?export=view&id=${id}`;
+                }
+              }}
+            />
+            {caption && (
+              <figcaption style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.45rem', textAlign: 'center', fontStyle: 'italic', fontWeight: 500 }}>
+                <i className="fas fa-camera" style={{ marginRight: '5px', fontSize: '0.74rem', opacity: 0.7 }}></i>
+                {caption}
+              </figcaption>
+            )}
+          </figure>
+        );
+        i++;
+        continue;
+      }
+
+      // 6. Numbered steps: e.g. "1. Open...", "Step 1: Open...", "Step 1. Open..."
+      if (/^(?:Step\s+)?\d+[\.:\)]\s+/i.test(line)) {
+        const match = line.match(/^(?:Step\s+)?(\d+)[\.:\)]\s*(.*)/i);
+        const num = match ? match[1] : '1';
+        const content = match ? match[2] : line;
+        elements.push(
+          <div key={`step-${i}`} className="kb-step-item">
+            <span className="kb-step-badge">
+              {num}
+            </span>
+            <span className="kb-step-text">{formatInlineText(content)}</span>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 7. Bullet items: "- ", "* ", "• "
+      if (/^(\*|-|•)\s+/.test(line)) {
+        const content = line.replace(/^(\*|-|•)\s+/, '');
+        elements.push(
+          <div key={`bullet-${i}`} className="kb-bullet-item">
+            <span className="kb-bullet-dot">●</span>
+            <span className="kb-bullet-text">{formatInlineText(content)}</span>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 8. Callout boxes: "> ...", "Note: ...", "Tip: ...", "Important: ..."
+      if (/^>\s+/.test(line) || /^(Note|Tip|Important|Warning):\s*/i.test(line)) {
+        const content = line.replace(/^>\s*/, '');
+        let alertBg = '#EFF6FF', alertBorder = '#BFDBFE', alertColor = '#1e40af', icon = 'fa-circle-info';
+        if (/warning/i.test(content) || /^Warning:/i.test(line)) {
+          alertBg = '#FEF2F2'; alertBorder = '#FECACA'; alertColor = '#991B1B'; icon = 'fa-triangle-exclamation';
+        } else if (/tip/i.test(content) || /^Tip:/i.test(line)) {
+          alertBg = '#ECFDF5'; alertBorder = '#A7F3D0'; alertColor = '#065F46'; icon = 'fa-lightbulb';
+        }
+        elements.push(
+          <div key={`callout-${i}`} className="kb-callout-box" style={{ background: alertBg, border: `1px solid ${alertBorder}`, color: alertColor }}>
+            <i className={`fas ${icon}`} style={{ marginTop: '2px', flexShrink: 0 }}></i>
+            <div>{formatInlineText(content)}</div>
+          </div>
+        );
+        i++;
+        continue;
+      }
+
+      // 9. Empty line spacing
+      if (!line) {
+        elements.push(<div key={`space-${i}`} style={{ height: '0.65rem' }} />);
+        i++;
+        continue;
+      }
+
+      // 10. Standard paragraph
+      elements.push(<p key={`p-${i}`} className="kb-paragraph">{formatInlineText(line)}</p>);
+      i++;
+    }
+
     return (
       <div className="kb-article-content">
-        {lines.map((rawLine, idx) => {
-          const line = rawLine.trim();
-
-          // Headings with # or ## or ###
-          if (/^#{1,2}\s+/.test(line)) {
-            const headingText = line.replace(/^#{1,2}\s+/, '');
-            return (
-              <h2 key={idx} className="kb-h2">
-                {formatInlineText(headingText)}
-              </h2>
-            );
-          }
-          if (/^#{3,6}\s+/.test(line)) {
-            const headingText = line.replace(/^#{3,6}\s+/, '');
-            return (
-              <h3 key={idx} className="kb-h3">
-                {formatInlineText(headingText)}
-              </h3>
-            );
-          }
-
-          // Horizontal divider
-          if (line === '---' || line === '***' || line === '___') {
-            return <hr key={idx} className="kb-divider" />;
-          }
-
-          // Numbered steps: e.g. "1. Open...", "Step 1: Open...", "Step 1. Open..."
-          if (/^(?:Step\s+)?\d+[\.:\)]\s+/i.test(line)) {
-            const match = line.match(/^(?:Step\s+)?(\d+)[\.:\)]\s*(.*)/i);
-            const num = match ? match[1] : '1';
-            const content = match ? match[2] : line;
-            return (
-              <div key={idx} className="kb-step-item">
-                <span className="kb-step-badge">
-                  {num}
-                </span>
-                <span className="kb-step-text">{formatInlineText(content)}</span>
-              </div>
-            );
-          }
-
-          // Bullet items: "- ", "* ", "• "
-          if (/^(\*|-|•)\s+/.test(line)) {
-            const content = line.replace(/^(\*|-|•)\s+/, '');
-            return (
-              <div key={idx} className="kb-bullet-item">
-                <span className="kb-bullet-dot">●</span>
-                <span className="kb-bullet-text">{formatInlineText(content)}</span>
-              </div>
-            );
-          }
-
-          // Images: ![alt text](url) or ![alt | align | size](url)
-          const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
-          if (imgMatch) {
-            const rawAlt = imgMatch[1] || '';
-            const rawSrc = imgMatch[2];
-            const src = normalizeImageUrl(rawSrc);
-            const parts = rawAlt.split('|').map(p => p.trim());
-            const caption = parts[0] || '';
-            const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
-            const width = parts.find(p => /^\d+(%|px|rem|em|vw)$/.test(p) || ['small', 'medium', 'large', 'full'].includes(p.toLowerCase())) || (align === 'full' ? '100%' : '100%');
-
-            const widthStyle = width === 'small' ? '320px' : width === 'medium' ? '540px' : width === 'large' ? '760px' : width === 'full' ? '100%' : width;
-
-            return (
-              <figure
-                key={idx}
-                style={{
-                  margin: align === 'left' ? '1.25rem auto 1.25rem 0' : align === 'right' ? '1.25rem 0 1.25rem auto' : '1.5rem auto',
-                  textAlign: align === 'left' ? 'left' : align === 'right' ? 'right' : 'center',
-                  maxWidth: widthStyle,
-                  width: '100%'
-                }}
-                className="kb-article-image-figure"
-              >
-                <img
-                  src={src}
-                  alt={caption || 'Article illustration'}
-                  style={{
-                    width: '100%',
-                    maxHeight: '520px',
-                    objectFit: 'contain',
-                    borderRadius: '14px',
-                    border: '1px solid #E2E8F0',
-                    boxShadow: '0 6px 22px rgba(0, 0, 0, 0.08)',
-                    display: 'inline-block',
-                    background: '#FAFAFA'
-                  }}
-                  onError={(e) => {
-                    e.currentTarget.onerror = null;
-                    // If lh3 failed, try uc?export=view as secondary fallback for google drive
-                    if (src.includes('lh3.googleusercontent.com/d/')) {
-                      const id = src.split('/d/')[1];
-                      e.currentTarget.src = `https://drive.google.com/uc?export=view&id=${id}`;
-                    }
-                  }}
-                />
-                {caption && (
-                  <figcaption style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '0.45rem', textAlign: 'center', fontStyle: 'italic', fontWeight: 500 }}>
-                    <i className="fas fa-camera" style={{ marginRight: '5px', fontSize: '0.74rem', opacity: 0.7 }}></i>
-                    {caption}
-                  </figcaption>
-                )}
-              </figure>
-            );
-          }
-
-          // Callout boxes: "> ...", "Note: ...", "Tip: ...", "Important: ..."
-          if (/^>\s+/.test(line) || /^(Note|Tip|Important|Warning):\s*/i.test(line)) {
-            const content = line.replace(/^>\s*/, '');
-            return (
-              <div key={idx} className="kb-callout-box">
-                <i className="fas fa-circle-info" style={{ color: '#2563eb', marginTop: '2px', flexShrink: 0 }}></i>
-                <div>{formatInlineText(content)}</div>
-              </div>
-            );
-          }
-
-          // Empty line spacing
-          if (!line) {
-            return <div key={idx} style={{ height: '0.65rem' }} />;
-          }
-
-          // Standard paragraph
-          return <p key={idx} className="kb-paragraph">{formatInlineText(line)}</p>;
-        })}
+        {elements}
       </div>
     );
   };
