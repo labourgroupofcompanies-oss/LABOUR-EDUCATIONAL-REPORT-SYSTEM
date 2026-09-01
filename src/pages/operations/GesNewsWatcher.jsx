@@ -642,9 +642,42 @@ For the complete official document, statutory tables, and signed government noti
               </div>
 
               <div>
-                <label style={{ display: 'block', fontWeight: 800, fontSize: '0.82rem', color: '#09090b', marginBottom: '0.35rem' }}>
-                  Full Blog Article Content (Markdown)
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                  <label style={{ fontWeight: 800, fontSize: '0.82rem', color: '#09090b' }}>
+                    Full Blog Article Content (Markdown)
+                  </label>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const imgUrl = prompt('Enter Image URL (or Unsplash link):', 'https://images.unsplash.com/photo-1580582932707-520aed937b7b?w=800');
+                        if (imgUrl) {
+                          const caption = prompt('Enter Caption (e.g. Official Directive Seal):', 'Ghana Education Service Policy Guide');
+                          setBlogModalItem(prev => ({
+                            ...prev,
+                            content: `${prev.content}\n\n![${caption || 'Article illustration'} | center | 80%](${imgUrl})\n`
+                          }));
+                        }
+                      }}
+                      style={{
+                        padding: '0.25rem 0.6rem',
+                        borderRadius: '6px',
+                        background: '#EFF6FF',
+                        border: '1px solid #BFDBFE',
+                        color: '#1D4ED8',
+                        fontSize: '0.74rem',
+                        fontWeight: 800,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <i className="fas fa-image"></i>
+                      <span>+ Insert Image</span>
+                    </button>
+                  </div>
+                </div>
                 <textarea
                   value={blogModalItem.content}
                   onChange={(e) => setBlogModalItem({ ...blogModalItem, content: e.target.value })}

@@ -1333,9 +1333,29 @@ const BlogManager = () => {
                 {/* Additional Blogger Options (Cover Image, Broadcast Dispatch) */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem', background: '#F8FAFC', padding: '1rem', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
                   <div>
-                    <label style={{ display: 'block', fontWeight: 800, fontSize: '0.76rem', color: '#09090B', marginBottom: '0.3rem' }}>
-                      Cover Image URL (Optional)
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                      <label style={{ fontWeight: 800, fontSize: '0.76rem', color: '#09090B' }}>
+                        Cover Image URL (Optional)
+                      </label>
+                      <label style={{ fontSize: '0.72rem', color: '#0284C7', fontWeight: 800, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <i className="fas fa-folder-open"></i>
+                        <span>Upload File</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (evt) => {
+                              setFormData(prev => ({ ...prev, cover_image: evt.target.result }));
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                          style={{ display: 'none' }}
+                        />
+                      </label>
+                    </div>
                     <input
                       type="text"
                       placeholder="https://images.unsplash.com/..."
