@@ -238,12 +238,57 @@ const BlogManager = () => {
     setUploadingImg(true);
     const reader = new FileReader();
     reader.onload = (event) => {
-      setImgModalData(prev => ({
-        ...prev,
-        url: event.target.result,
-        caption: prev.caption || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
-      }));
-      setUploadingImg(false);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 1200;
+          const MAX_HEIGHT = 1200;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.82);
+          setImgModalData(prev => ({
+            ...prev,
+            url: compressedDataUrl,
+            caption: prev.caption || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+          }));
+        } catch (cErr) {
+          setImgModalData(prev => ({
+            ...prev,
+            url: event.target.result,
+            caption: prev.caption || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+          }));
+        } finally {
+          setUploadingImg(false);
+        }
+      };
+      img.onerror = () => {
+        setImgModalData(prev => ({
+          ...prev,
+          url: event.target.result,
+          caption: prev.caption || file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ')
+        }));
+        setUploadingImg(false);
+      };
+      img.src = event.target.result;
     };
     reader.onerror = () => {
       alert('Could not read image file.');
@@ -323,23 +368,40 @@ const BlogManager = () => {
     }));
   };
 
-  // Insert markdown tag helper at cursor position
+  // Insert markdown tag helper at cursor position without jumping or auto-scrolling
   const insertMarkdown = (prefix, suffix = '', placeholder = 'text') => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
     const currentText = formData.content || '';
     const selectedText = currentText.substring(start, end) || placeholder;
+
+    // Capture current scroll positions
+    const textareaScrollTop = textarea.scrollTop;
+    const parentPane = textarea.parentElement?.parentElement;
+    const paneScrollTop = parentPane ? parentPane.scrollTop : 0;
+    const windowScrollTop = window.scrollY || document.documentElement.scrollTop;
 
     const newText = currentText.substring(0, start) + prefix + selectedText + suffix + currentText.substring(end);
     setFormData(prev => ({ ...prev, content: newText }));
 
-    setTimeout(() => {
-      textarea.focus();
-      textarea.setSelectionRange(start + prefix.length, start + prefix.length + selectedText.length);
-    }, 50);
+    // Restore focus and cursor with preventScroll
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        try {
+          textareaRef.current.focus({ preventScroll: true });
+          const newCursorPos = start + prefix.length + selectedText.length;
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+          textareaRef.current.scrollTop = textareaScrollTop;
+          if (parentPane) {
+            parentPane.scrollTop = paneScrollTop;
+          }
+          window.scrollTo(0, windowScrollTop);
+        } catch (e) {}
+      }
+    });
   };
 
   // Apply a template
