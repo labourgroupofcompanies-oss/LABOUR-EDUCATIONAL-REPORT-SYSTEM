@@ -261,8 +261,9 @@ const BlogManager = () => {
     const caption = imgModalData.caption.trim() || 'Article illustration';
     const align = imgModalData.align || 'center';
     const width = imgModalData.width || '80%';
+    const cleanUrl = normalizeImageUrl(imgModalData.url);
 
-    const imageMarkdown = `\n![${caption} | ${align} | ${width}](${imgModalData.url})\n`;
+    const imageMarkdown = `\n![${caption} | ${align} | ${width}](${cleanUrl})\n`;
     insertMarkdown(imageMarkdown, '', '');
 
     setImageModalOpen(false);
@@ -538,6 +539,33 @@ const BlogManager = () => {
     return parts.length > 0 ? parts : text;
   };
 
+  // Helper to normalize image URLs (converting Google Drive, Dropbox, etc. to direct image CDNs)
+  const normalizeImageUrl = (url) => {
+    if (!url || typeof url !== 'string') return url;
+    const trimmed = url.trim();
+
+    // 1. Google Drive URLs
+    const driveMatch1 = trimmed.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (driveMatch1 && driveMatch1[1]) {
+      return `https://lh3.googleusercontent.com/d/${driveMatch1[1]}`;
+    }
+    const driveMatch2 = trimmed.match(/drive\.google\.com\/.*[?&]id=([a-zA-Z0-9_-]+)/);
+    if (driveMatch2 && driveMatch2[1]) {
+      return `https://lh3.googleusercontent.com/d/${driveMatch2[1]}`;
+    }
+    const driveMatch3 = trimmed.match(/drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/);
+    if (driveMatch3 && driveMatch3[1]) {
+      return `https://lh3.googleusercontent.com/d/${driveMatch3[1]}`;
+    }
+
+    // 2. Dropbox URLs
+    if (trimmed.includes('dropbox.com')) {
+      return trimmed.replace(/[?&]dl=0/, '?raw=1').replace('www.dropbox.com', 'dl.dropboxusercontent.com');
+    }
+
+    return trimmed;
+  };
+
   // Complete Markdown Parser & Renderer
   const renderMarkdown = (text) => {
     if (!text) return <p style={{ color: '#94A3B8', fontStyle: 'italic' }}>Live preview will appear here as you type...</p>;
@@ -584,7 +612,8 @@ const BlogManager = () => {
           const imgMatch = line.match(/^!\[(.*?)\]\((.*?)\)$/);
           if (imgMatch) {
             const rawAlt = imgMatch[1] || '';
-            const src = imgMatch[2];
+            const rawSrc = imgMatch[2];
+            const src = normalizeImageUrl(rawSrc);
             const parts = rawAlt.split('|').map(p => p.trim());
             const caption = parts[0] || '';
             const align = parts.find(p => ['left', 'right', 'center', 'full'].includes(p.toLowerCase())) || 'center';
@@ -616,7 +645,11 @@ const BlogManager = () => {
                     background: '#FAFAFA'
                   }}
                   onError={(e) => {
-                    e.currentTarget.style.display = 'none';
+                    e.currentTarget.onerror = null;
+                    if (src.includes('lh3.googleusercontent.com/d/')) {
+                      const id = src.split('/d/')[1];
+                      e.currentTarget.src = `https://drive.google.com/uc?export=view&id=${id}`;
+                    }
                   }}
                 />
                 {caption && (
