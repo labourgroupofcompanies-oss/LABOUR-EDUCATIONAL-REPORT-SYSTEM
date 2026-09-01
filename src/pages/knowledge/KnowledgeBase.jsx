@@ -125,6 +125,8 @@ const KnowledgeBase = () => {
     return manualCategories.includes(cat);
   };
 
+  const OFFICIAL_BLOG_URL = 'https://labouredusite.netlify.app/resources/blog';
+
   // Fetch published posts with offline guarantee
   useEffect(() => {
     const loadPosts = async () => {
@@ -132,11 +134,6 @@ const KnowledgeBase = () => {
       try {
         const data = await blogService.getAllPosts();
         let published = (data || []).filter(p => p.is_published !== false);
-
-        // If on /manuals route, ONLY display posts tagged/classified as manuals!
-        if (isManualsRoute) {
-          published = published.filter(isManualPost);
-        }
 
         setPosts(published);
 
@@ -160,7 +157,7 @@ const KnowledgeBase = () => {
       }
     };
     loadPosts();
-  }, [isManualsRoute, slug]);
+  }, [slug]);
 
   // Filter posts by search query & category
   const filteredPosts = useMemo(() => {
@@ -598,7 +595,7 @@ const KnowledgeBase = () => {
   );
 
   return (
-    <Layout title="Knowledge Base & User Manuals">
+    <Layout title="Labour Edu Blog & Educational Resources">
       <style>{`
         .kb-container {
           display: flex;
@@ -870,81 +867,136 @@ const KnowledgeBase = () => {
         {/* Hero Header Banner */}
         {(!mobileReadingMode) && (
           <div className="kb-hero fade-in">
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
-                <span style={{
-                  background: 'rgba(37, 99, 235, 0.35)',
-                  color: '#93c5fd',
-                  padding: '0.25rem 0.75rem',
-                  borderRadius: '9999px',
-                  fontSize: '0.72rem',
-                  fontWeight: 800,
-                  letterSpacing: '0.04em',
-                  border: '1px solid rgba(147, 197, 253, 0.3)'
-                }}>
-                  <i className="fas fa-book-open" style={{ marginRight: '5px' }}></i>
-                  OFFICIAL HELP CENTER
-                </span>
-
-                {/* 100% Offline Ready Badge */}
-                <span style={{
-                  background: isOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)',
-                  color: isOnline ? '#6EE7B7' : '#FCD34D',
-                  padding: '0.25rem 0.75rem',
-                  borderRadius: '9999px',
-                  fontSize: '0.72rem',
-                  fontWeight: 800,
-                  border: `1px solid ${isOnline ? 'rgba(110, 231, 183, 0.35)' : 'rgba(252, 211, 77, 0.35)'}`,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px'
-                }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span style={{
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    background: isOnline ? '#10B981' : '#F59E0B'
-                  }} />
-                  {isOnline ? 'Offline-Ready Enabled' : 'Active in Offline Mode'}
-                </span>
+                    background: 'rgba(37, 99, 235, 0.35)',
+                    color: '#93c5fd',
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '9999px',
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    letterSpacing: '0.04em',
+                    border: '1px solid rgba(147, 197, 253, 0.3)'
+                  }}>
+                    <i className="fas fa-newspaper" style={{ marginRight: '5px' }}></i>
+                    OFFICIAL LABOUR EDU BLOG &amp; RESOURCES
+                  </span>
+
+                  {/* 100% Offline Ready Badge */}
+                  <span style={{
+                    background: isOnline ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.25)',
+                    color: isOnline ? '#6EE7B7' : '#FCD34D',
+                    padding: '0.25rem 0.75rem',
+                    borderRadius: '9999px',
+                    fontSize: '0.72rem',
+                    fontWeight: 800,
+                    border: `1px solid ${isOnline ? 'rgba(110, 231, 183, 0.35)' : 'rgba(252, 211, 77, 0.35)'}`,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px'
+                  }}>
+                    <span style={{
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: isOnline ? '#10B981' : '#F59E0B'
+                    }} />
+                    {isOnline ? 'Live Cloud Sync' : 'Offline Mode Active'}
+                  </span>
+                </div>
+
+                {/* Direct Link to Main Site Blog */}
+                <a
+                  href={OFFICIAL_BLOG_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '0.45rem 1rem',
+                    borderRadius: '10px',
+                    background: 'rgba(255, 255, 255, 0.15)',
+                    backdropFilter: 'blur(8px)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    color: '#FFFFFF',
+                    textDecoration: 'none',
+                    fontWeight: 800,
+                    fontSize: '0.8rem',
+                    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.2)',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
+                >
+                  <i className="fas fa-globe" style={{ color: '#60A5FA' }}></i>
+                  <span>Visit Main Website Blog (labouredusite.netlify.app) ↗</span>
+                </a>
               </div>
+
               <h1 className="kb-hero-title">
-                {isManualsRoute ? 'User Manuals & Operational Guides' : 'Educational Directives & Blog'}
+                Educational Directives, Guides &amp; Blog
               </h1>
               <p className="kb-hero-desc">
-                {isManualsRoute 
-                  ? 'Complete offline-accessible manuals for school setup, score recording, wallet subscriptions, and generating terminal report cards.'
-                  : 'Official circulars, curriculum policy guides, examination updates, and school management insights.'
-                }
+                Search and explore official GES circulars, continuous assessment scoring policies, school setup instructions, and live publications from the Labour Edu Platform.
               </p>
             </div>
 
-            {/* Search Bar inside Hero */}
-            <div className="kb-search-bar">
-              <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.95rem' }}></i>
-              <input
-                type="text"
-                placeholder="Search topics (e.g. scores, wallet, signatures, broadsheet)..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+            {/* Whole Site & Blog Search Bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', width: '100%', maxWidth: '850px' }}>
+              <div className="kb-search-bar" style={{ flex: 1, minWidth: '280px' }}>
+                <i className="fas fa-search" style={{ color: '#94a3b8', fontSize: '0.95rem' }}></i>
+                <input
+                  type="text"
+                  placeholder="Search all articles, GES directives, continuous assessment guides, wallet, broadsheets..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#FFFFFF',
+                    fontSize: '0.9rem',
+                    outline: 'none',
+                    width: '100%',
+                    fontWeight: 500
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 0 }}
+                  >
+                    <i className="fas fa-times"></i>
+                  </button>
+                )}
+              </div>
+
+              {/* Action to search live on the main website */}
+              <a
+                href={searchQuery ? `${OFFICIAL_BLOG_URL}?search=${encodeURIComponent(searchQuery)}` : OFFICIAL_BLOG_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 style={{
-                  background: 'transparent',
-                  border: 'none',
+                  padding: '0.65rem 1.15rem',
+                  borderRadius: '12px',
+                  background: '#2563EB',
+                  border: '1px solid #3B82F6',
                   color: '#FFFFFF',
-                  fontSize: '0.9rem',
-                  outline: 'none',
-                  width: '100%',
-                  fontWeight: 500
+                  fontSize: '0.82rem',
+                  fontWeight: 800,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
                 }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  style={{ background: 'transparent', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 0 }}
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              )}
+              >
+                <i className="fas fa-arrow-up-right-from-square"></i>
+                <span>Search Whole Site Blog ↗</span>
+              </a>
             </div>
           </div>
         )}
@@ -1139,6 +1191,32 @@ const KnowledgeBase = () => {
                             }}>
                               {post.summary}
                             </p>
+
+                            {/* Card Footer Actions */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginTop: '0.65rem', paddingTop: '0.5rem', borderTop: '1px solid #F1F5F9' }}>
+                              <a
+                                href={OFFICIAL_BLOG_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 800,
+                                  color: '#2563EB',
+                                  textDecoration: 'none'
+                                }}
+                              >
+                                <span>Read on Website</span>
+                                <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: '0.65rem' }}></i>
+                              </a>
+
+                              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: isSelected ? '#2563EB' : '#94A3B8' }}>
+                                {isSelected ? '● Reading' : 'Preview →'}
+                              </span>
+                            </div>
                           </div>
                         );
                       })}
@@ -1163,8 +1241,56 @@ const KnowledgeBase = () => {
                   onClick={() => setMobileReadingMode(false)}
                 >
                   <i className="fas fa-arrow-left"></i>
-                  <span>Back to Guides List</span>
+                  <span>Back to Blog List</span>
                 </button>
+
+                {/* Official Live Website Banner */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
+                  border: '1.5px solid #BFDBFE',
+                  borderRadius: '14px',
+                  padding: '0.85rem 1.15rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                  marginBottom: '1.25rem'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-globe" style={{ color: '#2563EB', fontSize: '1.1rem' }}></i>
+                    <div>
+                      <div style={{ fontSize: '0.82rem', fontWeight: 800, color: '#1E40AF' }}>
+                        Official Publication on Labour Edu Website
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: '#3B82F6', fontWeight: 600 }}>
+                        labouredusite.netlify.app/resources/blog
+                      </div>
+                    </div>
+                  </div>
+
+                  <a
+                    href={OFFICIAL_BLOG_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0.4rem 0.9rem',
+                      borderRadius: '8px',
+                      background: '#2563EB',
+                      color: '#FFFFFF',
+                      fontSize: '0.78rem',
+                      fontWeight: 800,
+                      textDecoration: 'none',
+                      boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)'
+                    }}
+                  >
+                    <span>Read on Live Site</span>
+                    <i className="fas fa-arrow-up-right-from-square" style={{ fontSize: '0.7rem' }}></i>
+                  </a>
+                </div>
 
                 {/* Article Header Metadata */}
                 <div style={{ borderBottom: '1px solid #E2E8F0', paddingBottom: '1.25rem', marginBottom: '1.5rem' }}>

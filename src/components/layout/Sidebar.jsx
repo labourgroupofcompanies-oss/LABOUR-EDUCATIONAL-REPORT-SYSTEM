@@ -62,7 +62,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         { to: '/financials', icon: 'fa-wallet', label: 'Top Up & Billing' },
         { to: '/settings', icon: 'fa-sliders-h', label: 'Settings' },
         { to: '/recycle-bin', icon: 'fa-trash-can', label: 'Recycle Bin' },
-        { to: '/manuals', icon: 'fa-book-open', label: 'User Manuals' },
+        { to: '/blog', icon: 'fa-newspaper', label: 'Blog' },
         { to: '/support', icon: 'fa-headset', label: 'Support & Help' }
       ]
     }
@@ -86,7 +86,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       title: 'System',
       links: [
         { to: '/settings', icon: 'fa-sliders-h', label: 'Settings' },
-        { to: '/manuals', icon: 'fa-book-open', label: 'User Manuals' },
+        { to: '/blog', icon: 'fa-newspaper', label: 'Blog' },
         { to: '/support', icon: 'fa-headset', label: 'Support & Help' }
       ]
     }

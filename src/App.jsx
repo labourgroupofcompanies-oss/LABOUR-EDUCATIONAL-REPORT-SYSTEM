@@ -273,6 +273,8 @@ function App() {
             {/* Public Educational Blog, Circulars & User Guides */}
             <Route path="/blog" element={<KnowledgeBase />} />
             <Route path="/blog/:slug" element={<KnowledgeBase />} />
+            <Route path="/resources/blog" element={<KnowledgeBase />} />
+            <Route path="/resources/blog/:slug" element={<KnowledgeBase />} />
             <Route path="/guides" element={<KnowledgeBase />} />
 
             {/* Platform Console Shell (Super Admin Only) */}
