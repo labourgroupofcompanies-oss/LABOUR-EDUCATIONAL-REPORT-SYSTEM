@@ -9,21 +9,21 @@ export const PORTAL_GUIDES = {
       id: 1,
       target: '[data-tour="sidebar-setup"], [data-tour="mobile-nav-setup"], [data-tour="nav-setup"]',
       fallback: '.sidebar, .app-header',
-      title: '1. School Setup & Term Dates',
-      description: 'Set your school name, current academic year, active term (Term 1, 2, or 3), and vacation dates. Do this first before anything else.',
+      title: '1. School Setup & Classes',
+      description: 'Configure your classes (e.g. Basic 1 to JHS 3), academic streams, and assign curriculum subjects taught at your school.',
       route: '/setup',
       icon: 'fa-school',
       color: '#38bdf8'
     },
     {
       id: 2,
-      target: '[data-tour="sidebar-setup"], [data-tour="mobile-nav-setup"], [data-tour="nav-setup"]',
+      target: '[data-tour="sidebar-settings"], [data-tour="mobile-nav-settings"], [data-tour="nav-settings"]',
       fallback: '.sidebar, .app-header',
-      title: '2. Classes & Subjects',
-      description: 'Create your classes (e.g. Basic 1 to JHS 3) and choose the subjects that each class learns.',
-      route: '/setup',
-      icon: 'fa-layer-group',
-      color: '#a78bfa'
+      title: '2. Settings & School Profile',
+      description: 'Upload your school crest/logo, set the active academic year and term dates, configure grading scales, and draw the headteacher digital signature.',
+      route: '/settings',
+      icon: 'fa-sliders-h',
+      color: '#818cf8'
     },
     {
       id: 3,
@@ -40,19 +40,19 @@ export const PORTAL_GUIDES = {
       target: '[data-tour="sidebar-learners"], [data-tour="mobile-nav-learners"], [data-tour="nav-learners"]',
       fallback: '.sidebar, .app-header',
       title: '4. Register Students',
-      description: 'Add student names and details into their classes, or upload the whole class list at once from an Excel file.',
+      description: 'Add student names and details into their classes, attach passport photos, or upload the whole class roster at once from an Excel file.',
       route: '/learners',
       icon: 'fa-user-graduate',
       color: '#34d399'
     },
     {
       id: 5,
-      target: '[data-tour="sidebar-scores"], [data-tour="sidebar-all-scores"], [data-tour="mobile-nav-scores"]',
+      target: '[data-tour="sidebar-all-scores"], [data-tour="mobile-nav-all-scores"], [data-tour="sidebar-scores"], [data-tour="nav-audit"]',
       fallback: '.sidebar, .app-header',
-      title: '5. Scores & Mark Sheets',
-      description: 'Teachers enter class test and exam marks. You can check the master broadsheet to see all student scores, averages, and positions.',
+      title: '5. Audit & Master Broadsheets',
+      description: 'Audit terminal score entries, inspect master broadsheets, verify missing marks, and review automated class rankings and averages.',
       route: '/all-scores',
-      icon: 'fa-chart-line',
+      icon: 'fa-list-check',
       color: '#fbbf24'
     },
     {

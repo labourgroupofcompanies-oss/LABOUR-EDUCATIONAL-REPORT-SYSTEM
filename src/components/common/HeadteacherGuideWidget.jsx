@@ -35,10 +35,10 @@ const HeadteacherGuideWidget = () => {
   ) || 0;
 
   // Evaluate Step States
-  const step1Complete = academicYearsCount > 0;
-  const step2Complete = step1Complete && classesCount > 0;
-  const step3Complete = step2Complete && teachersCount > 0;
-  const step4Complete = step2Complete && learnersCount > 0;
+  const step1Complete = classesCount > 0 || academicYearsCount > 0;
+  const step2Complete = step1Complete && Boolean(schoolRecord?.name || schoolRecord?.logo_url || schoolRecord?.logoUrl || schoolRecord?.headteacher_signature || schoolRecord?.signatureUrl);
+  const step3Complete = step1Complete && teachersCount > 0;
+  const step4Complete = step1Complete && learnersCount > 0;
   const step5Complete = step3Complete && step4Complete && scoresCount > 0;
   const step6Complete = step4Complete && ((schoolRecord?.wallet_balance || 0) >= 0 || schoolRecord?.is_first_term_free !== false);
   const step7Complete = step5Complete && (reportsReleasedCount > 0 || schoolRecord?.reports_released === true);
@@ -46,62 +46,62 @@ const HeadteacherGuideWidget = () => {
   const steps = [
     {
       id: 1,
-      title: '1. School Setup & Term Dates',
+      title: '1. School Setup & Classes',
       route: '/setup',
       isComplete: step1Complete,
       isUnlocked: true,
       prerequisites: 'None',
-      shortDesc: 'Set your school name, academic year, and current term.',
-      details: 'Set your school year, current term (Term 1, 2, or 3), and vacation dates. Do this first before anything else.',
-      icon: 'fa-calendar-days',
+      shortDesc: 'Add your classes, streams, and curriculum subjects.',
+      details: 'Configure your school classes (e.g. Basic 1 to JHS 3), academic streams, and assign curriculum subjects taught at your school.',
+      icon: 'fa-school',
       color: '#38bdf8',
     },
     {
       id: 2,
-      title: '2. Classes & Subjects',
-      route: '/setup',
+      title: '2. Settings & School Profile',
+      route: '/settings',
       isComplete: step2Complete,
-      isUnlocked: step1Complete,
-      prerequisites: 'Step 1 (School Setup)',
-      shortDesc: 'Add your classes and choose the subjects they learn.',
-      details: 'Create your classes (like Basic 1 to JHS 3) and choose the subjects each class will study.',
-      icon: 'fa-chalkboard-user',
-      color: '#2dd4bf',
+      isUnlocked: true,
+      prerequisites: 'None',
+      shortDesc: 'Set logo, signature, grading scale, and term dates.',
+      details: 'Upload your school crest/logo, set the active academic year and term dates, configure grading scales, and draw the headteacher digital signature.',
+      icon: 'fa-sliders-h',
+      color: '#818cf8',
     },
     {
       id: 3,
       title: '3. Teachers & Staff',
       route: '/teachers',
       isComplete: step3Complete,
-      isUnlocked: step2Complete,
-      prerequisites: 'Step 2 (Classes & Subjects)',
+      isUnlocked: step1Complete,
+      prerequisites: 'Step 1 (Classes & Subjects)',
       shortDesc: 'Add teachers and assign them to classes and subjects.',
       details: 'Add your teachers, create passwords for them, and choose the classes and subjects each teacher will handle.',
-      icon: 'fa-user-tie',
-      color: '#a78bfa',
+      icon: 'fa-chalkboard-teacher',
+      color: '#2dd4bf',
     },
     {
       id: 4,
       title: '4. Register Students',
       route: '/learners',
       isComplete: step4Complete,
-      isUnlocked: step2Complete,
-      prerequisites: 'Step 2 (Classes)',
-      shortDesc: 'Add students or upload class lists from Excel.',
-      details: 'Add student names and details into their classes, or upload the whole class list at once from an Excel sheet.',
+      isUnlocked: step1Complete,
+      prerequisites: 'Step 1 (Classes)',
+      shortDesc: 'Add students, photos, or upload class lists from Excel.',
+      details: 'Add student names and details into their classes, capture passport photos, or upload the whole class roster at once from an Excel sheet.',
       icon: 'fa-user-graduate',
       color: '#34d399',
     },
     {
       id: 5,
-      title: '5. Scores & Mark Sheets',
-      route: '/scores',
+      title: '5. Audit & Master Broadsheets',
+      route: '/all-scores',
       isComplete: step5Complete,
       isUnlocked: step3Complete && step4Complete,
       prerequisites: 'Step 3 (Teachers) & Step 4 (Students)',
-      shortDesc: 'Enter class test marks and exam marks.',
-      details: 'Teachers enter class test marks and exam marks. You can check the broadsheet to see all student scores and positions.',
-      icon: 'fa-pen-to-square',
+      shortDesc: 'Audit terminal scores, broadsheets, and class rankings.',
+      details: 'Audit terminal score entries, inspect master broadsheets, verify missing marks, and review automated class rankings and averages.',
+      icon: 'fa-list-check',
       color: '#fbbf24',
     },
     {
@@ -122,7 +122,7 @@ const HeadteacherGuideWidget = () => {
       route: '/reports',
       isComplete: step7Complete,
       isUnlocked: step5Complete && step6Complete,
-      prerequisites: 'Step 5 (Scores Done) & Step 6 (Active Wallet)',
+      prerequisites: 'Step 5 (Audit Done) & Step 6 (Active Wallet)',
       shortDesc: 'Print report cards and send results to parents’ phones.',
       details: 'Print official student report cards, write headteacher remarks, and click Release Reports so parents can check results on their phones.',
       icon: 'fa-file-invoice',
