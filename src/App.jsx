@@ -56,6 +56,7 @@ import OperationsSupportCenter from './pages/operations/OperationsSupportCenter'
 import OperationsSubscriptions from './pages/operations/OperationsSubscriptions';
 import OperationsInterventionsAudit from './pages/operations/OperationsInterventionsAudit';
 import OperationsSchoolAnalytics from './pages/operations/OperationsSchoolAnalytics';
+import OperationsReports from './pages/operations/OperationsReports';
 import ReferralManagementDashboard from './pages/developer/ReferralManagementDashboard';
 import PlatformDeveloperRegister from './pages/auth/PlatformDeveloperRegister';
 import BlogManager from './pages/operations/BlogManager';
@@ -318,6 +319,7 @@ function App() {
                 <Route path="blog" element={<BlogManager />} />
                 <Route path="interventions" element={<OperationsInterventionsAudit />} />
                 <Route path="analytics" element={<OperationsSchoolAnalytics />} />
+                <Route path="reports" element={<OperationsReports />} />
               </Route>
             </Route>
 

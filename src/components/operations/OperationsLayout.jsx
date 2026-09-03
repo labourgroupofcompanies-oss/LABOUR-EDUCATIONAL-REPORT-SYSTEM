@@ -36,6 +36,7 @@ const OperationsLayout = () => {
         { to: '/platform/operations/support', icon: 'fa-headset', label: 'Support', iconColor: '#EF4444', badge: categoryCounts?.support, badgeColor: '#EF4444' },
         { to: '/platform/operations/subscriptions', icon: 'fa-receipt', label: 'Billing', iconColor: '#14B8A6', badge: categoryCounts?.billing, badgeColor: '#14B8A6' },
         { to: '/platform/operations/referrals', icon: 'fa-gift', label: 'Referrals', iconColor: '#EAB308' },
+        { to: '/platform/operations/reports', icon: 'fa-file-invoice-dollar', label: 'Reports', iconColor: '#3B82F6' },
       ]
     }
   ];
