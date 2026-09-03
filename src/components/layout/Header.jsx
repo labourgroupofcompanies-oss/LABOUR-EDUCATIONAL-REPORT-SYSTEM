@@ -163,38 +163,27 @@ const Header = ({ title, onMenuClick }) => {
             overflow: hidden !important;
           }
           .header-school-logo {
-            width: 30px !important;
-            height: 30px !important;
-            border-radius: 8px !important;
-            display: flex !important;
+            display: none !important;
+          }
+          .header-wallet-badge {
+            display: none !important;
+          }
+          .header-status-badge-compact {
+            display: none !important;
           }
           .header-title-container {
             min-width: 0 !important;
             overflow: hidden !important;
           }
           .header-title-text {
-            font-size: 0.85rem !important;
+            font-size: 0.92rem !important;
           }
           .header-school-name-text {
-            font-size: 0.62rem !important;
+            font-size: 0.68rem !important;
           }
           .header-right {
-            gap: 0.35rem !important;
+            gap: 0.4rem !important;
             flex-shrink: 0 !important;
-          }
-          .header-wallet-badge {
-            padding: 0.3rem 0.55rem !important;
-            font-size: 0.72rem !important;
-            gap: 4px !important;
-          }
-          .header-status-badge-compact {
-            padding: 0.3rem !important;
-            width: 28px !important;
-            height: 28px !important;
-            border-radius: 50% !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
           }
           .header-guide-btn {
             padding: 0.3rem 0.55rem !important;
