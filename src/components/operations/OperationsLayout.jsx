@@ -1,10 +1,16 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { usePlatformNotifications } from '../../context/PlatformNotificationContext';
 
 const OperationsLayout = () => {
   const location = useLocation();
   const { categoryCounts } = usePlatformNotifications();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
 
   const navSections = [
     {
@@ -42,21 +48,119 @@ const OperationsLayout = () => {
   ];
 
   return (
-    <div style={{ display: 'flex', width: '100%', minHeight: 'calc(100vh - 58px)', background: '#FAFAFA' }}>
-      {/* Operations Sidebar */}
-      <aside style={{
-        width: '240px',
-        minWidth: '240px',
-        background: '#09090b',
-        borderRight: '1px solid #27272a',
-        display: 'flex',
-        flexDirection: 'column',
-        position: 'sticky',
-        top: '58px',
-        height: 'calc(100vh - 58px)',
-        zIndex: 40,
-        boxShadow: '4px 0 24px rgba(0, 0, 0, 0.2)'
-      }}>
+    <div className="operations-layout-root" style={{ display: 'flex', width: '100%', minHeight: 'calc(100vh - 58px)', background: '#FAFAFA', flexDirection: 'column' }}>
+      <style>{`
+        .operations-sidebar {
+          width: 240px;
+          min-width: 240px;
+          background: #09090b;
+          border-right: 1px solid #27272a;
+          display: flex;
+          flex-direction: column;
+          position: sticky;
+          top: 58px;
+          height: calc(100vh - 58px);
+          z-index: 40;
+          box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+          transition: transform 0.25s ease-in-out;
+        }
+        .operations-mobile-topbar {
+          display: none;
+          background: #09090b;
+          border-bottom: 1px solid #27272a;
+          padding: 0.75rem 1rem;
+          color: #ffffff;
+          align-items: center;
+          justify-content: space-between;
+          position: sticky;
+          top: 0;
+          z-index: 35;
+        }
+        .operations-main-outlet {
+          flex: 1;
+          padding: 2rem;
+          overflow-y: auto;
+          min-width: 0;
+          background: #FAFAFA;
+        }
+        .operations-backdrop {
+          display: none;
+        }
+
+        @media (max-width: 768px) {
+          .operations-layout-root {
+            position: relative;
+          }
+          .operations-mobile-topbar {
+            display: flex !important;
+          }
+          .operations-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            height: 100vh !important;
+            z-index: 99999 !important;
+            transform: translateX(-100%);
+          }
+          .operations-sidebar.open {
+            transform: translateX(0) !important;
+          }
+          .operations-backdrop.open {
+            display: block !important;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 99990;
+            backdrop-filter: blur(4px);
+          }
+          .operations-main-outlet {
+            padding: 1.25rem 0.85rem !important;
+          }
+        }
+      `}</style>
+
+      {/* Mobile Top Bar */}
+      <div className="operations-mobile-topbar">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ width: '28px', height: '28px', borderRadius: '7px', background: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.8rem' }}>
+            <i className="fas fa-tower-observation" />
+          </div>
+          <span style={{ fontFamily: 'Outfit, sans-serif', fontWeight: 800, fontSize: '0.92rem' }}>
+            Operations Hub
+          </span>
+        </div>
+
+        <button
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          style={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '8px',
+            color: '#ffffff',
+            padding: '0.45rem 0.85rem',
+            fontSize: '0.8rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <i className={`fas ${mobileMenuOpen ? 'fa-times' : 'fa-bars'}`} />
+          <span>{mobileMenuOpen ? 'Close' : 'Menu'}</span>
+        </button>
+      </div>
+
+      {/* Backdrop for Mobile Drawer */}
+      <div
+        className={`operations-backdrop ${mobileMenuOpen ? 'open' : ''}`}
+        onClick={() => setMobileMenuOpen(false)}
+      />
+
+      <div style={{ display: 'flex', width: '100%', flex: 1 }}>
+        {/* Operations Sidebar */}
+        <aside className={`operations-sidebar ${mobileMenuOpen ? 'open' : ''}`}>
         {/* Sidebar Header */}
         <div style={{ padding: '1.15rem 1.25rem', borderBottom: '1px solid #1f1f23', display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{
@@ -178,9 +282,10 @@ const OperationsLayout = () => {
       </aside>
 
       {/* Main Operations Outlet */}
-      <main style={{ flex: 1, padding: '2rem', overflowY: 'auto', minWidth: 0, background: '#FAFAFA' }}>
+      <main className="operations-main-outlet">
         <Outlet />
       </main>
+      </div>
     </div>
   );
 };

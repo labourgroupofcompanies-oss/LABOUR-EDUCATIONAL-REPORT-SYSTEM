@@ -226,18 +226,41 @@ const TopUpWalletModal = ({ schoolId, currentBalance = 0, requiredAmount = 0, on
           from { opacity: 0; transform: scale(0.92) translateY(12px); }
           to { opacity: 1; transform: scale(1) translateY(0); }
         }
+        @media (max-width: 640px) {
+          .topup-modal-backdrop {
+            align-items: flex-end !important;
+            padding: 0 !important;
+          }
+          .topup-modal-container {
+            max-height: 90dvh !important;
+            border-radius: 20px 20px 0 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+          }
+          .topup-presets-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 6px !important;
+          }
+          .topup-footer-actions {
+            flex-direction: row !important;
+            gap: 8px !important;
+          }
+        }
       `}</style>
       
       <div 
+        className="topup-modal-container"
         onClick={(e) => e.stopPropagation()}
         style={{
           background: '#FFFFFF',
           borderRadius: '20px',
           maxWidth: '460px',
           width: '100%',
+          maxHeight: 'calc(100dvh - 2rem)',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255,255,255,0.1)',
           border: '1px solid #E4E4E7',
-          overflow: 'hidden',
+          overflowY: 'auto',
           display: 'flex',
           flexDirection: 'column',
           animation: 'modalPopIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
@@ -576,21 +599,20 @@ const TopUpWalletModal = ({ schoolId, currentBalance = 0, requiredAmount = 0, on
 
             {/* Preset Quick Select Chips */}
             <div style={{ marginBottom: '0.85rem' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+              <div className="topup-presets-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' }}>
                 {presetAmounts.map((amt) => (
                   <button
                     key={amt}
                     type="button"
                     onClick={() => setTopUpAmount(String(amt))}
                     style={{
-                      flex: '1 1 28%',
-                      padding: '0.35rem 0.4rem',
+                      padding: '0.45rem 0.4rem',
                       borderRadius: '8px',
                       border: String(numAmount) === String(amt) ? '1.5px solid #2563eb' : '1px solid #E2E8F0',
                       background: String(numAmount) === String(amt) ? '#EFF6FF' : '#FFFFFF',
                       color: String(numAmount) === String(amt) ? '#2563eb' : '#334155',
                       fontWeight: 800,
-                      fontSize: '0.75rem',
+                      fontSize: '0.78rem',
                       cursor: 'pointer',
                       textAlign: 'center',
                       transition: 'all 0.15s ease'
@@ -635,7 +657,7 @@ const TopUpWalletModal = ({ schoolId, currentBalance = 0, requiredAmount = 0, on
             )}
 
             {/* Footer Actions */}
-            <div style={{ display: 'flex', gap: '0.65rem' }}>
+            <div className="topup-footer-actions" style={{ display: 'flex', gap: '0.65rem' }}>
               <button
                 type="button"
                 onClick={onClose}

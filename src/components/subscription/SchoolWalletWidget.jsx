@@ -128,17 +128,146 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
 
   return (
     <div className="school-wallet-root" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <style>{`
+        .school-wallet-hero {
+          background: linear-gradient(135deg, #09090b 0%, #18181b 50%, #0f172a 100%);
+          border-radius: 20px;
+          padding: 1.75rem;
+          color: #FFFFFF;
+          position: relative;
+          overflow: hidden;
+          box-shadow: 0 12px 32px -4px rgba(9, 9, 11, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08);
+        }
+        .school-wallet-header-flex {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          flex-wrap: wrap;
+          gap: 1rem;
+          position: relative;
+          z-index: 1;
+        }
+        .school-wallet-balance-text {
+          font-family: 'Outfit', sans-serif;
+          font-size: 2.4rem;
+          font-weight: 900;
+          letter-spacing: -0.02em;
+          margin-top: 0.35rem;
+          color: #FFFFFF;
+        }
+        .school-wallet-right-actions {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-end;
+          gap: 0.75rem;
+        }
+        .school-wallet-btn-group {
+          display: flex;
+          gap: 8px;
+          margin-top: 0.25rem;
+        }
+        .school-wallet-kpi-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 0.85rem;
+        }
+        .school-wallet-tab-nav {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 1px solid #E4E4E7;
+          padding-bottom: 0.75rem;
+          flex-wrap: wrap;
+          gap: 0.75rem;
+        }
+        .school-wallet-tab-buttons {
+          display: flex;
+          gap: 6px;
+        }
+
+        @media (max-width: 640px) {
+          .school-wallet-hero {
+            padding: 1.25rem 1rem !important;
+            border-radius: 16px !important;
+          }
+          .school-wallet-header-flex {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 1rem !important;
+          }
+          .school-wallet-balance-text {
+            font-size: 1.85rem !important;
+          }
+          .school-wallet-right-actions {
+            align-items: stretch !important;
+            width: 100% !important;
+          }
+          .school-wallet-right-actions > span {
+            justify-content: center !important;
+            text-align: center !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+          .school-wallet-btn-group {
+            flex-direction: column !important;
+            width: 100% !important;
+            gap: 8px !important;
+          }
+          .school-wallet-btn-group button {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 0.75rem 1rem !important;
+          }
+          .school-wallet-kpi-grid {
+            grid-template-columns: 1fr !important;
+            gap: 0.65rem !important;
+          }
+          .school-wallet-tab-nav {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.6rem !important;
+          }
+          .school-wallet-tab-buttons {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding-bottom: 4px !important;
+            width: 100% !important;
+            scrollbar-width: none !important;
+          }
+          .school-wallet-tab-buttons::-webkit-scrollbar {
+            display: none !important;
+          }
+          .school-wallet-tab-buttons button {
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+            padding: 0.45rem 0.75rem !important;
+            font-size: 0.78rem !important;
+          }
+          .school-wallet-refresh-btn {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 0.55rem !important;
+          }
+          .school-wallet-tx-item {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 0.5rem !important;
+            padding: 0.75rem 0.85rem !important;
+          }
+          .school-wallet-tx-right {
+            text-align: left !important;
+            width: 100% !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            border-top: 1px dashed #E4E4E7 !important;
+            padding-top: 0.4rem !important;
+          }
+        }
+      `}</style>
       
       {/* ── 1. LUXURY OBSIDIAN HERO CARD ──────────────────────────────────── */}
-      <div style={{
-        background: 'linear-gradient(135deg, #09090b 0%, #18181b 50%, #0f172a 100%)',
-        borderRadius: '20px',
-        padding: '1.75rem',
-        color: '#FFFFFF',
-        position: 'relative',
-        overflow: 'hidden',
-        boxShadow: '0 12px 32px -4px rgba(9, 9, 11, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08)',
-      }}>
+      <div className="school-wallet-hero">
         {/* Subtle decorative glow */}
         <div style={{
           position: 'absolute',
@@ -151,13 +280,13 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
           pointerEvents: 'none'
         }} />
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', position: 'relative', zIndex: 1 }}>
+        <div className="school-wallet-header-flex">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', opacity: 0.8, fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               <i className="fas fa-wallet" style={{ color: '#38BDF8' }} /> Total School Wallet Balance
             </div>
 
-            <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '2.4rem', fontWeight: 900, letterSpacing: '-0.02em', marginTop: '0.35rem', color: '#FFFFFF' }}>
+            <div className="school-wallet-balance-text">
               GH₵ {Number(effectiveWalletBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </div>
 
@@ -183,7 +312,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
           </div>
 
           {/* Right Header Status & Top Up Button */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.75rem' }}>
+          <div className="school-wallet-right-actions">
             {/* Status Pill */}
             {isFirstTermFreeActive ? (
               <span style={{ padding: '0.35rem 0.85rem', borderRadius: '999px', background: 'rgba(59, 130, 246, 0.2)', color: '#93C5FD', fontSize: '0.78rem', fontWeight: 800, border: '1px solid rgba(59, 130, 246, 0.4)', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -204,7 +333,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
             )}
 
             {/* Quick Actions */}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '0.25rem' }}>
+            <div className="school-wallet-btn-group">
               {!isPaidOrSubscribed && !isFirstTermFreeActive && (
                 <button
                   type="button"
@@ -271,11 +400,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
       </div>
 
       {/* ── 2. METRIC SUMMARY BAR ─────────────────────────────────────────── */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-        gap: '0.85rem'
-      }}>
+      <div className="school-wallet-kpi-grid">
         {/* Card: Active Learners */}
         <div style={{ background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '14px', padding: '1rem 1.15rem', boxShadow: '0 2px 8px -2px rgba(0, 0, 0, 0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -323,8 +448,8 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
       <div style={{ background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '18px', padding: '1.25rem', boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.04)' }}>
         
         {/* Navigation Bar */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #E4E4E7', paddingBottom: '0.75rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', gap: '6px' }}>
+        <div className="school-wallet-tab-nav">
+          <div className="school-wallet-tab-buttons">
             <button
               type="button"
               onClick={() => setActiveTab('transactions')}
@@ -391,6 +516,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
 
           <button
             type="button"
+            className="school-wallet-refresh-btn"
             onClick={fetchHistory}
             style={{
               background: '#FAFAFA',
@@ -428,7 +554,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
                   );
 
                   return (
-                    <div key={item.id || item.reference} style={{
+                    <div key={item.id || item.reference} className="school-wallet-tx-item" style={{
                       background: '#FAFAFA',
                       border: '1px solid #E4E4E7',
                       borderRadius: '12px',
@@ -463,7 +589,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
                         </div>
                       </div>
 
-                      <div style={{ textAlign: 'right' }}>
+                      <div className="school-wallet-tx-right" style={{ textAlign: 'right' }}>
                         <span style={{
                           padding: '0.25rem 0.65rem',
                           borderRadius: '6px',

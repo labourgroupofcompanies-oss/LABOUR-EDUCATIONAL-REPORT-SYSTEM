@@ -38,19 +38,40 @@ const Financials = () => {
   return (
     <Layout title="School Wallet & Subscriptions">
       <div className="fade-in" style={{ maxWidth: '1100px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '0.25rem 0' }}>
+        <style>{`
+          @media (max-width: 640px) {
+            .financials-header-title {
+              font-size: 1.35rem !important;
+            }
+            .financials-header-desc {
+              font-size: 0.8rem !important;
+            }
+            .financials-header-wrap {
+              flex-direction: column !important;
+              align-items: stretch !important;
+              gap: 0.75rem !important;
+            }
+            .financials-refresh-btn {
+              width: 100% !important;
+              justify-content: center !important;
+              padding: 0.65rem !important;
+            }
+          }
+        `}</style>
         
         {/* Minimalist Page Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+        <div className="financials-header-wrap" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
-            <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.6rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+            <h1 className="financials-header-title" style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.6rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
               School Wallet &amp; Subscriptions
             </h1>
-            <p style={{ color: '#71717a', fontSize: '0.88rem', margin: '3px 0 0' }}>
+            <p className="financials-header-desc" style={{ color: '#71717a', fontSize: '0.88rem', margin: '3px 0 0' }}>
               Manage wallet balance, term licensing, and referral rewards for {schoolInfo?.name || 'your school'}.
             </p>
           </div>
 
           <button
+            className="financials-refresh-btn"
             onClick={loadSubscriptionInfo}
             disabled={loading}
             style={{

@@ -784,9 +784,51 @@ const OperationsSubscriptions = () => {
 
   return (
     <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', color: '#18181b' }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .ops-billing-header {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 0.85rem !important;
+          }
+          .ops-billing-actions {
+            flex-direction: column !important;
+            width: 100% !important;
+          }
+          .ops-billing-actions button {
+            width: 100% !important;
+            justify-content: center !important;
+          }
+          .ops-billing-kpi-grid {
+            grid-template-columns: 1fr 1fr !important;
+            gap: 0.65rem !important;
+          }
+          .ops-billing-tab-strip {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            flex-wrap: nowrap !important;
+            padding-bottom: 6px !important;
+            scrollbar-width: none !important;
+          }
+          .ops-billing-tab-strip::-webkit-scrollbar {
+            display: none !important;
+          }
+          .ops-billing-tab-strip button {
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
+            padding: 0.5rem 0.85rem !important;
+            font-size: 0.8rem !important;
+          }
+        }
+        @media (max-width: 480px) {
+          .ops-billing-kpi-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
       
       {/* ── HEADER TITLE & QUICK ACTIONS ──────────────────────────────────────── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+      <div className="ops-billing-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
         <div>
           <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.75rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
             Subscription &amp; Financial Center
@@ -796,7 +838,7 @@ const OperationsSubscriptions = () => {
           </p>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <div className="ops-billing-actions" style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button
             onClick={() => window.open('/Platform_Operations_User_Manual.pdf', '_blank')}
             style={{ padding: '0.55rem 1.05rem', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #E4E4E7', color: '#09090b', fontWeight: 800, fontSize: '0.82rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
@@ -820,7 +862,7 @@ const OperationsSubscriptions = () => {
       </div>
 
       {/* ── EXECUTIVE KPI METRICS BAR ─────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+      <div className="ops-billing-kpi-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
         
         <div style={{ padding: '1.1rem', borderRadius: '16px', background: '#FFFFFF', border: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', gap: '0.85rem', boxShadow: '0 2px 6px rgba(0, 0, 0, 0.03)' }}>
           <div style={{ width: '42px', height: '42px', borderRadius: '10px', background: '#EFF6FF', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.15rem' }}>
@@ -978,7 +1020,7 @@ const OperationsSubscriptions = () => {
         
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', borderBottom: '1px solid #E4E4E7', paddingBottom: '1rem' }}>
           
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div className="ops-billing-tab-strip" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button
               onClick={() => setActiveTab('matrix')}
               style={{
