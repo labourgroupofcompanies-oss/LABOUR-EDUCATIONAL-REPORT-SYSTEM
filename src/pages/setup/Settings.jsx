@@ -366,10 +366,12 @@ const Settings = () => {
         }
 
         // Also enqueue to sync engine for offline-safe guarantee
-        await enqueueSync('upsert', 'report_schools', {
-          id: targetSchoolId,
-          logo_url: finalLogoUrl,
-          updated_at: new Date().toISOString()
+        await enqueueSync('update', 'report_schools', {
+          filter: { id: targetSchoolId },
+          data: {
+            logo_url: finalLogoUrl,
+            updated_at: new Date().toISOString()
+          }
         }, targetSchoolId);
       }
 

@@ -710,14 +710,22 @@ const healNotNull = async (opError, item, payload) => {
   if (!isNotNull) return opError;
 
   try {
-    if (item.table === 'report_schools' && item.operation === 'upsert') {
-      const schoolId = payload.id || payload?.filter?.id;
+    if (item.table === 'report_schools') {
+      const schoolId = payload.id || payload?.filter?.id || (Array.isArray(payload) ? payload[0]?.id : null);
       if (schoolId) {
+        // 1. Try direct UPDATE since the school already exists in Supabase
+        const updateData = { ...(Array.isArray(payload) ? payload[0] : payload) };
+        delete updateData.id;
+        const { error: updErr } = await supabase.from('report_schools').update(updateData).eq('id', schoolId);
+        if (!updErr) return null; // Successfully healed!
+
+        // 2. Otherwise patch all local school fields for full upsert
         const school = await db.schools.get(schoolId);
         const schoolName = school?.name || 'My School';
+        const schoolLoc = school?.location || 'Ghana';
         const patched = Array.isArray(payload)
-          ? payload.map(p => ({ ...p, name: p.name || schoolName }))
-          : { ...payload, name: payload.name || schoolName };
+          ? payload.map(p => ({ ...p, name: p.name || schoolName, location: p.location || schoolLoc }))
+          : { ...payload, name: payload.name || schoolName, location: payload.location || schoolLoc };
         const rows = Array.isArray(patched) ? patched : [patched];
         const { error: retryErr } = await supabase.from(item.table).upsert(rows);
         if (!retryErr) return null;
