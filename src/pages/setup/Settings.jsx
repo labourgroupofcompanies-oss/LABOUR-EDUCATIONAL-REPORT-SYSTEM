@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { enqueueSync, drainOutbox } from '../../services/syncEngine';
-import { compressImageToBlob, processSchoolLogo, blobToDataURL } from '../../utils/imageUtils';
+import { compressImageToBlob, processDualSchoolLogo, blobToDataURL } from '../../utils/imageUtils';
 import authService from '../../services/authService';
 import { DEFAULT_GRADING_SCALE } from '../../lib/grading';
 
@@ -280,46 +280,84 @@ const Settings = () => {
     }
   }, [schoolData]);
 
-  // Handle Logo Upload
+  // Handle Logo Upload — Dual-Tier Binary Pipeline (zero base64 in DB)
   const handleLogoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setIsUploadingLogo(true);
     try {
-      let dataUrl = null;
-      let logoBlob = null;
+      // Process into dual-tier: full (600px PNG) + thumb (80px WebP)
+      let logoFull = null;
+      let logoThumb = null;
       try {
-        logoBlob = await processSchoolLogo(file, 600);
-        dataUrl = await blobToDataURL(logoBlob);
+        const result = await processDualSchoolLogo(file, 600, 80);
+        logoFull = result.full;
+        logoThumb = result.thumb;
       } catch (procErr) {
-        logoBlob = await compressImageToBlob(file, 400, 400, 0.85);
-        dataUrl = await blobToDataURL(logoBlob);
+        logoFull = await compressImageToBlob(file, 400, 400, 0.85);
+        logoThumb = await compressImageToBlob(file, 80, 80, 0.75);
       }
 
-      if (!dataUrl) {
-        throw new Error('Failed to generate image preview.');
+      if (!logoFull) {
+        throw new Error('Failed to process logo image.');
       }
-
-      // 1. Immediately update UI state
-      setSchool(prev => ({ ...prev, logoUrl: dataUrl }));
 
       const targetSchoolId = user?.schoolId || user?.school_id || schoolData?.id || school?.id;
 
-      // 2. Save directly to local IndexedDB (with both dataUrl and raw blob)
+      // Generate a temporary Object URL for immediate UI preview
+      const previewUrl = URL.createObjectURL(logoFull);
+      setSchool(prev => ({ ...prev, logoUrl: previewUrl }));
+
+      let remoteLogoUrl = null;
+      let remoteLogoThumbUrl = null;
+
+      // Upload to Supabase Storage (binary, no base64)
+      if (navigator.onLine && targetSchoolId) {
+        try {
+          const fullPath = `school-assets/${targetSchoolId}_logo.png`;
+          const thumbPath = `school-assets/${targetSchoolId}_logo_thumb.webp`;
+
+          const { error: fullErr } = await supabase.storage.from('learner-photos').upload(fullPath, logoFull, { upsert: true, contentType: logoFull.type || 'image/png' });
+          if (!fullErr) {
+            const { data } = supabase.storage.from('learner-photos').getPublicUrl(fullPath);
+            if (data?.publicUrl) remoteLogoUrl = `${data.publicUrl}?t=${Date.now()}`;
+          }
+
+          if (logoThumb) {
+            const { error: thumbErr } = await supabase.storage.from('learner-photos').upload(thumbPath, logoThumb, { upsert: true, contentType: 'image/webp' });
+            if (!thumbErr) {
+              const { data: thumbData } = supabase.storage.from('learner-photos').getPublicUrl(thumbPath);
+              if (thumbData?.publicUrl) remoteLogoThumbUrl = `${thumbData.publicUrl}?t=${Date.now()}`;
+            }
+          }
+        } catch (uploadErr) {
+          console.warn('[Settings] Logo upload to storage failed:', uploadErr);
+        }
+      }
+
+      // Use remote URL if available, otherwise fall back to data URL for offline support
+      const finalLogoUrl = remoteLogoUrl || await blobToDataURL(logoFull);
+
       if (targetSchoolId) {
-        await db.schools.update(targetSchoolId, { 
-          logoUrl: dataUrl, 
-          logoBlob,
-          logo_url: dataUrl 
+        // Save to local IndexedDB (binary blobs + URL)
+        await db.schools.update(targetSchoolId, {
+          logoUrl: finalLogoUrl,
+          logoBlob: logoFull,
+          logoThumbBlob: logoThumb,
+          logoThumbUrl: remoteLogoThumbUrl || null,
+          logo_url: finalLogoUrl
         });
 
-        // 3. Persist directly to Supabase report_schools table (fast & permanent)
+        // Update UI with final URL
+        setSchool(prev => ({ ...prev, logoUrl: finalLogoUrl }));
+
+        // Persist URL to Supabase report_schools table (clean URL, no base64)
         try {
           await supabase
             .from('report_schools')
-            .update({ 
-              logo_url: dataUrl,
+            .update({
+              logo_url: finalLogoUrl,
               updated_at: new Date().toISOString()
             })
             .eq('id', targetSchoolId);
@@ -327,10 +365,10 @@ const Settings = () => {
           console.warn('[Settings] Direct Supabase logo update skipped, queued in sync engine:', dbErr);
         }
 
-        // 4. Also enqueue to sync engine for offline-safe guarantee
+        // Also enqueue to sync engine for offline-safe guarantee
         await enqueueSync('upsert', 'report_schools', {
           id: targetSchoolId,
-          logo_url: dataUrl,
+          logo_url: finalLogoUrl,
           updated_at: new Date().toISOString()
         }, targetSchoolId);
       }

@@ -4,7 +4,7 @@ import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../store/AuthContext';
-import { compressImageToBlob, processPassportPhoto } from '../../utils/imageUtils';
+import { compressImageToBlob, processDualPassportPhoto, generateThumbnailFromBlob } from '../../utils/imageUtils';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
 import PassportPhotoCapture from '../../components/common/PassportPhotoCapture';
 import authService from '../../services/authService';
@@ -141,6 +141,8 @@ const LearnerList = () => {
   const [isSaving, setIsSaving] = useState(false);
   // photoPreview holds a Blob (from camera/file) or a string URL (from existing record)
   const [photoPreview, setPhotoPreview] = useState(null);
+  // thumbPreview holds the micro-thumbnail Blob for dual-tier storage
+  const [thumbPreview, setThumbPreview] = useState(null);
   const fileInputExcelRef = useRef(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importData, setImportData] = useState([]);
@@ -336,21 +338,34 @@ const LearnerList = () => {
       // Determine if we have a fresh local Blob (needs upload) or an existing URL
       const isNewBlob = photoPreview instanceof Blob;
       let remotePhotoUrl = null;
+      let remoteThumbUrl = null;
 
       // Fetch the existing local record if editing, to preserve existing photoUrl
       const existingRecord = editingId ? await db.learners.get(editingId) : null;
 
-      // If online and we have a fresh Blob, upload it immediately
+      // If online and we have a fresh Blob, upload both full + thumb immediately
       if (navigator.onLine && isNewBlob) {
         try {
           // FIX: Use a stable, deterministic path (no Date.now()) so the same learner's
           // photo always overwrites the same file — prevents orphaned images in storage.
           const cleanReg = String(form.regNumber).replace(/[^a-zA-Z0-9]/g, '_');
-          const path = `learners/${user.schoolId}_${cleanReg}.webp`;
-          const { error } = await supabase.storage.from('learner-photos').upload(path, photoPreview, { upsert: true, contentType: 'image/webp' });
+          const fullPath = `learners/${user.schoolId}_${cleanReg}.webp`;
+          const thumbPath = `learners/${user.schoolId}_${cleanReg}_thumb.webp`;
+
+          // Upload full-resolution photo
+          const { error } = await supabase.storage.from('learner-photos').upload(fullPath, photoPreview, { upsert: true, contentType: 'image/webp' });
           if (!error) {
-            const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
+            const { data } = supabase.storage.from('learner-photos').getPublicUrl(fullPath);
             if (data?.publicUrl) remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
+          }
+
+          // Upload micro-thumbnail
+          if (thumbPreview instanceof Blob) {
+            const { error: thumbErr } = await supabase.storage.from('learner-photos').upload(thumbPath, thumbPreview, { upsert: true, contentType: 'image/webp' });
+            if (!thumbErr) {
+              const { data: thumbData } = supabase.storage.from('learner-photos').getPublicUrl(thumbPath);
+              if (thumbData?.publicUrl) remoteThumbUrl = `${thumbData.publicUrl}?t=${Date.now()}`;
+            }
           }
         } catch (err) {
           console.warn('Failed to upload photo to storage:', err);
@@ -368,8 +383,14 @@ const LearnerList = () => {
         ? photoPreview
         : (photoPreview || existingRecord?.photo || null);
 
+      // photoThumb field: micro-thumbnail Blob
+      const photoThumbField = isNewBlob && thumbPreview instanceof Blob
+        ? thumbPreview
+        : (thumbPreview || existingRecord?.photoThumb || null);
+
       // photoUrl field: always prefer newly uploaded URL, fallback to preserved existing
       const photoUrlField = remotePhotoUrl || existingRecord?.photoUrl || null;
+      const photoThumbUrlField = remoteThumbUrl || existingRecord?.photoThumbUrl || null;
 
       // FIX: Set synced correctly — only mark unsynced when there is a local Blob
       // that still needs to be uploaded (no remote URL yet).
@@ -384,7 +405,9 @@ const LearnerList = () => {
         currentClassId: Number(form.currentClassId),
         status: existingRecord?.status || 'Active',
         photo: photoField,
+        photoThumb: photoThumbField,
         photoUrl: photoUrlField,
+        photoThumbUrl: photoThumbUrlField,
         excludeFromPdf: !!form.excludeFromPdf,
         guardianName: form.guardianName,
         guardianRelation: form.guardianRelation,
@@ -879,13 +902,31 @@ const LearnerList = () => {
             try {
               const blob = localPhoto instanceof Blob ? localPhoto : await fetch(localPhoto).then(r => r.blob());
               const cleanReg = String(l.regNumber || l.id).replace(/[^a-zA-Z0-9]/g, '_');
-              const path = `learners/${user.schoolId}_${cleanReg}.webp`;
-              const { error: uploadError } = await supabase.storage.from('learner-photos').upload(path, blob, { upsert: true, contentType: 'image/webp' });
+              const fullPath = `learners/${user.schoolId}_${cleanReg}.webp`;
+              const thumbPath = `learners/${user.schoolId}_${cleanReg}_thumb.webp`;
+
+              // Upload full-resolution photo
+              const { error: uploadError } = await supabase.storage.from('learner-photos').upload(fullPath, blob, { upsert: true, contentType: 'image/webp' });
               if (!uploadError) {
-                const { data } = supabase.storage.from('learner-photos').getPublicUrl(path);
+                const { data } = supabase.storage.from('learner-photos').getPublicUrl(fullPath);
                 if (data?.publicUrl) {
                   remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
                   await db.learners.update(l.id, { photoUrl: remotePhotoUrl });
+                }
+              }
+
+              // Upload micro-thumbnail (generate on-the-fly if missing)
+              let thumbBlob = l.photoThumb instanceof Blob ? l.photoThumb : null;
+              if (!thumbBlob && blob instanceof Blob) {
+                try { thumbBlob = await generateThumbnailFromBlob(blob); } catch { /* skip */ }
+              }
+              if (thumbBlob) {
+                const { error: thumbErr } = await supabase.storage.from('learner-photos').upload(thumbPath, thumbBlob, { upsert: true, contentType: 'image/webp' });
+                if (!thumbErr) {
+                  const { data: thumbData } = supabase.storage.from('learner-photos').getPublicUrl(thumbPath);
+                  if (thumbData?.publicUrl) {
+                    await db.learners.update(l.id, { photoThumb: thumbBlob, photoThumbUrl: `${thumbData.publicUrl}?t=${Date.now()}` });
+                  }
                 }
               }
             } catch (uploadErr) {
@@ -1570,6 +1611,8 @@ const LearnerList = () => {
                 <div className="lc-photo-wrap">
                   <LearnerPhoto
                     photo={l.photo || l.photoUrl || null}
+                    thumbnail={l.photoThumb || l.photoThumbUrl || null}
+                    size="thumb"
                     alt={l.fullName}
                     gender={l.gender}
                     className="lc-photo"
@@ -1675,8 +1718,17 @@ const LearnerList = () => {
                     key={editingId ? `edit_${editingId}` : 'new_learner'}
                     currentPhoto={photoPreview}
                     gender={form.gender}
-                    onPhotoSelected={(blob) => setPhotoPreview(blob)}
-                    onPhotoCleared={() => setPhotoPreview(null)}
+                    onPhotoSelected={(result) => {
+                      if (result && typeof result === 'object' && result.full) {
+                        setPhotoPreview(result.full);
+                        setThumbPreview(result.thumb || null);
+                      } else {
+                        // Backward compat: plain Blob
+                        setPhotoPreview(result);
+                        setThumbPreview(null);
+                      }
+                    }}
+                    onPhotoCleared={() => { setPhotoPreview(null); setThumbPreview(null); }}
                   />
                 </div>
 
@@ -1865,6 +1917,7 @@ const LearnerList = () => {
               <div className="profile-avatar-container">
                 <LearnerPhoto
                   photo={profileLearner.photo || profileLearner.photoUrl || null}
+                  size="full"
                   alt={profileLearner.fullName}
                   gender={profileLearner.gender}
                   className="profile-avatar-img"

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import LearnerPhoto from './LearnerPhoto';
-import { processPassportPhoto } from '../../utils/imageUtils';
+import { processDualPassportPhoto } from '../../utils/imageUtils';
 
 /**
  * PassportPhotoCapture (Automated One-Tap Version)
@@ -185,11 +185,18 @@ const PassportPhotoCapture = ({
       stopCamera();
       setIsCameraOpen(false);
 
-      canvas.toBlob((blob) => {
+      canvas.toBlob(async (rawBlob) => {
         setIsProcessing(false);
-        if (blob) {
-          setPhotoBlob(blob);
-          if (onPhotoSelected) onPhotoSelected(blob);
+        if (rawBlob) {
+          try {
+            const { full, thumb } = await processDualPassportPhoto(rawBlob);
+            setPhotoBlob(full);
+            if (onPhotoSelected) onPhotoSelected({ full, thumb });
+          } catch {
+            // Fallback: use raw blob if dual processing fails
+            setPhotoBlob(rawBlob);
+            if (onPhotoSelected) onPhotoSelected({ full: rawBlob, thumb: null });
+          }
         }
       }, 'image/webp', 0.92);
 
@@ -205,12 +212,12 @@ const PassportPhotoCapture = ({
     if (!file) return;
 
     try {
-      const autoPassportBlob = await processPassportPhoto(file, 450, 600, 0.92);
-      setPhotoBlob(autoPassportBlob);
-      if (onPhotoSelected) onPhotoSelected(autoPassportBlob);
+      const { full, thumb } = await processDualPassportPhoto(file);
+      setPhotoBlob(full);
+      if (onPhotoSelected) onPhotoSelected({ full, thumb });
     } catch (err) {
       setPhotoBlob(file);
-      if (onPhotoSelected) onPhotoSelected(file);
+      if (onPhotoSelected) onPhotoSelected({ full: file, thumb: null });
     }
     e.target.value = '';
   };

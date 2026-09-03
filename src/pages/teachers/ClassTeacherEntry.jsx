@@ -370,6 +370,8 @@ const ClassTeacherEntry = () => {
                     <div className="lc-photo-wrap">
                       <LearnerPhoto
                         photo={l.photo || l.photoUrl}
+                        thumbnail={l.photoThumb || l.photoThumbUrl || null}
+                        size="thumb"
                         alt={l.fullName}
                         gender={l.gender}
                         className="lc-photo"

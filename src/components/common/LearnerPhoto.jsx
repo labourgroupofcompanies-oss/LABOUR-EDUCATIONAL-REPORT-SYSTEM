@@ -2,35 +2,55 @@ import React, { useState, useEffect } from "react";
 
 /**
  * LearnerPhoto
- * Safely renders a student photo from any source:
+ * Safely renders a student photo from any source with dual-tier support:
  *   - A local Blob (IndexedDB blob field) → creates an ObjectURL, cleans up on unmount
  *   - A remote HTTP/HTTPS URL string → uses directly as <img src>
  *   - A legacy Base64 data: string → uses directly (backward compat)
  *   - null / undefined → shows a beautiful gender-aware initials placeholder
+ *
+ * Dual-tier props:
+ *   - photo:     Full-resolution Blob, URL, or legacy Base64 string
+ *   - thumbnail: Micro-thumbnail Blob or URL (optional)
+ *   - size:      'thumb' | 'full' | 'auto' (default: 'auto')
+ *                'thumb' → prefer thumbnail, fallback to photo
+ *                'full'  → always use photo
+ *                'auto'  → use thumbnail if available, else photo
  */
-const LearnerPhoto = ({ photo, alt = "", gender = "", className = "", style = {} }) => {
+const LearnerPhoto = ({ photo, thumbnail, size = "auto", alt = "", gender = "", className = "", style = {} }) => {
   const [src, setSrc] = useState(null);
 
   useEffect(() => {
-    if (!photo) {
+    // Determine which source to use based on size prop
+    let activeSource = null;
+
+    if (size === "full") {
+      activeSource = photo || null;
+    } else if (size === "thumb") {
+      activeSource = thumbnail || photo || null;
+    } else {
+      // auto: prefer thumbnail when available
+      activeSource = thumbnail || photo || null;
+    }
+
+    if (!activeSource) {
       setSrc(null);
       return;
     }
 
-    if (photo instanceof Blob) {
-      const url = URL.createObjectURL(photo);
+    if (activeSource instanceof Blob) {
+      const url = URL.createObjectURL(activeSource);
       setSrc(url);
       return () => {
         URL.revokeObjectURL(url);
       };
     }
 
-    if (typeof photo === "string") {
-      setSrc(photo);
+    if (typeof activeSource === "string") {
+      setSrc(activeSource);
     } else {
       setSrc(null);
     }
-  }, [photo]);
+  }, [photo, thumbnail, size]);
 
   if (!src) {
     const initials = alt
@@ -99,3 +119,4 @@ const LearnerPhoto = ({ photo, alt = "", gender = "", className = "", style = {}
 };
 
 export default LearnerPhoto;
+

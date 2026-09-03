@@ -1979,6 +1979,7 @@ const Reports = () => {
           </div>
           <LearnerPhoto
             photo={learner.photo || learner.photoUrl || null}
+            size="full"
             alt={learner.fullName}
             gender={learner.gender}
             className="rc-student-photo"
@@ -2664,6 +2665,8 @@ const Reports = () => {
                                           <div className="rc-student-cell">
                                             <LearnerPhoto
                                               photo={l.photo || l.photoUrl || null}
+                                              thumbnail={l.photoThumb || l.photoThumbUrl || null}
+                                              size="thumb"
                                               alt={l.fullName}
                                               gender={l.gender}
                                               className="rc-student-cell-photo"
