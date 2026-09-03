@@ -580,6 +580,32 @@ const ParentReportView = () => {
           box-shadow: 0 6px 16px rgba(13, 148, 136, 0.35);
         }
 
+        /* ── Mobile Horizontal Scroll Wrapper for Report Cards ── */
+        .rc-card-scroll-wrap {
+          width: 100%;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          padding-bottom: 0.75rem;
+        }
+        .rc-card-scroll-wrap::-webkit-scrollbar {
+          height: 6px;
+        }
+        .rc-card-scroll-wrap::-webkit-scrollbar-track {
+          background: #f1f5f9;
+          border-radius: 4px;
+        }
+        .rc-card-scroll-wrap::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 4px;
+        }
+        .rc-card-scroll-wrap::-webkit-scrollbar-thumb:hover {
+          background: #94a3b8;
+        }
+        .rc-mobile-scroll-hint {
+          display: none;
+        }
+
         /* ── Report Card Canvas Layout ── */
         .rc-canvas {
           background: white;
@@ -846,6 +872,15 @@ const ParentReportView = () => {
           .rc-sig-line {
             margin-top: 15px !important;
           }
+          .rc-card-scroll-wrap {
+            overflow: visible !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            width: 100% !important;
+          }
+          .rc-mobile-scroll-hint {
+            display: none !important;
+          }
           @page {
             size: A4 portrait;
             margin: 0;
@@ -853,21 +888,42 @@ const ParentReportView = () => {
         }
 
         @media (max-width: 768px) {
-          .rc-bio-grid {
-            grid-template-columns: 1fr 1fr;
+          .rc-card-scroll-wrap {
+            margin: 0 -0.5rem;
+            padding: 0 0.5rem 0.75rem 0.5rem;
           }
-          .rc-bottom-grid {
-            grid-template-columns: 1fr;
+          .rc-mobile-scroll-hint {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            color: #1d4ed8;
+            background: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 9999px;
+            padding: 0.35rem 0.9rem;
+            margin: 0 auto 0.75rem auto;
+            width: fit-content;
+            box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+            animation: hintSlide 2.5s infinite ease-in-out;
           }
-          .rc-remarks-box {
-            grid-column: span 1;
-          }
-          .rc-sig-strip {
-            flex-wrap: wrap;
-            gap: 1.5rem;
+          @keyframes hintSlide {
+            0%, 100% { transform: translateX(0); }
+            50% { transform: translateX(3px); }
           }
           .rc-canvas {
-            padding: 1.5rem 1rem;
+            padding: 1.5rem;
+            min-width: 680px;
+            box-sizing: border-box;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .rc-canvas {
+            min-width: 640px;
+            padding: 1.25rem 1rem;
           }
         }
       `}</style>
@@ -910,8 +966,12 @@ const ParentReportView = () => {
           </div>
         </div>
 
-        {/* Report Card Canvas */}
-        <div className="rc-canvas">
+        {/* Report Card Canvas with Mobile Horizontal Scroll */}
+        <div className="rc-card-scroll-wrap">
+          <div className="rc-mobile-scroll-hint no-print">
+            <i className="fas fa-arrows-left-right" /> Swipe horizontally to view full report card &rarr;
+          </div>
+          <div className="rc-canvas">
           {/* Header */}
           <div className="rc-canvas-header">
             {schoolInfo?.logoUrl
@@ -1142,9 +1202,9 @@ const ParentReportView = () => {
               Powered by <strong style={{ color: '#64748b' }}>Labour Educational App</strong>
             </span>
           </div>
-
         </div>
       </div>
+    </div>
     </div>
   );
 };

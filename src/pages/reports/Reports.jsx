@@ -315,6 +315,32 @@ const STYLES = `
   }
   .rc-stab:hover:not(.active) { background: var(--background); border-color: #93c5fd; color: #2563eb; }
 
+  /* ── Mobile Horizontal Scroll Wrapper for Report Cards ── */
+  .rc-card-scroll-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    padding-bottom: 0.75rem;
+  }
+  .rc-card-scroll-wrap::-webkit-scrollbar {
+    height: 6px;
+  }
+  .rc-card-scroll-wrap::-webkit-scrollbar-track {
+    background: #f1f5f9;
+    border-radius: 4px;
+  }
+  .rc-card-scroll-wrap::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+  .rc-card-scroll-wrap::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+  .rc-mobile-scroll-hint {
+    display: none;
+  }
+
   /* ── Report card canvas ── */
   .rc-canvas {
     background: white;
@@ -570,6 +596,16 @@ const STYLES = `
     .rc-print-zone .rc-sig-strip { padding-top: 0.5rem !important; margin-top: auto !important; }
     .rc-print-zone .rc-sig-line { margin-top: 15px !important; }
 
+    .rc-card-scroll-wrap {
+      overflow: visible !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+    }
+    .rc-mobile-scroll-hint {
+      display: none !important;
+    }
+
     .no-print { display: none !important; }
     @page { margin: 0; size: A4 portrait; }
   }
@@ -579,18 +615,47 @@ const STYLES = `
     .rc-filter-row { grid-template-columns: 1fr; gap: 0.85rem; }
     .rc-gen-row { grid-template-columns: 1fr 1fr; }
     .rc-summary-grid { grid-template-columns: 1fr; }
-    .rc-canvas { padding: 1.25rem; }
-    .rc-bio-grid { grid-template-columns: 1fr 1fr; }
-    .rc-sig-strip { flex-wrap: wrap; gap: 1.5rem; }
-    .rc-kpi { width: 50px; height: 50px; }
-    .rc-kpi-val { font-size: 0.78rem; }
+    
+    .rc-card-scroll-wrap {
+      margin: 0 -0.5rem;
+      padding: 0 0.5rem 0.75rem 0.5rem;
+    }
+    .rc-mobile-scroll-hint {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: #1d4ed8;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 9999px;
+      padding: 0.35rem 0.9rem;
+      margin: 0 auto 0.75rem auto;
+      width: fit-content;
+      box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+      animation: hintSlide 2.5s infinite ease-in-out;
+    }
+    @keyframes hintSlide {
+      0%, 100% { transform: translateX(0); }
+      50% { transform: translateX(3px); }
+    }
+    .rc-canvas {
+      padding: 1.5rem;
+      min-width: 680px;
+      box-sizing: border-box;
+    }
+    .rc-kpi { width: 52px; height: 52px; }
+    .rc-kpi-val { font-size: 0.82rem; }
   }
   @media (max-width: 480px) {
     .rc-gen-row { grid-template-columns: 1fr; }
     .rc-filter-row { grid-template-columns: 1fr; }
-    .rc-canvas { padding: 1rem 0.85rem; }
-    .rc-table th, .rc-table td { padding: 0.4rem 0.5rem; font-size: 0.7rem; }
-    .rc-bio-grid { grid-template-columns: 1fr; }
+    .rc-canvas {
+      min-width: 640px;
+      padding: 1.25rem 1rem;
+    }
     .rc-page-title { font-size: 1.15rem; }
   }
 
@@ -2980,8 +3045,13 @@ const Reports = () => {
                         {l.fullName}
                       </span>
                     </div>
-                    <div className="rc-print-zone">
-                      {renderCard(l)}
+                    <div className="rc-card-scroll-wrap">
+                      <div className="rc-mobile-scroll-hint no-print">
+                        <i className="fas fa-arrows-left-right" /> Swipe horizontally to view full report card &rarr;
+                      </div>
+                      <div className="rc-print-zone">
+                        {renderCard(l)}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -2992,8 +3062,13 @@ const Reports = () => {
             {generateMode === 'individual' && (
               <>
                 {activeLearner && (
-                  <div className="rc-print-zone">
-                    {renderCard(activeLearner)}
+                  <div className="rc-card-scroll-wrap">
+                    <div className="rc-mobile-scroll-hint no-print">
+                      <i className="fas fa-arrows-left-right" /> Swipe horizontally to view full report card &rarr;
+                    </div>
+                    <div className="rc-print-zone">
+                      {renderCard(activeLearner)}
+                    </div>
                   </div>
                 )}
 
