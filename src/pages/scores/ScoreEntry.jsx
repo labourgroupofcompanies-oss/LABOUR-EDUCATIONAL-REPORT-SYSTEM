@@ -484,18 +484,27 @@ const ScoreEntry = () => {
 
       // Collect the unique group keys that need syncing
       const groupKeysToSync = new Set();
+      let hasDeferredScores = false;
       for (const s of unsynced) {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
         if (!isUuid) {
           const matchedLearner = await db.learners.get(Number(s.learnerId));
           if (matchedLearner && matchedLearner.supabaseId) {
+            // Learner now has a UUID — heal the score's learnerId so subsequent syncs work
             await db.scores.update(s.id, { learnerId: matchedLearner.supabaseId });
+            console.log(`[Score Sync] Healed score learnerId for "${matchedLearner.fullName}": ${s.learnerId} → ${matchedLearner.supabaseId}`);
           } else {
-            console.log(`[Score Sync] Learner ${s.learnerId} not synced yet. Skipping.`);
+            // Learner hasn't synced to the cloud yet — defer this score group.
+            // It will be re-queued automatically once the learner reconciles in syncEngine.
+            console.log(`[Score Sync] Learner (Dexie id=${s.learnerId}) is not yet synced — deferring score group ${s.classId}_${s.subjectId}_${s.term}_${s.academicYear} until learner sync completes.`);
+            hasDeferredScores = true;
             continue;
           }
         }
         groupKeysToSync.add(`${s.classId}_${s.subjectId}_${s.term}_${s.academicYear}`);
+      }
+      if (hasDeferredScores) {
+        console.log('[Score Sync] Some scores were deferred because their learner is still pending cloud sync. They will auto-sync once the learner is reconciled.');
       }
 
       // 2. For each group, upload ALL local scores (synced + unsynced).
@@ -523,7 +532,12 @@ const ScoreEntry = () => {
           const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
           if (!isUuid) {
             const matchedLearner = await db.learners.get(Number(s.learnerId));
-            if (!matchedLearner?.supabaseId) continue; // skip if UUID not available
+            if (!matchedLearner?.supabaseId) {
+              // Learner hasn't been synced to cloud yet — skip this row from the insert payload.
+              // syncEngine's reconcileInsertedRow will trigger syncUnsyncedScores once learner is reconciled.
+              console.log(`[Score Sync] Skipping score row in group — learner Dexie id=${s.learnerId} has no supabaseId yet.`);
+              continue;
+            }
             resolvedLearnerId = matchedLearner.supabaseId;
           }
 

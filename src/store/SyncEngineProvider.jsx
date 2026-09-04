@@ -32,9 +32,9 @@ export const SyncEngineProvider = ({ children }) => {
     0
   );
 
-  // Live count of unsynced learners (saved offline, not yet pushed to Supabase)
+  // Live count of unsynced learners (saved offline, or with offline photo pending upload)
   const unsyncedLearnersCount = useLiveQuery(
-    () => db.learners.filter(l => l.synced === false && !l.supabaseId).count(),
+    () => db.learners.filter(l => l.synced === false && (!l.supabaseId || (l.photo instanceof Blob && !l.photoUrl))).count(),
     [],
     0
   );
@@ -57,13 +57,18 @@ export const SyncEngineProvider = ({ children }) => {
             .modify({ status: 'pending' });
         }
 
-        // Reconcile local learners that already have a cloud supabaseId
+        // Reconcile local learners that already have a cloud supabaseId AND no pending local photo blob
         const unsyncedWithCloudId = await db.learners
-          .filter(l => l.synced === false && !!l.supabaseId)
+          .filter(l => l.synced === false && !!l.supabaseId && !(l.photo instanceof Blob && !l.photoUrl))
           .toArray();
         if (unsyncedWithCloudId.length > 0) {
           for (const l of unsyncedWithCloudId) {
-            await db.learners.update(l.id, { synced: true });
+            const hasPendingOutbox = await db.outbox
+              .filter(o => o.table === 'report_learners' && o.payload.includes(l.supabaseId))
+              .first();
+            if (!hasPendingOutbox) {
+              await db.learners.update(l.id, { synced: true });
+            }
           }
         }
       } catch (err) {

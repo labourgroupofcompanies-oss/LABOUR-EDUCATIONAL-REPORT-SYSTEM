@@ -352,27 +352,29 @@ const Settings = () => {
         // Update UI with final URL
         setSchool(prev => ({ ...prev, logoUrl: finalLogoUrl }));
 
-        // Persist URL to Supabase report_schools table (clean URL, no base64)
-        try {
-          await supabase
-            .from('report_schools')
-            .update({
-              logo_url: finalLogoUrl,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', targetSchoolId);
-        } catch (dbErr) {
-          console.warn('[Settings] Direct Supabase logo update skipped, queued in sync engine:', dbErr);
-        }
-
-        // Also enqueue to sync engine for offline-safe guarantee
-        await enqueueSync('update', 'report_schools', {
-          filter: { id: targetSchoolId },
-          data: {
-            logo_url: finalLogoUrl,
-            updated_at: new Date().toISOString()
+        // Persist URL to Supabase report_schools table (clean URL only, never base64)
+        if (remoteLogoUrl) {
+          try {
+            await supabase
+              .from('report_schools')
+              .update({
+                logo_url: remoteLogoUrl,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', targetSchoolId);
+          } catch (dbErr) {
+            console.warn('[Settings] Direct Supabase logo update skipped, queued in sync engine:', dbErr);
           }
-        }, targetSchoolId);
+
+          // Also enqueue to sync engine for offline-safe guarantee
+          await enqueueSync('update', 'report_schools', {
+            filter: { id: targetSchoolId },
+            data: {
+              logo_url: remoteLogoUrl,
+              updated_at: new Date().toISOString()
+            }
+          }, targetSchoolId);
+        }
       }
 
       alert('School logo saved successfully!');

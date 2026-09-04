@@ -591,25 +591,48 @@ async function runAdminSync(user) {
 
         } else {
           // Existing learner — smart diff; re-download photo only if URL changed
-          const fieldsChanged = hasChanged(local, remoteFields, [
-            'regNumber', 'fullName', 'gender', 'ghanaianLanguage', 'currentClassId', 
-            'status', 'guardianName', 'guardianRelation', 'guardianContact1', 'guardianContact2',
-            'guardianProfession', 'guardianLocation', 'photoUrl', 'supabaseId', 'synced', 'excludeFromPdf'
-          ]);
-          const photoUrlChanged = navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl;
 
-          if (fieldsChanged || photoUrlChanged) {
-            let photoBlobCache = local.photo instanceof Blob ? local.photo : null;
-            if (photoUrlChanged) {
-              const downloaded = await downloadImageAsBlob(rl.photo_url).catch(() => null);
-              photoBlobCache = downloaded || (local.photo instanceof Blob ? local.photo : null);
-            } else if (!rl.photo_url) {
-              photoBlobCache = null;
+          // ── Dirty guard: if there are pending outbox entries for this learner, skip
+          //    overwriting locally-edited fields. Only patch safe read-only metadata
+          //    (supabaseId, photoUrl) so the sync engine can use the UUID.
+          const hasPendingOutbox = await db.outbox
+            .filter(o =>
+              (o.table === 'report_learners') &&
+              (o.status === 'pending' || o.status === 'processing') &&
+              (o.payload.includes(rl.id) || (rl.reg_number && o.payload.includes(rl.reg_number)))
+            )
+            .first();
+
+          if (hasPendingOutbox) {
+            // Patch only the safe metadata fields — do NOT overwrite locally-edited data
+            const safePatch = {};
+            if (rl.id && local.supabaseId !== rl.id) safePatch.supabaseId = rl.id;
+            if (rl.photo_url && local.photoUrl !== rl.photo_url) safePatch.photoUrl = rl.photo_url;
+            if (Object.keys(safePatch).length > 0) {
+              await db.learners.update(local.id, safePatch);
             }
-            await db.learners.update(local.id, { 
-              ...remoteFields, 
-              photo: photoBlobCache 
-            });
+            console.log(`[SyncDown] Dirty guard: skipped full overwrite of learner "${local.fullName}" (${local.regNumber}) — pending outbox item exists.`);
+          } else {
+            const fieldsChanged = hasChanged(local, remoteFields, [
+              'regNumber', 'fullName', 'gender', 'ghanaianLanguage', 'currentClassId', 
+              'status', 'guardianName', 'guardianRelation', 'guardianContact1', 'guardianContact2',
+              'guardianProfession', 'guardianLocation', 'photoUrl', 'supabaseId', 'synced', 'excludeFromPdf'
+            ]);
+            const photoUrlChanged = navigator.onLine && rl.photo_url && rl.photo_url !== local.photoUrl;
+
+            if (fieldsChanged || photoUrlChanged) {
+              let photoBlobCache = local.photo instanceof Blob ? local.photo : null;
+              if (photoUrlChanged) {
+                const downloaded = await downloadImageAsBlob(rl.photo_url).catch(() => null);
+                photoBlobCache = downloaded || (local.photo instanceof Blob ? local.photo : null);
+              } else if (!rl.photo_url) {
+                photoBlobCache = null;
+              }
+              await db.learners.update(local.id, { 
+                ...remoteFields, 
+                photo: photoBlobCache 
+              });
+            }
           }
         }
       }
@@ -741,7 +764,25 @@ async function runAdminSync(user) {
           'nextTermBill', 'isReleased', 'classAverage', 'classRank',
           'promotionStatus', 'supabaseId', 'synced'
         ])) {
-          await db.reportSummaries.update(existing.id, entry);
+          // Dirty guard: don't overwrite if teacher/headteacher has a pending outbox for this summary
+          const hasPendingSummaryOutbox = await db.outbox
+            .filter(o =>
+              o.table === 'report_summaries' &&
+              (o.status === 'pending' || o.status === 'processing') &&
+              o.payload.includes(rs.learner_id) &&
+              o.payload.includes(String(rs.academic_year)) &&
+              o.payload.includes(String(rs.term))
+            )
+            .first();
+          if (!hasPendingSummaryOutbox) {
+            await db.reportSummaries.update(existing.id, entry);
+          } else {
+            // Still patch supabaseId so engine can do updates instead of inserts
+            if (rs.id && existing.supabaseId !== rs.id) {
+              await db.reportSummaries.update(existing.id, { supabaseId: rs.id });
+            }
+            console.log(`[SyncDown] Dirty guard: skipped overwrite of report_summary for learner ${rs.learner_id} ${rs.term}/${rs.academic_year} — pending outbox item exists.`);
+          }
         }
       }
 

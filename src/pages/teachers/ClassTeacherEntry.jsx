@@ -84,6 +84,26 @@ const ClassTeacherEntry = () => {
         if (data && !error) {
           for (const s of data) {
             const existing = await db.reportSummaries.where('supabaseId').equals(s.id).first();
+
+            // Dirty guard: if there's a pending outbox entry for this summary, only patch supabaseId
+            const hasPending = existing ? await db.outbox
+              .filter(o =>
+                o.table === 'report_summaries' &&
+                (o.status === 'pending' || o.status === 'processing') &&
+                o.payload.includes(s.learner_id) &&
+                o.payload.includes(String(s.academic_year)) &&
+                o.payload.includes(String(s.term))
+              )
+              .first() : null;
+
+            if (hasPending) {
+              // Only update supabaseId if it's missing — don't overwrite locally-entered data
+              if (!existing.supabaseId) {
+                await db.reportSummaries.update(existing.id, { supabaseId: s.id });
+              }
+              continue;
+            }
+
             await db.reportSummaries.put({
               id: existing?.id,
               schoolId: s.school_id, learnerId: s.learner_id, classId: s.class_id,

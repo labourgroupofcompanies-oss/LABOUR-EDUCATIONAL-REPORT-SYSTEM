@@ -322,12 +322,14 @@ const LearnerList = () => {
     });
     // photo may be a Blob (local) or a string URL (remote cached)
     setPhotoPreview(l.photo || l.photoUrl || null);
+    setThumbPreview(l.photoThumb || l.photoThumbUrl || null);
     setIsModalOpen(true);
   };
 
   const closeModal = () => {
     setIsModalOpen(false);
     setPhotoPreview(null);
+    setThumbPreview(null);
   };
 
   const handleRegister = async (e) => {
@@ -388,13 +390,21 @@ const LearnerList = () => {
         ? thumbPreview
         : (thumbPreview || existingRecord?.photoThumb || null);
 
-      // photoUrl field: always prefer newly uploaded URL, fallback to preserved existing
-      const photoUrlField = remotePhotoUrl || existingRecord?.photoUrl || null;
-      const photoThumbUrlField = remoteThumbUrl || existingRecord?.photoThumbUrl || null;
+      // photoUrl field:
+      // If a fresh blob was captured/uploaded, use the newly obtained remote URL.
+      // If no new blob was provided, preserve existing URL.
+      const photoUrlField = isNewBlob
+        ? remotePhotoUrl
+        : (remotePhotoUrl || existingRecord?.photoUrl || null);
 
-      // FIX: Set synced correctly — only mark unsynced when there is a local Blob
-      // that still needs to be uploaded (no remote URL yet).
-      const isSynced = !isNewBlob || !!remotePhotoUrl;
+      const photoThumbUrlField = isNewBlob && thumbPreview instanceof Blob
+        ? remoteThumbUrl
+        : (remoteThumbUrl || existingRecord?.photoThumbUrl || null);
+
+      // Synced determination:
+      // A record is ONLY marked synced if online AND no pending un-uploaded Blob photo exists
+      const hasUnuploadedBlob = photoField instanceof Blob && !photoUrlField;
+      const isSynced = navigator.onLine && !hasUnuploadedBlob;
 
       const record = {
         fullName: form.fullName,
@@ -443,7 +453,7 @@ const LearnerList = () => {
               updated_at: record.updatedAt
             }
           }, user.schoolId);
-          await db.learners.update(editingId, { synced: true });
+          await db.learners.update(editingId, { synced: isSynced });
         } else {
           // If the student was created offline and hasn't synced yet, find the pending insert in the outbox
           const pendingInsert = await db.outbox
@@ -470,7 +480,7 @@ const LearnerList = () => {
                 created_at: JSON.parse(pendingInsert.payload).created_at || record.updatedAt
               })
             });
-            await db.learners.update(editingId, { synced: true });
+            await db.learners.update(editingId, { synced: isSynced });
           } else {
             // No pending insert in outbox, but no supabaseId either.
             // Mark as unsynced so background sync will find the remote record and link them.
@@ -498,7 +508,7 @@ const LearnerList = () => {
           guardian_location: record.guardianLocation,
           created_at: record.createdAt
         }, user.schoolId);
-        await db.learners.update(localId, { synced: true });
+        await db.learners.update(localId, { synced: isSynced });
         savePrefix(String(form.regNumber));
         getNextRegNumber();
       }
@@ -896,36 +906,59 @@ const LearnerList = () => {
           // Upload local Blob photo to Supabase storage if present
           let remotePhotoUrl = l.photoUrl || null;
           const localPhoto = l.photo;
-          const needsUpload = localPhoto instanceof Blob || (typeof localPhoto === 'string' && localPhoto.startsWith('data:'));
+          const hasBlobPhoto = localPhoto instanceof Blob || (typeof localPhoto === 'string' && localPhoto.startsWith('data:'));
 
-          if (needsUpload && !remotePhotoUrl) {
+          if (hasBlobPhoto) {
             try {
-              const blob = localPhoto instanceof Blob ? localPhoto : await fetch(localPhoto).then(r => r.blob());
-              const cleanReg = String(l.regNumber || l.id).replace(/[^a-zA-Z0-9]/g, '_');
-              const fullPath = `learners/${user.schoolId}_${cleanReg}.webp`;
-              const thumbPath = `learners/${user.schoolId}_${cleanReg}_thumb.webp`;
+              const blob = localPhoto instanceof Blob 
+                ? localPhoto 
+                : await fetch(localPhoto).then(r => r.blob()).catch(() => null);
 
-              // Upload full-resolution photo
-              const { error: uploadError } = await supabase.storage.from('learner-photos').upload(fullPath, blob, { upsert: true, contentType: 'image/webp' });
-              if (!uploadError) {
-                const { data } = supabase.storage.from('learner-photos').getPublicUrl(fullPath);
-                if (data?.publicUrl) {
-                  remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
-                  await db.learners.update(l.id, { photoUrl: remotePhotoUrl });
+              if (blob) {
+                const cleanReg = String(l.regNumber || l.id).replace(/[^a-zA-Z0-9]/g, '_');
+                const fullPath = `learners/${user.schoolId}_${cleanReg}.webp`;
+                const thumbPath = `learners/${user.schoolId}_${cleanReg}_thumb.webp`;
+
+                // Upload full-resolution photo
+                const { error: uploadError } = await supabase.storage.from('learner-photos').upload(fullPath, blob, { upsert: true, contentType: 'image/webp' });
+                if (!uploadError) {
+                  const { data } = supabase.storage.from('learner-photos').getPublicUrl(fullPath);
+                  if (data?.publicUrl) {
+                    remotePhotoUrl = `${data.publicUrl}?t=${Date.now()}`;
+                    await db.learners.update(l.id, { photoUrl: remotePhotoUrl });
+
+                    // Also patch any pending outbox payload for this learner with the fresh photo_url
+                    try {
+                      const pendingOutbox = await db.outbox
+                        .filter(o => o.table === 'report_learners' &&
+                          (o.payload.includes(String(l.regNumber)) || (l.supabaseId && o.payload.includes(l.supabaseId))))
+                        .toArray();
+                      for (const po of pendingOutbox) {
+                        const parsed = JSON.parse(po.payload);
+                        if (po.operation === 'insert') {
+                          parsed.photo_url = remotePhotoUrl;
+                          await db.outbox.update(po.id, { payload: JSON.stringify(parsed) });
+                        } else if (po.operation === 'update' && parsed.data) {
+                          parsed.data.photo_url = remotePhotoUrl;
+                          await db.outbox.update(po.id, { payload: JSON.stringify(parsed) });
+                        }
+                      }
+                    } catch (_) {}
+                  }
                 }
-              }
 
-              // Upload micro-thumbnail (generate on-the-fly if missing)
-              let thumbBlob = l.photoThumb instanceof Blob ? l.photoThumb : null;
-              if (!thumbBlob && blob instanceof Blob) {
-                try { thumbBlob = await generateThumbnailFromBlob(blob); } catch { /* skip */ }
-              }
-              if (thumbBlob) {
-                const { error: thumbErr } = await supabase.storage.from('learner-photos').upload(thumbPath, thumbBlob, { upsert: true, contentType: 'image/webp' });
-                if (!thumbErr) {
-                  const { data: thumbData } = supabase.storage.from('learner-photos').getPublicUrl(thumbPath);
-                  if (thumbData?.publicUrl) {
-                    await db.learners.update(l.id, { photoThumb: thumbBlob, photoThumbUrl: `${thumbData.publicUrl}?t=${Date.now()}` });
+                // Upload micro-thumbnail (generate on-the-fly if missing)
+                let thumbBlob = l.photoThumb instanceof Blob ? l.photoThumb : null;
+                if (!thumbBlob && blob instanceof Blob) {
+                  try { thumbBlob = await generateThumbnailFromBlob(blob); } catch { /* skip */ }
+                }
+                if (thumbBlob) {
+                  const { error: thumbErr } = await supabase.storage.from('learner-photos').upload(thumbPath, thumbBlob, { upsert: true, contentType: 'image/webp' });
+                  if (!thumbErr) {
+                    const { data: thumbData } = supabase.storage.from('learner-photos').getPublicUrl(thumbPath);
+                    if (thumbData?.publicUrl) {
+                      await db.learners.update(l.id, { photoThumb: thumbBlob, photoThumbUrl: `${thumbData.publicUrl}?t=${Date.now()}` });
+                    }
                   }
                 }
               }

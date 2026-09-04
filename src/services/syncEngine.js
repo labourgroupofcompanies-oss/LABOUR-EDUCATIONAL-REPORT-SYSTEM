@@ -229,11 +229,22 @@ async function processSingleItem(item) {
         }
 
         // Self-heal: strip unknown columns and retry
-        if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
-          const stripped = rows.map(r => { const c = { ...r }; delete c.exclude_from_pdf; return c; });
-          const retry = await supabase.from(item.table).insert(stripped).select();
-          data = retry.data;
-          error = retry.error;
+        if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message?.includes('exclude_from_pdf') || error.message?.includes('does not exist'))) {
+          const colMatch = (error.message || '').match(/column "([^"]+)" of relation/i) ||
+                           (error.message || '').match(/Could not find the '([^']+)' column/i);
+          const badCol = colMatch ? colMatch[1] : (error.message?.includes('exclude_from_pdf') ? 'exclude_from_pdf' : null);
+          if (badCol) {
+            console.warn(`[SyncEngine] 🔄 Stripping unknown column '${badCol}' from ${item.table} insert...`);
+            const stripped = rows.map(r => { const c = { ...r }; delete c[badCol]; return c; });
+            const retry = await supabase.from(item.table).insert(stripped).select();
+            data = retry.data;
+            error = retry.error;
+          } else {
+            const stripped = rows.map(r => { const c = { ...r }; delete c.exclude_from_pdf; return c; });
+            const retry = await supabase.from(item.table).insert(stripped).select();
+            data = retry.data;
+            error = retry.error;
+          }
         }
 
         // Self-heal: missing report_referrals table in Supabase
@@ -266,8 +277,12 @@ async function processSingleItem(item) {
         let { error } = await q;
 
         // Self-heal: strip unknown columns and retry
-        if (error && (error.code === '42703' || error.message?.includes('exclude_from_pdf'))) {
+        if (error && (error.code === '42703' || error.code === 'PGRST204' || error.message?.includes('exclude_from_pdf') || error.message?.includes('does not exist'))) {
+          const colMatch = (error.message || '').match(/column "([^"]+)" of relation/i) ||
+                           (error.message || '').match(/Could not find the '([^']+)' column/i);
+          const badCol = colMatch ? colMatch[1] : (error.message?.includes('exclude_from_pdf') ? 'exclude_from_pdf' : null);
           const strippedData = { ...payload.data };
+          if (badCol) delete strippedData[badCol];
           delete strippedData.exclude_from_pdf;
           let retryQ = supabase.from(item.table).update(strippedData);
           if (payload.filter) {
@@ -508,11 +523,103 @@ const reconcileInsertedRow = async (table, row, payload) => {
       ).first();
     }
     if (local) {
+      const dexieLearnerId = local.id;
       await db.learners.update(local.id, { 
         supabaseId: row.id, 
         synced: true,
         status: row.status || local.status || 'Active'
       });
+
+      // ── Cascade supabaseId to pending scores that used the Dexie integer id ──
+      // When a teacher saved scores for an offline-registered learner, the scores
+      // were stored with learnerId = dexie integer. Now that we have the UUID, heal them
+      // so syncUnsyncedScores can include them in the next drain cycle.
+      try {
+        const pendingScores = await db.scores
+          .filter(s => String(s.learnerId) === String(dexieLearnerId))
+          .toArray();
+        if (pendingScores.length > 0) {
+          console.log(`[SyncEngine] Cascading supabaseId ${row.id} to ${pendingScores.length} pending score(s) for learner (Dexie id=${dexieLearnerId}).`);
+          for (const ps of pendingScores) {
+            await db.scores.update(ps.id, { learnerId: row.id, synced: false });
+          }
+        }
+      } catch (cascadeErr) {
+        console.warn('[SyncEngine] Score cascade after learner reconcile failed (non-fatal):', cascadeErr);
+      }
+
+      // ── Cascade supabaseId to pending report_summaries ──────────────────────
+      // If a teacher saved attendance/remarks for an offline-registered learner,
+      // the summary was stored with learnerId = Dexie integer. Now that we have the
+      // UUID, update and enqueue an insert so the cloud receives them.
+      try {
+        const pendingSummaries = await db.reportSummaries
+          .filter(s => String(s.learnerId) === String(dexieLearnerId))
+          .toArray();
+        if (pendingSummaries.length > 0) {
+          console.log(`[SyncEngine] Cascading supabaseId ${row.id} to ${pendingSummaries.length} report_summary(ies) for learner (Dexie id=${dexieLearnerId}).`);
+          for (const ps of pendingSummaries) {
+            // Update local learnerId to the UUID
+            await db.reportSummaries.update(ps.id, { learnerId: row.id, synced: false });
+            // Enqueue insert/update to cloud
+            const cloud = {
+              school_id:         ps.schoolId || row.school_id,
+              learner_id:        row.id,
+              class_id:          ps.classId,
+              academic_year:     ps.academicYear,
+              term:              ps.term,
+              attendance_present: ps.attendancePresent ?? 0,
+              attendance_total:   ps.attendanceTotal ?? 0,
+              conduct:            ps.conduct || '',
+              attitude:           ps.attitude || '',
+              teacher_remark:     ps.teacherRemark || '',
+              headteacher_remark: ps.headteacherRemark || '',
+              promoted_to:        ps.promotedTo || '',
+              next_term_begins:   ps.nextTermBegins || '',
+              fees_owed:          ps.feesOwed || '',
+              next_term_bill:     ps.nextTermBill || '',
+              class_average:      ps.classAverage ?? null,
+              class_rank:         ps.classRank ?? null,
+              total_graded:       ps.totalGraded ?? 0,
+              updated_at:         new Date().toISOString(),
+            };
+            if (ps.supabaseId) {
+              await enqueueSync('update', 'report_summaries', { filter: { id: ps.supabaseId }, data: cloud }, row.school_id);
+            } else {
+              await enqueueSync('insert', 'report_summaries', cloud, row.school_id);
+            }
+          }
+        }
+      } catch (summCascadeErr) {
+        console.warn('[SyncEngine] Summary cascade after learner reconcile failed (non-fatal):', summCascadeErr);
+      }
+
+      // If local learner has an offline photo Blob that needs to be uploaded to storage
+      if (local.photo instanceof Blob && !row.photo_url && typeof navigator !== 'undefined' && navigator.onLine) {
+        (async () => {
+          try {
+            const cleanReg = String(row.reg_number || local.regNumber || local.id).replace(/[^a-zA-Z0-9]/g, '_');
+            const fullPath = `learners/${row.school_id}_${cleanReg}.webp`;
+            const thumbPath = `learners/${row.school_id}_${cleanReg}_thumb.webp`;
+
+            const { error: upErr } = await supabase.storage.from('learner-photos').upload(fullPath, local.photo, { upsert: true, contentType: 'image/webp' });
+            if (!upErr) {
+              const { data: pubData } = supabase.storage.from('learner-photos').getPublicUrl(fullPath);
+              if (pubData?.publicUrl) {
+                const freshUrl = `${pubData.publicUrl}?t=${Date.now()}`;
+                await db.learners.update(local.id, { photoUrl: freshUrl });
+                await supabase.from('report_learners').update({ photo_url: freshUrl }).eq('id', row.id);
+              }
+            }
+
+            if (local.photoThumb instanceof Blob) {
+              await supabase.storage.from('learner-photos').upload(thumbPath, local.photoThumb, { upsert: true, contentType: 'image/webp' }).catch(() => null);
+            }
+          } catch (photoErr) {
+            console.warn('[SyncEngine] Background photo upload on learner reconcile failed:', photoErr);
+          }
+        })();
+      }
     }
 
   } else if (table === 'report_payments') {
@@ -837,6 +944,65 @@ const healForeignKey = async (opError, item, payload) => {
         if (!data?.id) {
           console.log(`[SyncEngine] Discarding item for deleted learner: ${lId}`);
           return null;
+        }
+      }
+    }
+
+    if (item.table === 'report_learners') {
+      const classId = payload.class_id || payload.data?.class_id;
+      const targetSchoolId = payload.school_id || item.schoolId;
+
+      if (classId && targetSchoolId) {
+        console.log(`[SyncEngine] 🔄 Self-healing: FK violation on report_learners for class_id ${classId}...`);
+        // 1. Check if class exists locally in Dexie
+        const localClass = await db.classes.get(Number(classId)).catch(() => null) ||
+                           await db.classes.get(classId).catch(() => null);
+
+        let resolvedClassId = null;
+        if (localClass) {
+          // See if it exists on remote by name
+          const { data: remoteCls } = await supabase.from('report_classes')
+            .select('id')
+            .eq('school_id', targetSchoolId)
+            .ilike('name', localClass.name.trim())
+            .maybeSingle();
+
+          if (remoteCls?.id) {
+            resolvedClassId = remoteCls.id;
+          } else {
+            // Upsert class to Supabase
+            const { data: newCls } = await supabase.from('report_classes')
+              .insert([{ school_id: targetSchoolId, name: localClass.name }])
+              .select()
+              .maybeSingle();
+            if (newCls?.id) resolvedClassId = newCls.id;
+          }
+        }
+
+        // 2. Retry operation with resolvedClassId or null
+        if (item.operation === 'insert') {
+          const rows = (Array.isArray(payload) ? payload : [payload]).map(r => ({
+            ...r,
+            class_id: resolvedClassId || null
+          }));
+          const { data: retryData, error: retryErr } = await supabase.from(item.table).insert(rows).select();
+          if (!retryErr && retryData) {
+            for (const r of retryData) {
+              await reconcileInsertedRow(item.table, r, payload).catch(() => null);
+            }
+            return null;
+          }
+          return retryErr;
+        } else if (item.operation === 'update') {
+          const updateData = { ...payload.data, class_id: resolvedClassId || null };
+          let q = supabase.from(item.table).update(updateData);
+          if (payload.filter) {
+            Object.entries(payload.filter).forEach(([k, v]) => {
+              q = Array.isArray(v) ? q.in(k, v) : q.eq(k, v);
+            });
+          }
+          const { error: retryErr } = await q;
+          return retryErr || null;
         }
       }
     }
