@@ -687,51 +687,70 @@ const BroadcastManager = () => {
                 This is how the broadcast announcement banner will render at the top of <strong>{getAudienceLabel(targetAudience)}</strong> dashboards:
               </div>
 
-              {/* Preview Banner Box */}
+              {/* Preview Banner Box - Mobile Phone Push Notification Style */}
               {(() => {
-                const sev = getSeverityStyle(severity);
+                const getPreviewTheme = (sev) => {
+                  switch (sev) {
+                    case 'urgent': return { accent: '#EF4444', accentBg: 'rgba(239, 68, 68, 0.1)', glassBg: 'rgba(254, 242, 242, 0.88)', border: 'rgba(239, 68, 68, 0.3)', icon: 'fa-circle-exclamation', tag: 'Urgent' };
+                    case 'warning': return { accent: '#F59E0B', accentBg: 'rgba(245, 158, 11, 0.12)', glassBg: 'rgba(255, 251, 235, 0.88)', border: 'rgba(245, 158, 11, 0.35)', icon: 'fa-bullhorn', tag: 'Notice' };
+                    case 'success': return { accent: '#10B981', accentBg: 'rgba(16, 185, 129, 0.12)', glassBg: 'rgba(236, 253, 245, 0.88)', border: 'rgba(16, 185, 129, 0.3)', icon: 'fa-circle-check', tag: 'Update' };
+                    case 'info':
+                    default: return { accent: '#2563EB', accentBg: 'rgba(37, 99, 235, 0.1)', glassBg: 'rgba(239, 246, 255, 0.88)', border: 'rgba(37, 99, 235, 0.25)', icon: 'fa-bell', tag: 'Announcement' };
+                  }
+                };
+                const theme = getPreviewTheme(severity);
                 return (
                   <div style={{
-                    background: sev.bg,
-                    border: `1.5px solid ${sev.border}`,
-                    borderRadius: '12px',
-                    padding: '1rem 1.25rem',
-                    color: '#FFFFFF',
+                    background: theme.glassBg,
+                    border: `1.5px solid ${theme.border}`,
+                    borderRadius: '16px',
+                    padding: '0.85rem 1.1rem',
+                    color: '#0F172A',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '6px'
+                    gap: '6px',
+                    backdropFilter: 'blur(16px)',
+                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontWeight: 800, fontSize: '0.88rem', color: '#FFFFFF' }}>
-                        {title || 'Announcement Title'}
-                      </span>
-                      <span style={{ fontSize: '0.68rem', fontWeight: 800, background: 'rgba(255, 255, 255, 0.2)', padding: '0.1rem 0.45rem', borderRadius: '999px' }}>
-                        {sev.label}
-                      </span>
+                    {/* Header Row */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{ width: '20px', height: '20px', borderRadius: '5px', background: theme.accentBg, color: theme.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
+                          <i className={`fas ${theme.icon}`}></i>
+                        </div>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: theme.accent, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          {theme.tag}
+                        </span>
+                        <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>•</span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748B' }}>Just now</span>
+                      </div>
+                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#64748B' }}>
+                        ✕
+                      </div>
                     </div>
 
-                    <div style={{ fontSize: '0.8rem', color: '#E4E4E7', lineHeight: 1.4 }}>
+                    {/* Title & Preview Content (Strictly what was typed) */}
+                    <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0F172A', lineHeight: 1.3 }}>
+                      {title || 'Announcement Title'}
+                    </div>
+
+                    <div style={{
+                      fontSize: '0.82rem',
+                      color: '#334155',
+                      lineHeight: 1.45,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden'
+                    }}>
                       {content || 'Your announcement message content will appear here...'}
                     </div>
 
-                    {actionUrl && (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
-                        <span style={{
-                          background: '#FFFFFF',
-                          color: '#09090b',
-                          padding: '0.25rem 0.65rem',
-                          borderRadius: '6px',
-                          fontSize: '0.72rem',
-                          fontWeight: 800,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}>
-                          <span>{actionLabel || 'View'}</span>
-                          <i className="fas fa-arrow-right" style={{ fontSize: '0.65rem' }}></i>
-                        </span>
-                      </div>
-                    )}
+                    {/* Footer Tap Hint */}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>
+                      <span>Tap to view full message</span>
+                      <i className="fas fa-chevron-right" style={{ fontSize: '0.65rem' }}></i>
+                    </div>
                   </div>
                 );
               })()}

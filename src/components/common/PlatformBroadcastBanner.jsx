@@ -8,7 +8,6 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
   const navigate = useNavigate();
   const [broadcasts, setBroadcasts] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [isMinimized, setIsMinimized] = useState(false);
   const [readerModalItem, setReaderModalItem] = useState(null);
 
   const fetchActiveBroadcasts = () => {
@@ -51,69 +50,70 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
   const current = broadcasts[currentIndex] || broadcasts[0];
   if (!current || !current.bannerEnabled) return null;
 
-  // Severity color schemes & badges
+  // Modern Mobile Notification Theme Colors
   const getTheme = (severity) => {
     switch (severity) {
       case 'urgent':
         return {
-          bgGradient: 'linear-gradient(135deg, #FEF2F2 0%, #FFF1F2 100%)',
-          borderColor: '#FECACA',
-          accentColor: '#DC2626',
-          badgeBg: '#FEE2E2',
-          badgeText: '#991B1B',
-          icon: 'fa-triangle-exclamation',
-          typeLabel: 'Urgent Directive',
-          btnBg: 'linear-gradient(135deg, #DC2626, #B91C1C)',
-          btnShadow: '0 4px 14px rgba(220, 38, 38, 0.25)'
+          accent: '#EF4444',
+          accentBg: 'rgba(239, 68, 68, 0.1)',
+          glassBg: 'rgba(254, 242, 242, 0.72)',
+          borderColor: 'rgba(239, 68, 68, 0.25)',
+          icon: 'fa-circle-exclamation',
+          tag: 'Urgent'
         };
       case 'warning':
         return {
-          bgGradient: 'linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%)',
-          borderColor: '#FDE68A',
-          accentColor: '#D97706',
-          badgeBg: '#FEF3C7',
-          badgeText: '#92400E',
+          accent: '#F59E0B',
+          accentBg: 'rgba(245, 158, 11, 0.12)',
+          glassBg: 'rgba(255, 251, 235, 0.75)',
+          borderColor: 'rgba(245, 158, 11, 0.28)',
           icon: 'fa-bullhorn',
-          typeLabel: 'GES Official Notice',
-          btnBg: 'linear-gradient(135deg, #D97706, #B45309)',
-          btnShadow: '0 4px 14px rgba(217, 119, 6, 0.25)'
+          tag: 'Notice'
         };
       case 'success':
         return {
-          bgGradient: 'linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%)',
-          borderColor: '#A7F3D0',
-          accentColor: '#059669',
-          badgeBg: '#D1FAE5',
-          badgeText: '#065F46',
+          accent: '#10B981',
+          accentBg: 'rgba(16, 185, 129, 0.12)',
+          glassBg: 'rgba(236, 253, 245, 0.72)',
+          borderColor: 'rgba(16, 185, 129, 0.25)',
           icon: 'fa-circle-check',
-          typeLabel: 'Academic Milestone',
-          btnBg: 'linear-gradient(135deg, #059669, #047857)',
-          btnShadow: '0 4px 14px rgba(5, 150, 105, 0.25)'
+          tag: 'Update'
         };
       case 'info':
       default:
         return {
-          bgGradient: 'linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%)',
-          borderColor: '#BFDBFE',
-          accentColor: '#2563EB',
-          badgeBg: '#DBEAFE',
-          badgeText: '#1E40AF',
-          icon: 'fa-landmark-dome',
-          typeLabel: 'National Circular',
-          btnBg: 'linear-gradient(135deg, #2563EB, #1D4ED8)',
-          btnShadow: '0 4px 14px rgba(37, 99, 235, 0.25)'
+          accent: '#2563EB',
+          accentBg: 'rgba(37, 99, 235, 0.1)',
+          glassBg: 'rgba(239, 246, 255, 0.72)',
+          borderColor: 'rgba(37, 99, 235, 0.22)',
+          icon: 'fa-bell',
+          tag: 'Announcement'
         };
     }
   };
 
   const theme = getTheme(current.severity);
+  const modalTheme = readerModalItem ? getTheme(readerModalItem.severity) : theme;
 
-  // Simplified teaser string for the card display
-  const getTeaser = (text, maxLength = 135) => {
-    if (!text) return '';
-    const clean = text.replace(/[\n\r]+/g, ' ').trim();
-    if (clean.length <= maxLength) return clean;
-    return clean.slice(0, maxLength).trim() + '...';
+  const formatRelativeTime = (dateStr) => {
+    if (!dateStr) return 'Just now';
+    try {
+      const d = new Date(dateStr);
+      const now = new Date();
+      const diffSec = Math.floor((now - d) / 1000);
+      if (diffSec < 60) return 'Just now';
+      const diffMin = Math.floor(diffSec / 60);
+      if (diffMin < 60) return `${diffMin}m ago`;
+      const diffHr = Math.floor(diffMin / 60);
+      if (diffHr < 24) return `${diffHr}h ago`;
+      const diffDays = Math.floor(diffHr / 24);
+      if (diffDays === 1) return 'Yesterday';
+      if (diffDays < 7) return `${diffDays}d ago`;
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    } catch (_) {
+      return 'Recently';
+    }
   };
 
   const handleDismiss = (broadcastId) => {
@@ -128,11 +128,13 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
     }
   };
 
-  const handleNext = () => {
+  const handleNext = (e) => {
+    e?.stopPropagation();
     setCurrentIndex((prev) => (prev + 1) % broadcasts.length);
   };
 
-  const handlePrev = () => {
+  const handlePrev = (e) => {
+    e?.stopPropagation();
     setCurrentIndex((prev) => (prev - 1 + broadcasts.length) % broadcasts.length);
   };
 
@@ -147,666 +149,566 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
 
   return (
     <>
-      <div
-        style={{
-          width: '100%',
-          padding: '0.65rem 1rem 0.35rem 1rem',
-          boxSizing: 'border-box',
-          position: 'relative',
-          zIndex: 80
-        }}
-      >
-        {/* Minimized Pill View */}
-        {isMinimized ? (
-          <div
-            style={{
-              background: '#FFFFFF',
-              border: `1.5px solid ${theme.borderColor}`,
-              borderLeft: `5px solid ${theme.accentColor}`,
-              borderRadius: '12px',
-              padding: '0.5rem 0.9rem',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '12px',
-              boxShadow: '0 4px 15px rgba(0, 0, 0, 0.05)',
-              maxWidth: '1200px',
-              margin: '0 auto',
-              cursor: 'pointer'
-            }}
-            onClick={() => setIsMinimized(false)}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-              <span
-                style={{
-                  width: '8px',
-                  height: '8px',
-                  borderRadius: '50%',
-                  background: theme.accentColor,
-                  display: 'inline-block',
-                  animation: 'pulse 1.5s infinite'
-                }}
-              />
-              <span style={{ fontSize: '0.74rem', fontWeight: 800, color: theme.accentColor, textTransform: 'uppercase' }}>
-                {theme.typeLabel}:
+      <style>{`
+        .broadcast-notif-wrapper {
+          width: 100%;
+          padding: 0.65rem 1rem 0.25rem 1rem;
+          box-sizing: border-box;
+          display: flex;
+          justify-content: center;
+          position: relative;
+          z-index: 80;
+        }
+
+        /* Mobile Phone Push Notification Card Style */
+        .broadcast-notif-card {
+          width: 100%;
+          max-width: 680px;
+          border-radius: 18px;
+          backdrop-filter: blur(18px) saturate(180%);
+          -webkit-backdrop-filter: blur(18px) saturate(180%);
+          padding: 0.85rem 1.15rem 0.75rem 1.15rem;
+          box-sizing: border-box;
+          box-shadow: 
+            0 10px 25px -4px rgba(15, 23, 42, 0.07),
+            0 4px 10px -2px rgba(15, 23, 42, 0.03),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+          cursor: pointer;
+          transition: all 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+          user-select: none;
+        }
+
+        .broadcast-notif-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 
+            0 14px 30px -4px rgba(15, 23, 42, 0.11),
+            0 6px 14px -2px rgba(15, 23, 42, 0.05),
+            inset 0 1px 0 rgba(255, 255, 255, 0.9);
+        }
+
+        .broadcast-notif-card:active {
+          transform: scale(0.99);
+        }
+
+        /* Header Row */
+        .notif-header-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          margin-bottom: 0.4rem;
+        }
+
+        .notif-app-left {
+          display: flex;
+          align-items: center;
+          gap: 7px;
+          overflow: hidden;
+        }
+
+        .notif-icon-badge {
+          width: 22px;
+          height: 22px;
+          border-radius: 6px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.75rem;
+          flex-shrink: 0;
+        }
+
+        .notif-tag-label {
+          font-size: 0.75rem;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+        }
+
+        .notif-bullet {
+          font-size: 0.65rem;
+          color: #94A3B8;
+        }
+
+        .notif-time-ago {
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: #64748B;
+        }
+
+        /* Header Right Controls */
+        .notif-controls-right {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-shrink: 0;
+        }
+
+        .notif-pager-box {
+          display: flex;
+          align-items: center;
+          gap: 3px;
+          background: rgba(255, 255, 255, 0.7);
+          border: 1px solid rgba(0, 0, 0, 0.07);
+          border-radius: 999px;
+          padding: 2px 7px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          color: #334155;
+        }
+
+        .notif-pager-btn {
+          background: transparent;
+          border: none;
+          color: #475569;
+          font-size: 0.7rem;
+          cursor: pointer;
+          padding: 1px 3px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 4px;
+          transition: background 0.15s;
+        }
+        .notif-pager-btn:hover {
+          background: rgba(0, 0, 0, 0.06);
+          color: #0F172A;
+        }
+
+        .notif-quick-clear-btn {
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          background: rgba(255, 255, 255, 0.75);
+          border: 1px solid rgba(0, 0, 0, 0.08);
+          color: #64748B;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.72rem;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .notif-quick-clear-btn:hover {
+          background: #FEE2E2;
+          color: #DC2626;
+          border-color: #FECACA;
+          transform: scale(1.05);
+        }
+
+        /* Body (Strictly what the admin typed) */
+        .notif-title-text {
+          font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 0.94rem;
+          font-weight: 800;
+          color: #0F172A;
+          margin: 0 0 0.2rem 0;
+          line-height: 1.35;
+          letter-spacing: -0.01em;
+        }
+
+        .notif-preview-text {
+          font-size: 0.84rem;
+          color: #334155;
+          line-height: 1.45;
+          margin: 0;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        /* Footer Tap Affordance */
+        .notif-tap-footer {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-top: 0.45rem;
+          padding-top: 0.35rem;
+          border-top: 1px solid rgba(0, 0, 0, 0.04);
+          font-size: 0.75rem;
+          font-weight: 600;
+          color: #64748B;
+        }
+
+        .notif-tap-footer span {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .notif-tap-footer i {
+          font-size: 0.68rem;
+          transition: transform 0.2s ease;
+        }
+        .broadcast-notif-card:hover .notif-tap-footer i {
+          transform: translateX(3px);
+        }
+
+        /* ── Full Message Translucent Modal ── */
+        .notif-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.45);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+          padding: 1.25rem;
+          box-sizing: border-box;
+          animation: modalBackdropFade 0.2s ease;
+        }
+
+        .notif-modal-dialog {
+          width: 100%;
+          max-width: 580px;
+          max-height: 85vh;
+          overflow-y: auto;
+          background: rgba(255, 255, 255, 0.94);
+          backdrop-filter: blur(24px) saturate(190%);
+          -webkit-backdrop-filter: blur(24px) saturate(190%);
+          border: 1px solid rgba(255, 255, 255, 0.8);
+          border-radius: 24px;
+          box-shadow: 
+            0 25px 60px -10px rgba(15, 23, 42, 0.3),
+            0 10px 25px -5px rgba(15, 23, 42, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.9);
+          display: flex;
+          flex-direction: column;
+          animation: modalCardPop 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes modalBackdropFade {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
+        @keyframes modalCardPop {
+          from { opacity: 0; transform: scale(0.95) translateY(10px); }
+          to { opacity: 1; transform: scale(1) translateY(0); }
+        }
+
+        .notif-modal-header {
+          padding: 1.25rem 1.5rem 0.85rem 1.5rem;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+        }
+
+        .notif-modal-app-box {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .notif-modal-icon-badge {
+          width: 32px;
+          height: 32px;
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.95rem;
+        }
+
+        .notif-modal-close-btn {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          background: rgba(0, 0, 0, 0.05);
+          border: none;
+          color: #64748B;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 0.85rem;
+          transition: all 0.15s;
+        }
+        .notif-modal-close-btn:hover {
+          background: rgba(0, 0, 0, 0.1);
+          color: #0F172A;
+        }
+
+        .notif-modal-body {
+          padding: 1.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1rem;
+        }
+
+        .notif-modal-title {
+          font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-size: 1.2rem;
+          font-weight: 800;
+          color: #0F172A;
+          margin: 0;
+          line-height: 1.35;
+        }
+
+        .notif-modal-message {
+          font-size: 0.94rem;
+          color: #334155;
+          line-height: 1.65;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+
+        /* Action Buttons on Card */
+        .notif-modal-action-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 0.5rem;
+        }
+
+        .notif-cta-btn-primary {
+          padding: 0.65rem 1.25rem;
+          border-radius: 12px;
+          background: #09090B;
+          color: #FFFFFF;
+          border: none;
+          font-size: 0.86rem;
+          font-weight: 700;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+          transition: all 0.2s;
+        }
+        .notif-cta-btn-primary:hover {
+          background: #18181B;
+          transform: translateY(-1px);
+        }
+
+        .notif-cta-btn-secondary {
+          padding: 0.65rem 1.25rem;
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.9);
+          border: 1.5px solid #CBD5E1;
+          color: #0F172A;
+          font-size: 0.86rem;
+          font-weight: 700;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          transition: all 0.2s;
+        }
+        .notif-cta-btn-secondary:hover {
+          background: #F8FAFC;
+          border-color: #94A3B8;
+        }
+
+        /* Footer Toolbar */
+        .notif-modal-footer {
+          padding: 1rem 1.5rem;
+          background: rgba(248, 250, 252, 0.85);
+          border-top: 1px solid rgba(0, 0, 0, 0.06);
+          border-bottom-left-radius: 24px;
+          border-bottom-right-radius: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .notif-clear-notice-btn {
+          background: transparent;
+          border: 1px solid #FECACA;
+          color: #DC2626;
+          padding: 0.45rem 0.9rem;
+          border-radius: 10px;
+          font-size: 0.8rem;
+          font-weight: 700;
+          cursor: pointer;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          transition: all 0.15s;
+        }
+        .notif-clear-notice-btn:hover {
+          background: #FEE2E2;
+          border-color: #F87171;
+        }
+
+        .notif-dismiss-close-btn {
+          background: #FFFFFF;
+          border: 1px solid #CBD5E1;
+          color: #334155;
+          padding: 0.45rem 1.1rem;
+          border-radius: 10px;
+          font-size: 0.82rem;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .notif-dismiss-close-btn:hover {
+          background: #F1F5F9;
+          color: #0F172A;
+        }
+      `}</style>
+
+      <div className="broadcast-notif-wrapper">
+        {/* Mobile Notification Card */}
+        <div
+          className="broadcast-notif-card"
+          style={{
+            background: theme.glassBg,
+            border: `1.5px solid ${theme.borderColor}`
+          }}
+          onClick={() => setReaderModalItem(current)}
+          role="button"
+          tabIndex={0}
+        >
+          {/* Header row (Icon, Category, Time, Dismiss) */}
+          <div className="notif-header-row">
+            <div className="notif-app-left">
+              <div className="notif-icon-badge" style={{ color: theme.accent, background: theme.accentBg }}>
+                <i className={`fas ${theme.icon}`}></i>
+              </div>
+              <span className="notif-tag-label" style={{ color: theme.accent }}>
+                {theme.tag}
               </span>
-              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#09090b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {current.title}
-              </span>
+              <span className="notif-bullet">•</span>
+              <span className="notif-time-ago">{formatRelativeTime(current.createdAt)}</span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {current.blogUrl ? (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleOpenLink(current.blogUrl);
-                  }}
-                  style={{
-                    background: theme.accentColor,
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '0.25rem 0.65rem',
-                    fontSize: '0.74rem',
-                    fontWeight: 800,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Read Blog
-                </button>
-              ) : (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setReaderModalItem(current);
-                  }}
-                  style={{
-                    background: theme.accentColor,
-                    color: '#FFFFFF',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '0.25rem 0.65rem',
-                    fontSize: '0.74rem',
-                    fontWeight: 800,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Read Info
-                </button>
+            <div className="notif-controls-right" onClick={(e) => e.stopPropagation()}>
+              {broadcasts.length > 1 && (
+                <div className="notif-pager-box">
+                  <button className="notif-pager-btn" onClick={handlePrev} title="Previous">
+                    <i className="fas fa-chevron-left"></i>
+                  </button>
+                  <span>{currentIndex + 1}/{broadcasts.length}</span>
+                  <button className="notif-pager-btn" onClick={handleNext} title="Next">
+                    <i className="fas fa-chevron-right"></i>
+                  </button>
+                </div>
               )}
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsMinimized(false);
-                }}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#71717a',
-                  fontSize: '0.8rem',
-                  cursor: 'pointer',
-                  fontWeight: 700
-                }}
-                title="Expand Card"
+                className="notif-quick-clear-btn"
+                onClick={() => handleDismiss(current.id)}
+                title="Clear notification"
+                aria-label="Clear notification"
               >
-                <i className="fas fa-chevron-down"></i>
+                <i className="fas fa-xmark"></i>
               </button>
             </div>
           </div>
-        ) : (
-          /* Full Modern Directive Card */
-          <div
-            style={{
-              background: theme.bgGradient,
-              border: `1.5px solid ${theme.borderColor}`,
-              borderLeft: `6px solid ${theme.accentColor}`,
-              borderRadius: '16px',
-              padding: '1rem 1.25rem',
-              boxShadow: '0 6px 20px rgba(0, 0, 0, 0.06)',
-              maxWidth: '1280px',
-              margin: '0 auto',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.75rem',
-              position: 'relative',
-              transition: 'all 0.3s ease'
-            }}
-          >
-            {/* Top Ribbon Row */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                {/* Government & Directive Badge */}
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    background: theme.badgeBg,
-                    color: theme.badgeText,
-                    border: `1px solid ${theme.borderColor}`,
-                    padding: '0.2rem 0.6rem',
-                    borderRadius: '999px',
-                    fontSize: '0.72rem',
-                    fontWeight: 800,
-                    letterSpacing: '0.03em',
-                    textTransform: 'uppercase'
-                  }}
-                >
-                  <i className={`fas ${theme.icon}`} style={{ fontSize: '0.75rem', color: theme.accentColor }}></i>
-                  <span>{theme.typeLabel}</span>
-                </div>
 
-                {/* Live Pulse Indicator */}
-                <div
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '5px',
-                    background: '#FFFFFF',
-                    border: '1px solid #E4E4E7',
-                    padding: '0.2rem 0.55rem',
-                    borderRadius: '999px',
-                    fontSize: '0.68rem',
-                    fontWeight: 700,
-                    color: '#09090b'
-                  }}
-                >
-                  <span
-                    style={{
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: theme.accentColor,
-                      display: 'inline-block'
-                    }}
-                  />
-                  <span>Action Directive</span>
-                </div>
-
-                {/* Audience Tag */}
-                <span style={{ fontSize: '0.72rem', color: '#52525b', fontWeight: 600 }}>
-                  Audience: <strong style={{ color: '#09090b', textTransform: 'capitalize' }}>{current.targetAudience === 'all' ? 'All Portals' : current.targetAudience}</strong>
-                </span>
-              </div>
-
-              {/* Navigation Controls & Action Utilities */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {broadcasts.length > 1 && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'rgba(255, 255, 255, 0.7)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: '8px', padding: '2px 6px', marginRight: '4px' }}>
-                    <button
-                      onClick={handlePrev}
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#3f3f46', padding: '2px 4px', fontSize: '0.75rem' }}
-                      title="Previous Notice"
-                    >
-                      <i className="fas fa-chevron-left"></i>
-                    </button>
-                    <span style={{ fontSize: '0.7rem', fontWeight: 800, color: '#09090b' }}>
-                      {currentIndex + 1} of {broadcasts.length}
-                    </span>
-                    <button
-                      onClick={handleNext}
-                      style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#3f3f46', padding: '2px 4px', fontSize: '0.75rem' }}
-                      title="Next Notice"
-                    >
-                      <i className="fas fa-chevron-right"></i>
-                    </button>
-                  </div>
-                )}
-
-                {/* Minimize Button */}
-                <button
-                  onClick={() => setIsMinimized(true)}
-                  style={{
-                    background: '#FFFFFF',
-                    border: '1px solid #E4E4E7',
-                    borderRadius: '8px',
-                    width: '26px',
-                    height: '26px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    color: '#71717a',
-                    fontSize: '0.72rem'
-                  }}
-                  title="Minimize Notice Card"
-                >
-                  <i className="fas fa-minus"></i>
-                </button>
-
-                {/* Dismiss Button */}
-                <button
-                  onClick={() => handleDismiss(current.id)}
-                  style={{
-                    background: '#FFFFFF',
-                    border: '1px solid #E4E4E7',
-                    borderRadius: '8px',
-                    width: '26px',
-                    height: '26px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    color: '#71717a',
-                    fontSize: '0.75rem'
-                  }}
-                  title="Dismiss this Announcement"
-                >
-                  <i className="fas fa-times"></i>
-                </button>
-              </div>
-            </div>
-
-            {/* Card Content Row */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-              <div style={{ flex: 1, minWidth: '260px' }}>
-                <h4
-                  style={{
-                    fontFamily: 'Outfit, sans-serif',
-                    fontSize: '1rem',
-                    fontWeight: 800,
-                    color: '#09090b',
-                    margin: '0 0 0.25rem 0',
-                    lineHeight: 1.3
-                  }}
-                >
-                  {current.title}
-                </h4>
-                <p
-                  style={{
-                    fontSize: '0.84rem',
-                    color: '#374151',
-                    margin: 0,
-                    lineHeight: 1.45
-                  }}
-                >
-                  {getTeaser(current.content)}
-                </p>
-              </div>
-
-              {/* Call-To-Action Buttons */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, flexWrap: 'wrap' }}>
-                {/* Direct Blog Link Button (Read More) */}
-                {current.blogUrl ? (
-                  <>
-                    <button
-                      onClick={() => handleOpenLink(current.blogUrl)}
-                      style={{
-                        background: theme.btnBg,
-                        color: '#FFFFFF',
-                        border: 'none',
-                        borderRadius: '10px',
-                        padding: '0.5rem 1rem',
-                        fontSize: '0.82rem',
-                        fontWeight: 800,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        boxShadow: theme.btnShadow,
-                        transition: 'all 0.2s ease'
-                      }}
-                      title="Read complete guide and breakdown on Blog & Manuals"
-                    >
-                      <i className="fas fa-book-open"></i>
-                      <span>Read More</span>
-                      <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                    </button>
-
-                    <button
-                      onClick={() => setReaderModalItem(current)}
-                      style={{
-                        background: '#FFFFFF',
-                        color: '#09090b',
-                        border: '1px solid #D4D4D8',
-                        borderRadius: '10px',
-                        padding: '0.5rem 0.85rem',
-                        fontSize: '0.82rem',
-                        fontWeight: 700,
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '5px'
-                      }}
-                      title="Quick Preview"
-                    >
-                      <i className="fas fa-eye" style={{ color: '#71717a' }}></i>
-                      <span>Preview</span>
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setReaderModalItem(current)}
-                    style={{
-                      background: theme.btnBg,
-                      color: '#FFFFFF',
-                      border: 'none',
-                      borderRadius: '10px',
-                      padding: '0.5rem 1rem',
-                      fontSize: '0.82rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: theme.btnShadow,
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <i className="fas fa-book-open"></i>
-                    <span>Read Information</span>
-                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                  </button>
-                )}
-
-                {current.actionUrl && current.actionUrl !== current.blogUrl && (
-                  <button
-                    onClick={() => handleOpenLink(current.actionUrl)}
-                    style={{
-                      background: '#FFFFFF',
-                      color: '#09090b',
-                      border: '1px solid #D4D4D8',
-                      borderRadius: '10px',
-                      padding: '0.5rem 0.85rem',
-                      fontSize: '0.82rem',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px'
-                    }}
-                  >
-                    <span>{current.actionLabel || 'Go to Page'}</span>
-                  </button>
-                )}
-              </div>
-            </div>
+          {/* Body: Strictly what was typed by the user */}
+          <div className="notif-content-box">
+            <h4 className="notif-title-text">{current.title}</h4>
+            <p className="notif-preview-text">{current.content}</p>
           </div>
-        )}
+
+          {/* Tap hint */}
+          <div className="notif-tap-footer">
+            <span>Tap to view full message</span>
+            <i className="fas fa-chevron-right"></i>
+          </div>
+        </div>
       </div>
 
-      {/* FULL DIRECTIVE READER MODAL */}
+      {/* ── Full Message Reader Modal ── */}
       {readerModalItem && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(9, 9, 11, 0.75)',
-            backdropFilter: 'blur(6px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10000,
-            padding: '1.25rem',
-            boxSizing: 'border-box'
-          }}
-          onClick={() => setReaderModalItem(null)}
-        >
-          <div
-            style={{
-              background: '#FFFFFF',
-              borderRadius: '22px',
-              width: '100%',
-              maxWidth: '680px',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.35)',
-              display: 'flex',
-              flexDirection: 'column',
-              position: 'relative'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header Banner */}
-            <div
-              style={{
-                background: theme.bgGradient,
-                borderBottom: `1.5px solid ${theme.borderColor}`,
-                padding: '1.5rem 1.75rem',
-                borderTopLeftRadius: '22px',
-                borderTopRightRadius: '22px',
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'space-between',
-                gap: '1rem'
-              }}
-            >
-              <div>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: theme.badgeBg, color: theme.badgeText, border: `1px solid ${theme.borderColor}`, padding: '0.2rem 0.65rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                  <i className={`fas ${theme.icon}`}></i>
-                  <span>Official Ghana Education Broadcast</span>
-                </div>
-                <h3
-                  style={{
-                    fontFamily: 'Outfit, sans-serif',
-                    fontSize: '1.3rem',
-                    fontWeight: 900,
-                    color: '#09090b',
-                    margin: 0,
-                    lineHeight: 1.3
-                  }}
+        <div className="notif-modal-backdrop" onClick={() => setReaderModalItem(null)}>
+          <div className="notif-modal-dialog" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="notif-modal-header">
+              <div className="notif-modal-app-box">
+                <div
+                  className="notif-modal-icon-badge"
+                  style={{ color: modalTheme.accent, background: modalTheme.accentBg }}
                 >
-                  {readerModalItem.title}
-                </h3>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '0.4rem', fontSize: '0.75rem', color: '#52525b', fontWeight: 600 }}>
-                  <span><i className="fas fa-user-shield" style={{ marginRight: '4px', color: theme.accentColor }}></i> Author: {readerModalItem.author || 'Platform Super Admin'}</span>
-                  <span>•</span>
-                  <span><i className="fas fa-calendar-day" style={{ marginRight: '4px' }}></i> {new Date(readerModalItem.createdAt || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  <i className={`fas ${modalTheme.icon}`}></i>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 800, color: modalTheme.accent, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {modalTheme.tag}
+                  </div>
+                  <div style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 600 }}>
+                    {formatRelativeTime(readerModalItem.createdAt)} · {new Date(readerModalItem.createdAt || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </div>
                 </div>
               </div>
 
               <button
+                type="button"
+                className="notif-modal-close-btn"
                 onClick={() => setReaderModalItem(null)}
-                style={{
-                  background: '#FFFFFF',
-                  border: '1px solid #E4E4E7',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '0.9rem',
-                  cursor: 'pointer',
-                  color: '#71717a',
-                  flexShrink: 0
-                }}
+                title="Close"
               >
-                ✕
+                <i className="fas fa-xmark"></i>
               </button>
             </div>
 
-            {/* Modal Body Content */}
-            <div style={{ padding: '1.75rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              <div
-                style={{
-                  fontSize: '0.94rem',
-                  color: '#18181b',
-                  lineHeight: 1.65,
-                  whiteSpace: 'pre-line'
-                }}
-              >
+            {/* Modal Body: Strictly the text typed by the admin */}
+            <div className="notif-modal-body">
+              <h3 className="notif-modal-title">{readerModalItem.title}</h3>
+              <div className="notif-modal-message">
                 {readerModalItem.content}
               </div>
 
-              {/* Dedicated Blog Link Card inside Modal if available */}
-              {readerModalItem.blogUrl && (
-                <div
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(59, 130, 246, 0.12))',
-                    border: '1.5px solid #BFDBFE',
-                    borderRadius: '14px',
-                    padding: '1.1rem 1.25rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#2563EB', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem' }}>
-                      <i className="fas fa-newspaper"></i>
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: '0.88rem', color: '#1E3A8A' }}>
-                        Full Breakdown on Labour Edu Blog
-                      </div>
-                      <div style={{ fontSize: '0.76rem', color: '#3B82F6' }}>
-                        Detailed guidelines, statutory tables &amp; printable references
-                      </div>
-                    </div>
-                  </div>
+              {/* Action Buttons if links were supplied */}
+              {(readerModalItem.actionUrl || readerModalItem.blogUrl) && (
+                <div className="notif-modal-action-row">
+                  {readerModalItem.actionUrl && (
+                    <button
+                      type="button"
+                      className="notif-cta-btn-primary"
+                      onClick={() => {
+                        setReaderModalItem(null);
+                        handleOpenLink(readerModalItem.actionUrl);
+                      }}
+                    >
+                      <span>{readerModalItem.actionLabel || 'Follow Link'}</span>
+                      <i className="fas fa-arrow-up-right-from-square"></i>
+                    </button>
+                  )}
 
-                  <button
-                    onClick={() => {
-                      setReaderModalItem(null);
-                      handleOpenLink(readerModalItem.blogUrl);
-                    }}
-                    style={{
-                      background: '#2563EB',
-                      color: '#FFFFFF',
-                      border: 'none',
-                      padding: '0.45rem 1rem',
-                      borderRadius: '8px',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: '0 3px 10px rgba(37, 99, 235, 0.3)'
-                    }}
-                  >
-                    <span>Read Full Blog Article</span>
-                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                  </button>
+                  {readerModalItem.blogUrl && readerModalItem.blogUrl !== readerModalItem.actionUrl && (
+                    <button
+                      type="button"
+                      className="notif-cta-btn-secondary"
+                      onClick={() => {
+                        setReaderModalItem(null);
+                        handleOpenLink(readerModalItem.blogUrl);
+                      }}
+                    >
+                      <i className="fas fa-book-open"></i>
+                      <span>Read Full Article</span>
+                    </button>
+                  )}
                 </div>
               )}
-
-              {/* Key Takeaways Card */}
-              <div
-                style={{
-                  background: '#F8FAFC',
-                  border: '1px solid #E2E8F0',
-                  borderRadius: '14px',
-                  padding: '1.1rem 1.25rem'
-                }}
-              >
-                <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <i className="fas fa-circle-info" style={{ color: theme.accentColor }}></i>
-                  <span>Important Compliance &amp; Guidelines for Stakeholders</span>
-                </div>
-                <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.84rem', color: '#475569', lineHeight: 1.55 }}>
-                  <li><strong>Headteachers &amp; Admins:</strong> Review broadsheet submission deadlines and institutional records.</li>
-                  <li><strong>Subject &amp; Class Teachers:</strong> Verify that continuous assessment scores and exam marks are accurately computed.</li>
-                  <li><strong>Parents &amp; Guardians:</strong> Monitor student progress and review official terminal report updates.</li>
-                </ul>
-              </div>
             </div>
 
-            {/* Modal Footer Actions */}
-            <div
-              style={{
-                background: '#FAFAFA',
-                borderTop: '1px solid #E4E4E7',
-                padding: '1.1rem 1.75rem',
-                borderBottomLeftRadius: '22px',
-                borderBottomRightRadius: '22px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexWrap: 'wrap',
-                gap: '10px'
-              }}
-            >
+            {/* Footer: User decides to Clear or Close */}
+            <div className="notif-modal-footer">
               <button
+                type="button"
+                className="notif-clear-notice-btn"
                 onClick={() => handleDismiss(readerModalItem.id)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: '#71717a',
-                  fontSize: '0.8rem',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
+                title="Remove and dismiss this notice"
               >
-                <i className="fas fa-check-double"></i>
-                <span>Mark as Acknowledged</span>
+                <i className="fas fa-trash-can"></i>
+                <span>Clear Notification</span>
               </button>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <button
-                  onClick={() => setReaderModalItem(null)}
-                  style={{
-                    padding: '0.55rem 1.1rem',
-                    borderRadius: '10px',
-                    background: '#FFFFFF',
-                    border: '1px solid #D4D4D8',
-                    color: '#09090b',
-                    fontSize: '0.82rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Close
-                </button>
-
-                {readerModalItem.blogUrl ? (
-                  <button
-                    onClick={() => {
-                      setReaderModalItem(null);
-                      handleOpenLink(readerModalItem.blogUrl);
-                    }}
-                    style={{
-                      padding: '0.55rem 1.25rem',
-                      borderRadius: '10px',
-                      background: theme.btnBg,
-                      border: 'none',
-                      color: '#FFFFFF',
-                      fontSize: '0.82rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: theme.btnShadow
-                    }}
-                  >
-                    <i className="fas fa-book-open"></i>
-                    <span>Read Full Guide</span>
-                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                  </button>
-                ) : readerModalItem.actionUrl && (
-                  <button
-                    onClick={() => {
-                      setReaderModalItem(null);
-                      handleOpenLink(readerModalItem.actionUrl);
-                    }}
-                    style={{
-                      padding: '0.55rem 1.25rem',
-                      borderRadius: '10px',
-                      background: theme.btnBg,
-                      border: 'none',
-                      color: '#FFFFFF',
-                      fontSize: '0.82rem',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      boxShadow: theme.btnShadow
-                    }}
-                  >
-                    <span>{readerModalItem.actionLabel || 'Proceed to Page'}</span>
-                    <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                className="notif-dismiss-close-btn"
+                onClick={() => setReaderModalItem(null)}
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
