@@ -5,7 +5,6 @@ import { useAuth } from '../store/AuthContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { enqueueSync, retryFailed, forceDrain } from '../services/syncEngine';
-import { startAdminSync } from '../services/syncDown';
 import AdminAnalytics from '../components/analytics/AdminAnalytics';
 import TeacherAnalytics from '../components/analytics/TeacherAnalytics';
 import learnerRepository from '../repositories/learnerRepository';
@@ -260,13 +259,7 @@ const Dashboard = () => {
   const settings = useLiveQuery(() => db.settings.get('global'), []);
 
 
-  // â”€â”€ Smart Background Pull Sync â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  // Uses syncDown.js which only writes to Dexie when data has actually changed,
-  // preventing useLiveQuery re-renders and UI "flash" on background refresh.
-  // Runs immediately, retriggers on network reconnect, polls every 5 minutes.
-  useEffect(() => {
-    return startAdminSync(user);
-  }, [user]);
+  // Background pull sync is managed globally by SyncEngineProvider for all routes.
 
   // â”€â”€ Computing Teacher Portal Dashboard Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   

@@ -24,9 +24,29 @@ import { supabase } from '../lib/supabase';
 import { downloadImageAsBlob } from '../utils/imageUtils';
 
 // ─── Polling interval ─────────────────────────────────────────────────────────
-// 5 minutes — long enough to avoid hammering the DB, short enough to feel live.
-// The 'online' event listener handles instant sync on reconnection.
-const POLL_INTERVAL_MS = 5 * 60 * 1000;
+// 45 seconds — short enough to feel live across multiple devices,
+// while Supabase Realtime delivers instant (sub-second) pushes.
+const POLL_INTERVAL_MS = 45 * 1000;
+
+// Concurrency guard to prevent multiple overlapping sync passes
+let isAdminSyncing = false;
+
+/**
+ * Triggers a one-off admin sync safely with concurrency locking.
+ */
+export async function triggerAdminSync(user) {
+  if (!navigator.onLine || !user?.schoolId) return;
+  if (isAdminSyncing) {
+    console.log('[SyncDown] Admin sync already in progress, skipping duplicate.');
+    return;
+  }
+  isAdminSyncing = true;
+  try {
+    await runAdminSync(user);
+  } finally {
+    isAdminSyncing = false;
+  }
+}
 
 // ─── Smart Differ ─────────────────────────────────────────────────────────────
 /**
@@ -1239,34 +1259,77 @@ export function startAdminSync(user) {
   if (!user?.schoolId) return () => {};
 
   // Immediate sync on mount
-  runAdminSync(user);
+  triggerAdminSync(user);
 
   // Immediate sync whenever network is restored
   const onOnline = () => {
     console.log('[SyncDown] Network restored — triggering admin sync...');
-    runAdminSync(user);
+    triggerAdminSync(user);
   };
   window.addEventListener('online', onOnline);
 
-  // Instant sync when returning to tab
+  // Instant sync when returning to tab / refocusing window
   const onVisibility = () => {
-    if (document.visibilityState === 'visible' && navigator.onLine) {
+    if ((document.visibilityState === 'visible' || document.hasFocus()) && navigator.onLine) {
       console.log('[SyncDown] Tab focused — triggering instant sync refresh...');
-      runAdminSync(user);
+      triggerAdminSync(user);
     }
   };
   document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('focus', onVisibility);
 
-  // Silent background poll
+  // Instant real-time updates when another device adds or updates records in Supabase
+  let realtimeChannel = null;
+  try {
+    realtimeChannel = supabase
+      .channel(`admin-sync-${user.schoolId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'report_learners', filter: `school_id=eq.${user.schoolId}` },
+        (payload) => {
+          console.log('[SyncDown] ⚡ Realtime: remote learner changed on another device:', payload.eventType);
+          triggerAdminSync(user);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'report_scores', filter: `school_id=eq.${user.schoolId}` },
+        (payload) => {
+          console.log('[SyncDown] ⚡ Realtime: remote score changed on another device:', payload.eventType);
+          triggerAdminSync(user);
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'report_summaries', filter: `school_id=eq.${user.schoolId}` },
+        (payload) => {
+          console.log('[SyncDown] ⚡ Realtime: remote summary changed on another device:', payload.eventType);
+          triggerAdminSync(user);
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log(`[SyncDown] 📡 Subscribed to realtime updates for school ${user.schoolId}`);
+        }
+      });
+  } catch (rtErr) {
+    console.warn('[SyncDown] Realtime subscription failed (falling back to background poll):', rtErr);
+  }
+
+  // Background poll (fallback safety net)
   const intervalId = setInterval(() => {
-    if (navigator.onLine) runAdminSync(user);
+    if (navigator.onLine) triggerAdminSync(user);
   }, POLL_INTERVAL_MS);
 
-  // Cleanup — removes event listeners and stops polling when component unmounts
+  // Cleanup — removes event listeners, stops polling, and unbinds realtime channel
   return () => {
     window.removeEventListener('online', onOnline);
     document.removeEventListener('visibilitychange', onVisibility);
+    window.removeEventListener('focus', onVisibility);
     clearInterval(intervalId);
+    if (realtimeChannel) {
+      supabase.removeChannel(realtimeChannel);
+    }
   };
 }
 

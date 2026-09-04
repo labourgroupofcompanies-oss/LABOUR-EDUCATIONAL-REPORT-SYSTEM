@@ -9,6 +9,7 @@ import LearnerPhoto from '../../components/common/LearnerPhoto';
 import PassportPhotoCapture from '../../components/common/PassportPhotoCapture';
 import authService from '../../services/authService';
 import { enqueueSync } from '../../services/syncEngine';
+import { triggerAdminSync } from '../../services/syncDown';
 import { GHANAIAN_LANGUAGE_OPTIONS, getLearnerLanguage, getLanguageLabel } from '../../utils/languageUtils';
 import subscriptionService from '../../services/subscriptionService';
 import recycleBinService from '../../services/recycleBinService';
@@ -171,6 +172,7 @@ const LearnerList = () => {
   const [reassignStartNum, setReassignStartNum] = useState('1');
   const [reassignStatus, setReassignStatus] = useState('');
   const [isReassigning, setIsReassigning] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [subStatus, setSubStatus] = useState(null);
 
@@ -1056,7 +1058,19 @@ const LearnerList = () => {
     await reconcileClassesAndSubjects();
     await syncDeleted();
     await syncUnsyncedLearners();
-  }, [reconcileClassesAndSubjects, syncDeleted, syncUnsyncedLearners]);
+    if (user?.schoolId) {
+      await triggerAdminSync(user);
+    }
+  }, [reconcileClassesAndSubjects, syncDeleted, syncUnsyncedLearners, user]);
+
+  const handleManualRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await syncAll();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   useEffect(() => {
     syncAll();
@@ -1518,6 +1532,16 @@ const LearnerList = () => {
           color: #FFFFFF;
           box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
         }
+        .learner-act-btn.btn-sync-refresh {
+          background: #FFFFFF;
+          color: #2563EB;
+          border: 1.5px solid #2563EB;
+          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
+        }
+        .learner-act-btn.btn-sync-refresh:hover {
+          background: #EFF6FF;
+          border-color: #1D4ED8;
+        }
         .learner-act-btn.btn-reassign {
           background: #2563EB;
           color: #FFFFFF;
@@ -1614,7 +1638,19 @@ const LearnerList = () => {
             <span>Reassign Numbers</span>
           </button>
 
-          {/* 4. Register Learner */}
+          {/* 4. Refresh / Sync from Cloud */}
+          <button 
+            type="button" 
+            className="learner-act-btn btn-sync-refresh" 
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+            title="Pull and sync fresh updates from cloud"
+          >
+            <i className={`fas fa-rotate ${isRefreshing ? 'fa-spin' : ''}`}></i>
+            <span>{isRefreshing ? 'Syncing…' : 'Refresh'}</span>
+          </button>
+
+          {/* 5. Register Learner */}
           <button 
             type="button"
             className="learner-act-btn btn-register" 

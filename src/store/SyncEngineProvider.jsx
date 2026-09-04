@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../lib/db';
 import { drainOutbox, retryFailed, forceDrain, clearOutbox, clearLocalBase, getIsSyncing } from '../services/syncEngine';
+import { useAuth } from './AuthContext';
+import { startAdminSync, triggerAdminSync } from '../services/syncDown';
 
 const SyncEngineContext = createContext({
   pendingCount: 0,
@@ -10,13 +12,24 @@ const SyncEngineContext = createContext({
   retryFailed: async () => {},
   forceDrain: async () => {},
   clearOutbox: async () => {},
-  clearLocalBase: async () => {}
+  clearLocalBase: async () => {},
+  triggerPullSync: async () => {}
 });
 
 export const useSyncEngine = () => useContext(SyncEngineContext);
 
 export const SyncEngineProvider = ({ children }) => {
+  const { user } = useAuth();
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // ── Global Background Pull Sync & Realtime Subscription ──────────────────
+  // Runs everywhere across all routes for any user with a schoolId.
+  // Instant pushes via Supabase Realtime + background poll every 45s + tab focus.
+  useEffect(() => {
+    if (user?.schoolId) {
+      return startAdminSync(user);
+    }
+  }, [user?.schoolId, user?.id]);
 
   // Live reactive count of pending + processing outbox items
   const outboxPendingCount = useLiveQuery(
@@ -106,6 +119,10 @@ export const SyncEngineProvider = ({ children }) => {
     await clearLocalBase();
   }, []);
 
+  const handleTriggerPullSync = useCallback(async () => {
+    if (user) await triggerAdminSync(user);
+  }, [user]);
+
   return (
     <SyncEngineContext.Provider value={{
       pendingCount,
@@ -114,7 +131,8 @@ export const SyncEngineProvider = ({ children }) => {
       retryFailed: handleRetryFailed,
       forceDrain: handleForceDrain,
       clearOutbox: handleClearOutbox,
-      clearLocalBase: handleClearLocalBase
+      clearLocalBase: handleClearLocalBase,
+      triggerPullSync: handleTriggerPullSync
     }}>
       {children}
     </SyncEngineContext.Provider>
