@@ -362,6 +362,22 @@ Key Features:
           border-color: #2563eb;
           color: #ffffff;
         }
+        .ops-agent-sidebar {
+          width: 280px;
+          background: #ffffff;
+          border-right: 1px solid #E4E4E7;
+          padding: 1.25rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+          overflow-y: auto;
+          flex-shrink: 0;
+        }
+        @media (max-width: 900px) {
+          .ops-agent-sidebar {
+            display: none !important;
+          }
+        }
       `}</style>
 
       {/* ── Page Header (Onyx + Cobalt Blue Banner) ── */}
@@ -454,16 +470,7 @@ Key Features:
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
         {/* ── Left Sidebar: Quick Prompts & Categories ── */}
-        <div style={{
-          width: '280px',
-          background: '#ffffff',
-          borderRight: '1px solid #E4E4E7',
-          padding: '1.25rem',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '0.75rem',
-          overflowY: 'auto'
-        }}>
+        <div className="ops-agent-sidebar">
           <div style={{ fontSize: '0.72rem', fontWeight: 800, color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             Quick Operations Prompts
           </div>

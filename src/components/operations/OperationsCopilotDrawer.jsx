@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { askOperationsAgent } from '../../services/operationsAgentService';
 import { systemErrorTracker } from '../../services/systemErrorTracker';
+import useDraggableButton from '../../hooks/useDraggableButton';
 
 // Lightweight safe Markdown renderer for chat responses
 const renderMarkdown = (text) => {
@@ -221,6 +222,16 @@ const OperationsCopilotDrawer = () => {
   const [loading, setLoading] = useState(false);
   const [unresolvedCount, setUnresolvedCount] = useState(() => systemErrorTracker.getUnresolvedErrors().length);
 
+  // Smooth dragging for the floating launcher button
+  const {
+    buttonRef,
+    position,
+    isActivelyDragging,
+    handleMouseDown,
+    handleTouchStart,
+    preventClickIfDragged
+  } = useDraggableButton('ops_copilot_icon_pos');
+
   useEffect(() => {
     setUnresolvedCount(systemErrorTracker.getUnresolvedErrors().length);
     const unsub = systemErrorTracker.subscribe((state) => {
@@ -293,19 +304,57 @@ I am your internal operations intelligence assistant. You can ask me questions a
 
   return (
     <>
-      {/* ── Floating Launcher Button (Icon-Only Circular) ── */}
+      <style>{`
+        .copilot-ops-launcher {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          z-index: 9999;
+        }
+        .copilot-ops-drawer {
+          width: 100%;
+          max-width: 460px;
+          height: 100%;
+          background: #ffffff;
+          box-shadow: -10px 0 40px rgba(0, 0, 0, 0.2);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          animation: drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @media (max-width: 768px) {
+          .copilot-ops-launcher {
+            bottom: 84px !important;
+            right: 16px !important;
+          }
+          .copilot-ops-drawer {
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
+
+      {/* ── Floating Launcher Button (Icon-Only Circular, Draggable) ── */}
       <div
-        className="no-print"
-        style={{
+        ref={buttonRef}
+        className="copilot-ops-launcher no-print"
+        style={position ? {
           position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          zIndex: 9999
-        }}
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          bottom: 'auto',
+          right: 'auto',
+          zIndex: 9998,
+          touchAction: 'none'
+        } : { touchAction: 'none' }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
       >
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={(e) => {
+            if (preventClickIfDragged(e)) return;
+            setIsOpen(!isOpen);
+          }}
           style={{
             width: '54px',
             height: '54px',
@@ -318,18 +367,20 @@ I am your internal operations intelligence assistant. You can ask me questions a
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            cursor: 'pointer',
+            cursor: isActivelyDragging ? 'grabbing' : 'grab',
             boxShadow: unresolvedCount > 0 
-              ? '0 10px 25px rgba(239, 68, 68, 0.45)' 
-              : '0 10px 25px rgba(9, 9, 11, 0.35)',
+              ? (isActivelyDragging ? '0 16px 36px rgba(239, 68, 68, 0.6)' : '0 10px 25px rgba(239, 68, 68, 0.45)')
+              : (isActivelyDragging ? '0 16px 36px rgba(9, 9, 11, 0.5)' : '0 10px 25px rgba(9, 9, 11, 0.35)'),
             fontSize: '1.25rem',
-            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            transform: isOpen ? 'scale(0.92)' : 'scale(1)',
-            position: 'relative'
+            transition: isActivelyDragging ? 'none' : 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+            transform: isOpen ? 'scale(0.92)' : (isActivelyDragging ? 'scale(1.08)' : 'scale(1)'),
+            position: 'relative',
+            userSelect: 'none',
+            WebkitUserSelect: 'none'
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = isOpen ? 'scale(0.92)' : 'scale(1)'; }}
-          title={unresolvedCount > 0 ? `${unresolvedCount} system error(s) detected! Click to inspect.` : "Operations Copilot"}
+          onMouseEnter={(e) => { if (!isActivelyDragging) e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; }}
+          onMouseLeave={(e) => { if (!isActivelyDragging) e.currentTarget.style.transform = isOpen ? 'scale(0.92)' : 'scale(1)'; }}
+          title={unresolvedCount > 0 ? `${unresolvedCount} system error(s) detected! Click to inspect.` : "Operations Copilot - Drag to move"}
           aria-label="Open Operations Copilot"
         >
           <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-robot"} />
@@ -393,17 +444,7 @@ I am your internal operations intelligence assistant. You can ask me questions a
           }}
         >
           <div
-            style={{
-              width: '100%',
-              maxWidth: '460px',
-              height: '100%',
-              background: '#ffffff',
-              boxShadow: '-10px 0 40px rgba(0, 0, 0, 0.2)',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              animation: 'drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
+            className="copilot-ops-drawer"
           >
             <style>{`
               @keyframes drawerSlideIn {

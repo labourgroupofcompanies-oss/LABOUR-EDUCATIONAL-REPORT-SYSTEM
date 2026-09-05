@@ -3,6 +3,7 @@ import { useAuth } from '../../store/AuthContext';
 import { askTeacherAgent } from '../../services/teacherAgentService';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
+import useDraggableButton from '../../hooks/useDraggableButton';
 
 /**
  * Lightweight safe Markdown renderer for Teacher Copilot
@@ -184,6 +185,16 @@ const TeacherCopilotDrawer = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Smooth dragging for the floating launcher button
+  const {
+    buttonRef,
+    position,
+    isActivelyDragging,
+    handleMouseDown,
+    handleTouchStart,
+    preventClickIfDragged
+  } = useDraggableButton('teacher_copilot_icon_pos');
+
   // Strictly Teacher role
   const isTeacher = user?.role === 'teacher';
 
@@ -223,8 +234,8 @@ const TeacherCopilotDrawer = () => {
     [user?.id, user?.schoolId]
   );
 
-  const initialWelcomeText = `### 👋 Teacher Grading Assistant Ready
-Welcome **${user?.fullName || 'Teacher'}**! I am your classroom and grading assistant for **${schoolInfo?.name || 'Your School'}**. Ask me about your score progress, missing grades, student performance, or offline work.`;
+  const initialWelcomeText = `### 👋 Welcome Teacher ${user?.fullName || ''}!
+Ask me anything you want from your portal and I will help you do it! Whether you need to enter student marks, submit scores to the Headteacher, check missing grades, or need step-by-step guidance on your teaching activities in **${schoolInfo?.name || 'Your School'}**, I am here to assist you anytime.`;
 
   const [messages, setMessages] = useState([
     {
@@ -309,21 +320,60 @@ Welcome **${user?.fullName || 'Teacher'}**! I am your classroom and grading assi
           border-color: #2563eb;
           color: #ffffff;
         }
+        .copilot-launcher-wrap {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          z-index: 9998;
+        }
+        .copilot-drawer-panel {
+          position: fixed;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          width: 100%;
+          max-width: 430px;
+          background: #ffffff;
+          z-index: 10000;
+          display: flex;
+          flex-direction: column;
+          box-shadow: -8px 0 32px rgba(0,0,0,0.22);
+          animation: drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @media (max-width: 768px) {
+          .copilot-launcher-wrap {
+            bottom: 84px !important;
+            right: 16px !important;
+          }
+          .copilot-drawer-panel {
+            max-width: 100% !important;
+            width: 100% !important;
+          }
+        }
       `}</style>
 
-      {/* ── Floating Circular Launcher Button (Icon-Only) ── */}
+      {/* ── Floating Circular Launcher Button (Icon-Only, Draggable) ── */}
       <div
-        className="no-print"
-        style={{
+        ref={buttonRef}
+        className="copilot-launcher-wrap no-print"
+        style={position ? {
           position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          zIndex: 9998
-        }}
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          bottom: 'auto',
+          right: 'auto',
+          zIndex: 9998,
+          touchAction: 'none'
+        } : { touchAction: 'none' }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
       >
         <button
           type="button"
-          onClick={() => setIsOpen(true)}
+          onClick={(e) => {
+            if (preventClickIfDragged(e)) return;
+            setIsOpen(true);
+          }}
           style={{
             position: 'relative',
             width: '54px',
@@ -332,24 +382,33 @@ Welcome **${user?.fullName || 'Teacher'}**! I am your classroom and grading assi
             background: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)',
             border: '1.5px solid #27272a',
             color: '#ffffff',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.28)',
-            cursor: 'pointer',
+            boxShadow: isActivelyDragging
+              ? '0 16px 36px rgba(0, 0, 0, 0.45)'
+              : '0 8px 24px rgba(0, 0, 0, 0.28)',
+            cursor: isActivelyDragging ? 'grabbing' : 'grab',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             fontSize: '1.35rem',
-            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+            transition: isActivelyDragging ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s',
+            transform: isActivelyDragging ? 'scale(1.08)' : 'scale(1)',
+            userSelect: 'none',
+            WebkitUserSelect: 'none'
           }}
-          title="Teacher Grading & Class Copilot"
+          title="Teacher Grading & Class Copilot - Drag to move"
           onMouseEnter={e => {
-            e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
-            e.currentTarget.style.boxShadow = '0 12px 30px rgba(37, 99, 235, 0.35)';
-            e.currentTarget.style.borderColor = '#2563eb';
+            if (!isActivelyDragging) {
+              e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
+              e.currentTarget.style.boxShadow = '0 12px 30px rgba(37, 99, 235, 0.35)';
+              e.currentTarget.style.borderColor = '#2563eb';
+            }
           }}
           onMouseLeave={e => {
-            e.currentTarget.style.transform = 'translateY(0) scale(1)';
-            e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.28)';
-            e.currentTarget.style.borderColor = '#27272a';
+            if (!isActivelyDragging) {
+              e.currentTarget.style.transform = 'translateY(0) scale(1)';
+              e.currentTarget.style.boxShadow = '0 8px 24px rgba(0, 0, 0, 0.28)';
+              e.currentTarget.style.borderColor = '#27272a';
+            }
           }}
         >
           <i className="fas fa-robot" style={{ color: '#ffffff' }} />
@@ -410,20 +469,7 @@ Welcome **${user?.fullName || 'Teacher'}**! I am your classroom and grading assi
 
           {/* Drawer Container */}
           <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: '100%',
-              maxWidth: '430px',
-              background: '#ffffff',
-              zIndex: 10000,
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '-8px 0 32px rgba(0,0,0,0.22)',
-              animation: 'drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
+            className="copilot-drawer-panel"
           >
             <style>{`
               @keyframes drawerSlideIn {

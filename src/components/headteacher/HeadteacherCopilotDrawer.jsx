@@ -4,6 +4,7 @@ import { useAuth } from '../../store/AuthContext';
 import { askHeadteacherAgent } from '../../services/headteacherAgentService';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
+import useDraggableButton from '../../hooks/useDraggableButton';
 
 /**
  * Lightweight safe Markdown renderer for Headteacher Copilot
@@ -222,6 +223,16 @@ const HeadteacherCopilotDrawer = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Smooth dragging for the floating launcher button
+  const {
+    buttonRef,
+    position,
+    isActivelyDragging,
+    handleMouseDown,
+    handleTouchStart,
+    preventClickIfDragged
+  } = useDraggableButton('ht_copilot_icon_pos');
+
   // Strictly restricted to headteacher (super_admin role within school context)
   const isHeadteacher = user?.role === 'super_admin' && !!user?.schoolId;
 
@@ -247,8 +258,8 @@ const HeadteacherCopilotDrawer = () => {
     [user?.schoolId]
   );
 
-  const initialWelcomeText = `### 👋 Headteacher Intelligence Assistant
-I am your private administrative assistant for **${schoolInfo?.name || 'Your School'}**. Ask me about teacher score submissions, report cards, student enrollments, or wallet balances with instant real-time answers.`;
+  const initialWelcomeText = `### 👋 Welcome Headteacher!
+Ask me anything you want from your portal and I will help you do it! Whether you need to check teacher score submissions, release report cards to parents, register students, top up your wallet, or need step-by-step guidance on any activity in **${schoolInfo?.name || 'Your School'}**, I am here to assist you anytime with instant answers.`;
 
   const [messages, setMessages] = useState([
     {
@@ -336,21 +347,56 @@ I am your private administrative assistant for **${schoolInfo?.name || 'Your Sch
           border-color: #2563eb;
           color: #ffffff;
         }
+        .copilot-ht-launcher {
+          position: fixed;
+          bottom: 24px;
+          right: 24px;
+          z-index: 9998;
+        }
+        .copilot-ht-drawer {
+          width: 100%;
+          max-width: 460px;
+          height: 100%;
+          background: #ffffff;
+          box-shadow: -10px 0 40px rgba(0, 0, 0, 0.2);
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+          animation: drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @media (max-width: 768px) {
+          .copilot-ht-launcher {
+            bottom: 84px !important;
+            right: 16px !important;
+          }
+          .copilot-ht-drawer {
+            max-width: 100% !important;
+          }
+        }
       `}</style>
 
-      {/* ── Floating Circular Launcher Button (Icon-Only) ── */}
+      {/* ── Floating Circular Launcher Button (Icon-Only, Draggable) ── */}
       <div
-        className="no-print"
-        style={{
+        ref={buttonRef}
+        className="copilot-ht-launcher no-print"
+        style={position ? {
           position: 'fixed',
-          bottom: '24px',
-          right: '24px',
-          zIndex: 9998
-        }}
+          left: `${position.x}px`,
+          top: `${position.y}px`,
+          bottom: 'auto',
+          right: 'auto',
+          zIndex: 9998,
+          touchAction: 'none'
+        } : { touchAction: 'none' }}
+        onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
       >
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={(e) => {
+            if (preventClickIfDragged(e)) return;
+            setIsOpen(!isOpen);
+          }}
           style={{
             width: '54px',
             height: '54px',
@@ -361,16 +407,20 @@ I am your private administrative assistant for **${schoolInfo?.name || 'Your Sch
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            cursor: 'pointer',
-            boxShadow: '0 10px 25px rgba(9, 9, 11, 0.35)',
+            cursor: isActivelyDragging ? 'grabbing' : 'grab',
+            boxShadow: isActivelyDragging 
+              ? '0 16px 36px rgba(9, 9, 11, 0.5)' 
+              : '0 10px 25px rgba(9, 9, 11, 0.35)',
             fontSize: '1.25rem',
-            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            transform: isOpen ? 'scale(0.92)' : 'scale(1)',
-            position: 'relative'
+            transition: isActivelyDragging ? 'none' : 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s',
+            transform: isOpen ? 'scale(0.92)' : (isActivelyDragging ? 'scale(1.08)' : 'scale(1)'),
+            position: 'relative',
+            userSelect: 'none',
+            WebkitUserSelect: 'none'
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.transform = isOpen ? 'scale(0.92)' : 'scale(1)'; }}
-          title={`Headteacher Copilot (${schoolInfo?.name || 'School Operations'})`}
+          onMouseEnter={(e) => { if (!isActivelyDragging) e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; }}
+          onMouseLeave={(e) => { if (!isActivelyDragging) e.currentTarget.style.transform = isOpen ? 'scale(0.92)' : 'scale(1)'; }}
+          title={`Headteacher Copilot (${schoolInfo?.name || 'School Operations'}) - Drag to move`}
           aria-label="Open Headteacher Copilot"
         >
           <i className="fas fa-robot" />
@@ -437,17 +487,7 @@ I am your private administrative assistant for **${schoolInfo?.name || 'Your Sch
           }}
         >
           <div
-            style={{
-              width: '100%',
-              maxWidth: '460px',
-              height: '100%',
-              background: '#ffffff',
-              boxShadow: '-10px 0 40px rgba(0, 0, 0, 0.2)',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-              animation: 'drawerSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
+            className="copilot-ht-drawer"
           >
             <style>{`
               @keyframes drawerSlideIn {

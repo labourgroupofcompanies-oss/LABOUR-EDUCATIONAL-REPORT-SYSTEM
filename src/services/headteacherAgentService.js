@@ -12,6 +12,7 @@
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
 import { handleHeadteacherErrorQuery } from './errorIntelligence';
+import { findBestActivityGuide } from './portalActivityAssistant';
 
 /**
  * Format currency in Ghana Cedis
@@ -95,7 +96,7 @@ export const askHeadteacherAgent = async (userQuery, schoolId) => {
     ) {
       return {
         text: `### 👋 Hello Headteacher! Welcome to your School Copilot
-I am your private administrative intelligence assistant for **${schoolName}**. I analyze your local school records in real time to give you instant operational oversight with **zero latency and zero API cost**.
+Ask me anything you want from your portal and I will help you do it! I analyze your school records in real time to give you instant answers and step-by-step guidance for **${schoolName}**.
 
 **Here is what you can ask me anytime:**
 - 📝 **Assessment Progress**: *"Score submission status"*, *"Which teachers haven't submitted scores?"*
@@ -126,7 +127,39 @@ I am your private administrative intelligence assistant for **${schoolName}**. I
       return await handleHeadteacherErrorQuery(userQuery, cleanSchoolId, schoolName, startTime);
     }
 
-    // ── 3. SCORE ENTRY & ASSESSMENT SUBMISSION STATUS ──
+    // ── 3. HOW-TO ACTIVITY GUIDES & STEP-BY-STEP WORKFLOWS ──
+    const activityGuide = findBestActivityGuide(userQuery, 'headteacher');
+    if (activityGuide && (
+      q.includes('how') || q.includes('steps') || q.includes('guide') ||
+      q.includes('where') || q.includes('can i') || q.includes('what should i do') ||
+      q.includes('how to') || q.startsWith('how') || q.includes('way to')
+    )) {
+      const unreleasedCount = db.reportSummaries
+        ? await db.reportSummaries.filter(r => String(r.schoolId || r.school_id) === String(cleanSchoolId) && (r.isReleased === 0 || r.isReleased === false)).count()
+        : 0;
+
+      const walletBal = Number(schoolInfo?.wallet_balance || schoolInfo?.walletBalance || 0);
+
+      const guideText = activityGuide.generateGuide({
+        role: 'headteacher',
+        schoolName,
+        unreleasedReportsCount: unreleasedCount,
+        walletBalance: formatCurrency(walletBal)
+      });
+
+      return {
+        text: guideText,
+        suggestions: [
+          'Score submission status',
+          'Are report cards released?',
+          'How to bulk upload students with Excel',
+          'School wallet balance'
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // ── 4. SCORE ENTRY & ASSESSMENT SUBMISSION STATUS ──
     if (
       q.includes('score') || q.includes('grade') || q.includes('assessment') ||
       q.includes('exam') || q.includes('submission') || q.includes('submit') ||

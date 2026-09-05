@@ -13,6 +13,7 @@
 
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
+import { findBestActivityGuide } from './portalActivityAssistant';
 
 /**
  * Normalize input query
@@ -208,7 +209,38 @@ ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n'
       };
     }
 
-    // ── 5. ASSIGNED CLASSES & TEACHING LOAD ──
+    // ── 5. HOW-TO ACTIVITY GUIDES & STEP-BY-STEP WORKFLOWS ──
+    const activityGuide = findBestActivityGuide(userQuery, 'teacher');
+    if (activityGuide && (
+      q.includes('how') || q.includes('steps') || q.includes('guide') ||
+      q.includes('where') || q.includes('can i') || q.includes('what should i do') ||
+      q.includes('how to') || q.startsWith('how') || q.includes('way to')
+    )) {
+      const draftCount = myScores.filter(s => s.isSubmitted === 0 || s.isSubmitted === false).length;
+      const classNames = Array.from(assignedClassIds)
+        .map(id => classMap.get(id)?.name)
+        .filter(Boolean)
+        .join(', ');
+
+      const guideText = activityGuide.generateGuide({
+        role: 'teacher',
+        assignedClassesText: classNames,
+        draftScoresCount: draftCount
+      });
+
+      return {
+        text: guideText,
+        suggestions: [
+          'What is my score entry progress?',
+          'Which students are missing scores?',
+          'Show my assigned classes',
+          'Are my marks safely saved on this device?'
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // ── 6. ASSIGNED CLASSES & TEACHING LOAD ──
     if (
       q.includes('assigned') || q.includes('my class') || q.includes('teaching load') ||
       q.includes('classes do i teach') || q.includes('subjects do i teach')
