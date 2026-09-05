@@ -24,6 +24,7 @@ import {
   collectFinancialData,
   collectCommunicationsAudit
 } from './systemDataCollector';
+import { handleOperationsErrorQuery } from './errorIntelligence';
 
 /**
  * Clean and normalize text query
@@ -161,73 +162,14 @@ ${p.telemetry.unresolvedCount > 0 ? `- Investigate the **${p.telemetry.unresolve
       };
     }
 
-    // ── 3. CLEAR / RESOLVE ERRORS ──
-    if (q.includes('clear error') || q.includes('resolve error') || q.includes('reset error') || q.includes('clean error')) {
-      systemErrorTracker.clearAllErrors();
-      return {
-        text: `### 🧹 Error Telemetry Cleared
-All recorded system runtime errors and network exception logs have been **cleared and marked resolved**.
-
-The active background error listener continues monitoring for any new events.`,
-        suggestions: [
-          "Run system diagnostics",
-          "Platform overview & statistics"
-        ],
-        queryTimeMs: Math.round(performance.now() - startTime)
-      };
-    }
-
-    // ── 4. SYSTEM ERRORS & EXCEPTION TELEMETRY ──
+    // ── 3. SYSTEM ERRORS, EXCEPTION TELEMETRY & DIAGNOSTIC INTELLIGENCE ──
     if (
-      q.includes('system error') || q.includes('detect error') || q.includes('recent error') ||
-      q.includes('any error') || q.includes('error log') || q.includes('what error') ||
-      q.includes('why did it fail') || q.includes('exceptions') || q.includes('crashes') ||
-      q === 'errors' || q === 'error' || (q.includes('error') && !q.includes('school'))
+      q.includes('error') || q.includes('fail') || q.includes('exception') ||
+      q.includes('crash') || q.includes('telemetry') || q.includes('why did') ||
+      q.includes('is data safe') || q.includes('how to fix') || q.includes('what happened') ||
+      q === 'errors' || q === 'error'
     ) {
-      const unresolved = systemErrorTracker.getUnresolvedErrors();
-      const recent = systemErrorTracker.getRecentErrors(8);
-
-      if (recent.length === 0) {
-        return {
-          text: `### 🎉 0 System Errors Detected!
-The system error telemetry engine is actively monitoring in the background. **No runtime JavaScript exceptions, unhandled promise rejections, or Supabase network errors** have occurred during your current session.`,
-          suggestions: [
-            "Run system diagnostics",
-            "Platform overview & statistics",
-            "Which schools are in critical health?"
-          ],
-          queryTimeMs: Math.round(performance.now() - startTime)
-        };
-      }
-
-      let response = `### 🩺 System Error Telemetry Report
-Found **${unresolved.length}** unresolved issue(s) (${recent.length} total logged events):
-
-`;
-
-      recent.forEach((err, idx) => {
-        const timeAgo = formatTimeAgo(err.timestamp);
-        const icon = getErrorIcon(err.type);
-        const statusBadge = err.resolved ? '*(Resolved)*' : '**[UNRESOLVED]**';
-        response += `#### ${idx + 1}. ${icon} ${statusBadge}
-- **Message**: \`${err.message}\`
-- **Source**: \`${err.source || 'runtime'}\` ${err.endpoint ? `• **Endpoint**: \`${err.endpoint}\`` : ''}
-- **Occurrences**: ${err.occurrences || 1}x • **First Seen**: ${timeAgo}
-${err.details ? `- **Details**: \`${typeof err.details === 'object' ? JSON.stringify(err.details) : err.details}\`` : ''}
-`;
-      });
-
-      response += `\n💡 *Tip: Ask *"Clear resolved errors"* to reset the telemetry log once resolved.*`;
-
-      return {
-        text: response,
-        suggestions: [
-          "Run system diagnostics",
-          "Clear resolved errors",
-          "Platform overview & statistics"
-        ],
-        queryTimeMs: Math.round(performance.now() - startTime)
-      };
+      return await handleOperationsErrorQuery(userQuery, startTime);
     }
 
     // ── 2. PLATFORM OVERVIEW / SUMMARY ──

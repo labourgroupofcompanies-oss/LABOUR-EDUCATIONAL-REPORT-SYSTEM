@@ -345,7 +345,7 @@ const Header = ({ title, onMenuClick }) => {
             color: isOnline ? '#10B981' : '#F59E0B',
             flexShrink: 0
           }}
-          title={isOnline ? 'System Online (Sync Active)' : 'System Offline (Local Cache Active)'}
+          title={isOnline ? 'Connected to Cloud • Work is syncing' : 'Working Offline • Work is safely saved on your device'}
         >
           <i className="fas fa-circle" style={{ fontSize: '0.42rem', color: isOnline ? '#10B981' : '#F59E0B' }}></i>
           <span className="hide-mobile">{isOnline ? 'Online' : 'Offline'}</span>

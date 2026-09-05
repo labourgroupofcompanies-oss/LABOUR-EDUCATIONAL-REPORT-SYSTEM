@@ -7,6 +7,8 @@ import ImpersonationBanner from '../common/ImpersonationBanner';
 import PlatformBroadcastBanner from '../common/PlatformBroadcastBanner';
 import { SchoolNotificationProvider } from '../../context/SchoolNotificationContext';
 import PortalToastContainer from '../common/PortalToastContainer';
+import HeadteacherCopilotDrawer from '../headteacher/HeadteacherCopilotDrawer';
+import TeacherCopilotDrawer from '../teacher/TeacherCopilotDrawer';
 
 const LayoutContent = ({ children, title }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -56,6 +58,12 @@ const LayoutContent = ({ children, title }) => {
 
       {/* Role-Specific Sequential Spotlight Portal Guide */}
       <PortalGuide />
+
+      {/* Headteacher AI Intelligence Copilot (Role-restricted) */}
+      <HeadteacherCopilotDrawer />
+
+      {/* Teacher AI Grading & Class Copilot (Role-restricted) */}
+      <TeacherCopilotDrawer />
 
       {/* Mobile Native App Bottom Navigation Bar */}
       <MobileNavBar />

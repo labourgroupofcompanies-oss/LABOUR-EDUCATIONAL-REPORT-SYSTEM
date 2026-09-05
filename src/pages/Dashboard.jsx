@@ -775,29 +775,29 @@ const Dashboard = () => {
                 <div className="card" style={{ padding: '1.25rem', background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: 'var(--radius-lg)' }}>
                   <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.875rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: '#09090b' }}>
                     <i className="fas fa-sync" style={{ color: '#2563eb', fontSize: '0.85rem' }}></i>
-                    <span>Offline Sync Engine</span>
+                    <span>Offline &amp; Cloud Sync Status</span>
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Network Connection State:</span>
+                      <span>Internet Connection:</span>
                       <strong style={{ color: navigator.onLine ? '#10B981' : '#F59E0B' }}>
-                        {navigator.onLine ? "Online (Cloud Sync Active)" : "Offline (Local Draft Mode)"}
+                        {navigator.onLine ? "Connected to Cloud" : "Working Offline (Safe on Device)"}
                       </strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Local Databases:</span>
-                      <strong style={{ color: '#2563eb' }}>Dexie (Healthy)</strong>
+                      <span>Device Storage:</span>
+                      <strong style={{ color: '#10B981' }}>Safe &amp; Active</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #E4E4E7', paddingTop: '8px' }}>
-                      <span>Pending Sync Items:</span>
+                      <span>Saved Work Waiting to Upload:</span>
                       <strong style={{ color: pendingCount > 0 ? '#2563eb' : '#71717a' }}>{pendingCount}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Processing Sync Items:</span>
+                      <span>Items Currently Uploading:</span>
                       <strong style={{ color: processingCount > 0 ? '#2563eb' : '#71717a' }}>{processingCount}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span>Failed Sync Items:</span>
+                      <span>Uploads to Retry:</span>
                       <strong style={{ color: failedCount > 0 ? '#EF4444' : '#71717a' }}>{failedCount}</strong>
                     </div>
 
