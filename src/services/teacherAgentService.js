@@ -13,7 +13,7 @@
 
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
-import { findBestActivityGuide } from './portalActivityAssistant';
+import { findBestActivityGuide, isDataOrCensusQuery } from './portalActivityAssistant';
 
 /**
  * Normalize input query
@@ -210,11 +210,14 @@ ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n'
     }
 
     // ── 5. HOW-TO ACTIVITY GUIDES & STEP-BY-STEP WORKFLOWS ──
-    const activityGuide = findBestActivityGuide(userQuery, 'teacher');
+    const isDataQuery = isDataOrCensusQuery(userQuery);
+    const activityGuide = !isDataQuery ? findBestActivityGuide(userQuery, 'teacher') : null;
     if (activityGuide && (
-      q.includes('how') || q.includes('steps') || q.includes('guide') ||
-      q.includes('where') || q.includes('can i') || q.includes('what should i do') ||
-      q.includes('how to') || q.startsWith('how') || q.includes('way to')
+      q.includes('how to') || q.includes('how do i') || q.includes('how can i') ||
+      q.includes('how do we') || q.includes('how does') || q.includes('steps') ||
+      q.includes('guide') || q.includes('where do i') || q.includes('where can i') ||
+      q.includes('what should i do') || q.includes('way to') || q.includes('teach me') ||
+      q.includes('walkthrough')
     )) {
       const draftCount = myScores.filter(s => s.isSubmitted === 0 || s.isSubmitted === false).length;
       const classNames = Array.from(assignedClassIds)
@@ -243,7 +246,8 @@ ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n'
     // ── 6. ASSIGNED CLASSES & TEACHING LOAD ──
     if (
       q.includes('assigned') || q.includes('my class') || q.includes('teaching load') ||
-      q.includes('classes do i teach') || q.includes('subjects do i teach')
+      q.includes('classes do i teach') || q.includes('subjects do i teach') ||
+      q.includes('how many classes')
     ) {
       if (myAssignments.length === 0) {
         return {
@@ -280,7 +284,85 @@ Teaching schedule for **${user.fullName || 'Teacher'}**:
         suggestions: [
           'What is my score entry progress?',
           'Which students are missing scores?',
+          'Show my student list',
           'Are my marks safely saved on this device?'
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // ── 6b. MY STUDENTS & CLASS ROSTER ──
+    if (
+      q.includes('student') || q.includes('learner') || q.includes('pupil') ||
+      q.includes('class list') || q.includes('roll') || q.includes('enrollment') ||
+      q.includes('headcount') || q.includes('who are in my class')
+    ) {
+      if (myAssignments.length === 0) {
+        return {
+          text: `### 👥 Your Students
+You have no assigned classes yet. Contact your Headteacher to assign your classes so you can view your students.`,
+          suggestions: ['Show my assigned classes'],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      const classLearnerMap = {};
+      assignedClassIds.forEach(cid => {
+        const cls = classMap.get(cid);
+        classLearnerMap[cid] = {
+          name: cls?.name || `Class #${cid}`,
+          learners: []
+        };
+      });
+
+      myLearners.forEach(l => {
+        const cid = Number(l.currentClassId);
+        if (classLearnerMap[cid]) {
+          classLearnerMap[cid].learners.push(l);
+        }
+      });
+
+      const totalStudents = myLearners.length;
+      const countLead = totalStudents === 1
+        ? `You have **1 registered student** across your assigned classes.`
+        : `You have **${totalStudents} registered students** across your assigned classes.`;
+
+      let text = `### 👥 Your Students (${totalStudents} Total)\n${countLead}\n\n`;
+      text += `| Class | Students Enrolled | Your Teaching Role |\n| :--- | :--- | :--- |\n`;
+
+      assignedClassIds.forEach(cid => {
+        const info = classLearnerMap[cid];
+        const count = info?.learners?.length || 0;
+        const isClassTeacher = classTeacherClassIds.has(cid);
+        const subNames = myAssignments
+          .filter(a => Number(a.classId) === cid && a.subjectId)
+          .map(a => subjectMap.get(Number(a.subjectId))?.name)
+          .filter(Boolean);
+
+        const roleDesc = isClassTeacher
+          ? `🌟 Class Teacher / Advisor`
+          : (subNames.length > 0 ? `📖 ${subNames.join(', ')}` : 'Subject Teacher');
+
+        text += `| **${info?.name || 'Class'}** | **${count}** student(s) | ${roleDesc} |\n`;
+      });
+
+      if (totalStudents > 0 && totalStudents <= 25) {
+        text += `\n#### 📋 Quick Student Roster Preview\n`;
+        text += `| # | Student Name | ID / Reg No | Class | Gender |\n| :--- | :--- | :--- | :--- | :--- |\n`;
+        myLearners.forEach((l, idx) => {
+          const cls = classMap.get(Number(l.currentClassId))?.name || 'Class';
+          text += `| ${idx + 1} | **${l.fullName || 'Unnamed'}** | ${l.idNumber || l.studentId || '—'} | ${cls} | ${l.gender || '—'} |\n`;
+        });
+      } else if (totalStudents > 25) {
+        text += `\n👉 *Open **[Score Entry](/scores)** to see full student lists and enter grades for each class.*`;
+      }
+
+      return {
+        text,
+        suggestions: [
+          'What is my score entry progress?',
+          'Which students are missing scores?',
+          'Show my assigned classes'
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };

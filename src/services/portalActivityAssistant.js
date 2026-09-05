@@ -306,11 +306,71 @@ The Labour Educational Report System is built to work seamlessly in areas with p
 ];
 
 /**
- * Score how well a user query matches a guide intent
+ * Check if a query is asking for quantitative data, records, or counts
+ * rather than a step-by-step instructional how-to guide.
+ */
+export const isDataOrCensusQuery = (userQuery) => {
+  const q = (userQuery || '').toLowerCase().trim();
+  if (!q) return false;
+
+  // Quantitative / Census / Count questions
+  if (
+    q.includes('how many') ||
+    q.includes('how much') ||
+    q.includes('number of') ||
+    q.includes('count of') ||
+    q.includes('total number') ||
+    q.includes('total count') ||
+    q.includes('total of') ||
+    q.includes('headcount') ||
+    q.includes('census') ||
+    q.includes('population')
+  ) {
+    return true;
+  }
+
+  // Data status / lookup questions
+  if (
+    q.startsWith('who is') ||
+    q.startsWith('who are') ||
+    q.startsWith('who teaches') ||
+    q.startsWith('which student') ||
+    q.startsWith('which teacher') ||
+    q.startsWith('which class') ||
+    q.startsWith('which subject') ||
+    q.startsWith('list ') ||
+    q.startsWith('show ') ||
+    q.startsWith('find ') ||
+    q.startsWith('search ')
+  ) {
+    return true;
+  }
+
+  // Balance or census data inquiry without instructional intent
+  if (
+    (q.includes('balance') || q.includes('teachers') || q.includes('students') || q.includes('classes') || q.includes('scores')) &&
+    !q.includes('how to') && !q.includes('how do i') && !q.includes('steps') && !q.includes('guide')
+  ) {
+    if (q.includes('how many') || q.includes('count') || q.includes('list') || q.includes('show') || q.includes('total') || q.includes('summary')) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+/**
+ * Score how well a user query matches a guide intent.
+ * Strict scoring ensures quantitative/census questions NEVER trigger instructional how-to guides.
  */
 export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
   const q = (userQuery || '').toLowerCase().trim();
   if (!q) return null;
+
+  // Never match a how-to guide if the user is asking for quantitative data, counts, or roster lists
+  if (isDataOrCensusQuery(q)) {
+    return null;
+  }
 
   // Check if query sounds like a "how-to" or instructional question
   const isHowToPattern =
@@ -320,13 +380,17 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
     q.includes('how do we') ||
     q.includes('how does') ||
     q.includes('steps to') ||
+    q.includes('steps for') ||
+    q.includes('step by step') ||
     q.includes('show me how') ||
     q.includes('guide me') ||
+    q.includes('teach me') ||
     q.includes('where do i') ||
     q.includes('where can i') ||
-    q.includes('can i') ||
+    q.includes('what are the steps') ||
     q.includes('what should i do') ||
-    q.includes('explain how');
+    q.includes('procedure for') ||
+    q.includes('walkthrough');
 
   let bestMatch = null;
   let highestScore = 0;
@@ -335,31 +399,43 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
     // Check role applicability
     if (!intent.roles.includes(role)) return;
 
-    let score = 0;
+    let bestKwScore = 0;
 
-    // Check keyword matches
+    // Evaluate keyword matches
     intent.keywords.forEach(kw => {
+      // Exact phrase match (e.g. "add teacher", "top up")
       if (q.includes(kw)) {
-        score += 10;
-      } else {
-        // Partial word match
-        const words = kw.split(' ');
-        const matchedWords = words.filter(w => q.includes(w));
-        if (matchedWords.length === words.length) {
-          score += 8;
-        } else if (matchedWords.length > 0) {
-          score += 2 * matchedWords.length;
+        bestKwScore = Math.max(bestKwScore, 12);
+        return;
+      }
+
+      // Multi-word keyword: all words present in query
+      const words = kw.split(' ').filter(Boolean);
+      if (words.length > 1) {
+        const allWordsPresent = words.every(w => q.includes(w));
+        if (allWordsPresent) {
+          bestKwScore = Math.max(bestKwScore, 10);
+          return;
+        }
+      }
+
+      // Single-word keyword matching
+      if (words.length === 1 && q.includes(words[0])) {
+        if (isHowToPattern) {
+          bestKwScore = Math.max(bestKwScore, 8);
         }
       }
     });
 
-    // Boost if query is an explicit "how-to" question
-    if (isHowToPattern && score > 0) {
-      score += 5;
+    let totalScore = bestKwScore;
+    if (isHowToPattern && bestKwScore > 0) {
+      totalScore += 5;
     }
 
-    if (score > highestScore && score >= 6) {
-      highestScore = score;
+    // Require at least 10 for direct action phrase or 12 when combined with how-to
+    const threshold = isHowToPattern ? 12 : 10;
+    if (totalScore >= threshold && totalScore > highestScore) {
+      highestScore = totalScore;
       bestMatch = intent;
     }
   });

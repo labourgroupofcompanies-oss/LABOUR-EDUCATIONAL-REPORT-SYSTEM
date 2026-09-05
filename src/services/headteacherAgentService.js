@@ -12,7 +12,7 @@
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
 import { handleHeadteacherErrorQuery } from './errorIntelligence';
-import { findBestActivityGuide } from './portalActivityAssistant';
+import { findBestActivityGuide, isDataOrCensusQuery } from './portalActivityAssistant';
 
 /**
  * Format currency in Ghana Cedis
@@ -128,11 +128,14 @@ Ask me anything you want from your portal and I will help you do it! I analyze y
     }
 
     // ── 3. HOW-TO ACTIVITY GUIDES & STEP-BY-STEP WORKFLOWS ──
-    const activityGuide = findBestActivityGuide(userQuery, 'headteacher');
+    const isDataQuery = isDataOrCensusQuery(userQuery);
+    const activityGuide = !isDataQuery ? findBestActivityGuide(userQuery, 'headteacher') : null;
     if (activityGuide && (
-      q.includes('how') || q.includes('steps') || q.includes('guide') ||
-      q.includes('where') || q.includes('can i') || q.includes('what should i do') ||
-      q.includes('how to') || q.startsWith('how') || q.includes('way to')
+      q.includes('how to') || q.includes('how do i') || q.includes('how can i') ||
+      q.includes('how do we') || q.includes('how does') || q.includes('steps') ||
+      q.includes('guide') || q.includes('where do i') || q.includes('where can i') ||
+      q.includes('what should i do') || q.includes('way to') || q.includes('procedure') ||
+      q.includes('walkthrough')
     )) {
       const unreleasedCount = db.reportSummaries
         ? await db.reportSummaries.filter(r => String(r.schoolId || r.school_id) === String(cleanSchoolId) && (r.isReleased === 0 || r.isReleased === false)).count()
@@ -295,7 +298,8 @@ Current report production and release metrics for **${schoolName}**:
       q.includes('learner') || q.includes('student') || q.includes('pupil') ||
       q.includes('census') || q.includes('enrollment') || q.includes('population') ||
       q.includes('how many in each') || q.includes('class list') || q.includes('breakdown') ||
-      q.includes('headcount') || q.includes('alumni')
+      q.includes('headcount') || q.includes('alumni') || q.includes('how many classes') ||
+      q.includes('number of classes') || q.includes('total classes')
     ) {
       const [learners, classes, teacherAssignments, profiles] = await Promise.all([
         getSchoolRecords('learners', cleanSchoolId),
@@ -462,7 +466,7 @@ School enrollment overview for **${schoolName}**:
     if (
       q.includes('teacher') || q.includes('staff') || q.includes('who teaches') ||
       q.includes('assignment') || q.includes('teaching load') || q.includes('subject teacher') ||
-      q.includes('unassigned')
+      q.includes('unassigned') || q.includes('faculty')
     ) {
       const [profiles, assignments, classes, subjects] = await Promise.all([
         getSchoolRecords('profiles', cleanSchoolId),
@@ -494,17 +498,25 @@ School enrollment overview for **${schoolName}**:
 
       const unassignedClasses = classes.filter(c => !assignedClassIds.has(String(c.id)));
 
-      let text = `### 👩‍🏫 Teaching Staff & Subject Matrix
-Staff assignments for **${schoolName}**:
+      const teacherCount = staffList.length;
+      const teacherCountLead = teacherCount === 1
+        ? `There is **1 registered teacher**`
+        : `There are **${teacherCount} registered teachers**`;
 
-| Metric | Count | Status |
+      let text = `### 👩‍🏫 Teaching Staff (${teacherCount} Registered)
+${teacherCountLead} at **${schoolName}**.\n\n` +
+`| Metric | Count | Status |
 | :--- | :--- | :--- |
-| **Registered Teaching Staff** | **${staffList.length}** | Active teachers |
+| **Registered Teaching Staff** | **${staffList.length}** | Active teachers & staff |
 | **Configured Classes** | **${classes.length}** | Total classes |
 | **Subjects Offered** | **${subjects.length}** | Curriculum subjects |
 | **Classes with Assigned Teachers** | **${assignedClassIds.size}** of ${classes.length} | ${unassignedClasses.length > 0 ? `⚠️ ${unassignedClasses.length} unassigned` : '✅ All assigned'} |
 
 `;
+
+      if (staffList.length === 0) {
+        text += `👉 *No teachers are currently registered.* Go to **[Teachers & Staff](/teachers)** to add teachers and set up their logins.\n\n`;
+      }
 
       if (unassignedClasses.length > 0) {
         text += `#### ⚠️ Classes Needing a Teacher\n`;
