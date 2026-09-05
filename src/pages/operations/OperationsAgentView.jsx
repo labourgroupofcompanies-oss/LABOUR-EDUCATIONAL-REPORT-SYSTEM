@@ -19,11 +19,11 @@ const renderMarkdown = (text) => {
 
       elements.push(
         <div key={`${keyPrefix}-tbl`} style={{ overflowX: 'auto', margin: '0.85rem 0' }}>
-          <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse', border: '1px solid #e2e8f0', background: '#ffffff', borderRadius: '8px', overflow: 'hidden' }}>
+          <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse', border: '1px solid #E4E4E7', background: '#ffffff', borderRadius: '10px', overflow: 'hidden' }}>
             <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+              <tr style={{ background: '#f4f4f5', borderBottom: '2px solid #E4E4E7' }}>
                 {isHeader.split('|').filter(c => c.trim()).map((col, idx) => (
-                  <th key={idx} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, color: '#334155' }}>
+                  <th key={idx} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 800, color: '#18181b' }}>
                     {formatInline(col.trim())}
                   </th>
                 ))}
@@ -31,9 +31,9 @@ const renderMarkdown = (text) => {
             </thead>
             <tbody>
               {dataRows.map((row, rIdx) => (
-                <tr key={rIdx} style={{ borderBottom: '1px solid #f1f5f9', background: rIdx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                <tr key={rIdx} style={{ borderBottom: '1px solid #f4f4f5', background: rIdx % 2 === 0 ? '#fff' : '#fafafa' }}>
                   {row.split('|').filter(c => c.trim()).map((cell, cIdx) => (
-                    <td key={cIdx} style={{ padding: '8px 12px', color: '#1e293b' }}>
+                    <td key={cIdx} style={{ padding: '8px 12px', color: '#27272a' }}>
                       {formatInline(cell.trim())}
                     </td>
                   ))}
@@ -49,9 +49,11 @@ const renderMarkdown = (text) => {
   };
 
   const formatInline = (str) => {
+    if (!str) return '';
     const parts = [];
     let idx = 0;
 
+    // Pattern for markdown links: [label](url)
     const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
     let lastIndex = 0;
     let match;
@@ -82,27 +84,68 @@ const renderMarkdown = (text) => {
   };
 
   const renderBasicFormatting = (text, key) => {
-    const boldRegex = /\*\*([^*]+)\*\*/g;
+    if (!text) return text;
+
+    // Tokenize bold (**text** or __text__), inline code (`code`), and italic (*text* or _text_)
+    // Regex matches: `code` OR **bold** OR *italic*
+    const tokenRegex = /(`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_)/g;
     const segments = [];
     let last = 0;
-    let bMatch;
+    let match;
 
-    while ((bMatch = boldRegex.exec(text)) !== null) {
-      if (bMatch.index > last) {
-        segments.push(text.substring(last, bMatch.index));
+    while ((match = tokenRegex.exec(text)) !== null) {
+      if (match.index > last) {
+        // Clean any stray formatting characters from plain text segment
+        const plain = text.substring(last, match.index).replace(/[*#_`]/g, '');
+        if (plain) segments.push(plain);
       }
-      segments.push(<strong key={`${key}-${bMatch.index}`}>{bMatch[1]}</strong>);
-      last = boldRegex.lastIndex;
+
+      if (match[2]) {
+        // Inline code: `code`
+        segments.push(
+          <code key={`${key}-c-${match.index}`} style={{
+            background: '#f4f4f5',
+            color: '#09090b',
+            padding: '2px 6px',
+            borderRadius: '4px',
+            fontSize: '0.85em',
+            fontWeight: 600,
+            fontFamily: 'monospace'
+          }}>
+            {match[2]}
+          </code>
+        );
+      } else if (match[3]) {
+        // Bold: **bold**
+        segments.push(
+          <strong key={`${key}-b-${match.index}`} style={{ fontWeight: 700, color: '#09090b' }}>
+            {match[3].replace(/[*#_`]/g, '')}
+          </strong>
+        );
+      } else if (match[4] || match[5]) {
+        // Italic: *italic* or _italic_
+        const italicContent = (match[4] || match[5]).replace(/[*#_`]/g, '');
+        segments.push(
+          <span key={`${key}-i-${match.index}`} style={{ fontStyle: 'italic', color: '#52525b' }}>
+            {italicContent}
+          </span>
+        );
+      }
+      last = tokenRegex.lastIndex;
     }
+
     if (last < text.length) {
-      segments.push(text.substring(last));
+      const remaining = text.substring(last).replace(/[*#_`]/g, '');
+      if (remaining) segments.push(remaining);
     }
-    return segments.length > 0 ? segments : text;
+
+    return segments.length > 0 ? segments : text.replace(/[*#_`]/g, '');
   };
 
   lines.forEach((line, index) => {
-    const trimmed = line.trim();
+    let trimmed = line.trim();
 
+    // Table detection
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       inTable = true;
       tableRows.push(trimmed);
@@ -111,34 +154,70 @@ const renderMarkdown = (text) => {
       flushTable(index);
     }
 
-    if (trimmed.startsWith('### ')) {
-      elements.push(
-        <h3 key={index} style={{ margin: '1rem 0 0.5rem', fontSize: '1.1rem', fontWeight: 800, color: '#18181b' }}>
-          {formatInline(trimmed.replace('### ', ''))}
-        </h3>
-      );
-    } else if (trimmed.startsWith('#### ')) {
-      elements.push(
-        <h4 key={index} style={{ margin: '0.85rem 0 0.4rem', fontSize: '0.95rem', fontWeight: 800, color: '#27272a' }}>
-          {formatInline(trimmed.replace('#### ', ''))}
-        </h4>
-      );
-    } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || /^\d+\.\s/.test(trimmed)) {
+    // Headings: Strip all leading '#' hashes and format cleanly
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      const headingLevel = trimmed.match(/^(#{1,6})\s+/)[1].length;
+      const headingText = trimmed.replace(/^#{1,6}\s+/, '').replace(/^[*_]+|[*_]+$/g, '');
+
+      if (headingLevel <= 2) {
+        elements.push(
+          <h2 key={index} style={{ margin: '1.1rem 0 0.5rem', fontSize: '1.15rem', fontWeight: 800, color: '#09090b', letterSpacing: '-0.01em' }}>
+            {formatInline(headingText)}
+          </h2>
+        );
+      } else if (headingLevel === 3) {
+        elements.push(
+          <h3 key={index} style={{ margin: '0.95rem 0 0.45rem', fontSize: '1.05rem', fontWeight: 800, color: '#18181b' }}>
+            {formatInline(headingText)}
+          </h3>
+        );
+      } else {
+        elements.push(
+          <h4 key={index} style={{ margin: '0.8rem 0 0.35rem', fontSize: '0.92rem', fontWeight: 800, color: '#27272a' }}>
+            {formatInline(headingText)}
+          </h4>
+        );
+      }
+      return;
+    }
+
+    // Unordered lists (- or • or *)
+    if (/^[-•*]\s+/.test(trimmed)) {
+      const listContent = trimmed.replace(/^[-•*]\s+/, '');
       elements.push(
         <div key={index} style={{ display: 'flex', gap: '8px', margin: '4px 0', fontSize: '0.88rem', lineHeight: 1.6, color: '#27272a' }}>
           <span style={{ color: '#2563eb', fontWeight: 'bold' }}>&bull;</span>
-          <span style={{ flex: 1 }}>{formatInline(trimmed.replace(/^[-•\d\.]+\s*/, ''))}</span>
+          <span style={{ flex: 1 }}>{formatInline(listContent)}</span>
         </div>
       );
-    } else if (trimmed === '') {
-      elements.push(<div key={index} style={{ height: '8px' }} />);
-    } else {
-      elements.push(
-        <p key={index} style={{ margin: '6px 0', fontSize: '0.88rem', lineHeight: 1.6, color: '#18181b' }}>
-          {formatInline(trimmed)}
-        </p>
-      );
+      return;
     }
+
+    // Ordered numbered lists (1. or 2.)
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const numberMatch = trimmed.match(/^(\d+)\.\s+/)[1];
+      const listContent = trimmed.replace(/^\d+\.\s+/, '');
+      elements.push(
+        <div key={index} style={{ display: 'flex', gap: '8px', margin: '4px 0', fontSize: '0.88rem', lineHeight: 1.6, color: '#27272a' }}>
+          <span style={{ color: '#2563eb', fontWeight: 700, minWidth: '18px' }}>{numberMatch}.</span>
+          <span style={{ flex: 1 }}>{formatInline(listContent)}</span>
+        </div>
+      );
+      return;
+    }
+
+    // Empty lines
+    if (trimmed === '') {
+      elements.push(<div key={index} style={{ height: '8px' }} />);
+      return;
+    }
+
+    // Regular paragraphs
+    elements.push(
+      <p key={index} style={{ margin: '6px 0', fontSize: '0.88rem', lineHeight: 1.6, color: '#18181b' }}>
+        {formatInline(trimmed)}
+      </p>
+    );
   });
 
   if (inTable) {
@@ -167,11 +246,11 @@ const OperationsAgentView = () => {
       text: `### 🤖 Welcome to Operations Copilot
 I am your internal intelligence agent built directly into the Platform Operations Center. Ask me operational, financial, or academic questions about registered schools and platform health.
 
-**Highlights:**
-- ⚡ **Zero Latency**: Powered directly by your Supabase database and local indices.
-- 🔒 **100% Private & Free**: Zero external API keys, zero token fees.
-- 🩺 **Live System Telemetry**: 5-pillar diagnostics, runtime exception monitor, and offline sync tracking.
-- 🎯 **Deep Insights**: Real-time health scores, enrollment counts, wallet balances, referral bonuses, and support queues.`,
+Key Features:
+- ⚡ Zero Latency: Powered directly by your database and local indices.
+- 🔒 100% Private & Free: Zero external API keys, zero token fees.
+- 🩺 Live System Telemetry: 5-pillar diagnostics, runtime exception monitor, and offline sync tracking.
+- 🎯 Deep Insights: Real-time health scores, enrollment counts, wallet balances, referral bonuses, and support queues.`,
       suggestions: [
         "Run 5-pillar system diagnostics",
         "Show recent system errors",

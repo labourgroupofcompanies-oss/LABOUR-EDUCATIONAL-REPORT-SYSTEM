@@ -16,15 +16,15 @@ const renderMarkdown = (text) => {
   const flushTable = (keyPrefix) => {
     if (tableRows.length > 0) {
       const isHeader = tableRows[0];
-      const dataRows = tableRows.slice(2); // skip header and separator
+      const dataRows = tableRows.slice(2);
 
       elements.push(
         <div key={`${keyPrefix}-tbl`} style={{ overflowX: 'auto', margin: '0.75rem 0' }}>
-          <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse', border: '1px solid #e2e8f0' }}>
+          <table style={{ width: '100%', fontSize: '0.78rem', borderCollapse: 'collapse', border: '1px solid #E4E4E7', background: '#ffffff', borderRadius: '8px', overflow: 'hidden' }}>
             <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1.5px solid #cbd5e1' }}>
+              <tr style={{ background: '#f4f4f5', borderBottom: '1.5px solid #E4E4E7' }}>
                 {isHeader.split('|').filter(c => c.trim()).map((col, idx) => (
-                  <th key={idx} style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 800, color: '#334155' }}>
+                  <th key={idx} style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 800, color: '#18181b' }}>
                     {formatInline(col.trim())}
                   </th>
                 ))}
@@ -32,9 +32,9 @@ const renderMarkdown = (text) => {
             </thead>
             <tbody>
               {dataRows.map((row, rIdx) => (
-                <tr key={rIdx} style={{ borderBottom: '1px solid #f1f5f9', background: rIdx % 2 === 0 ? '#fff' : '#fafafa' }}>
+                <tr key={rIdx} style={{ borderBottom: '1px solid #f4f4f5', background: rIdx % 2 === 0 ? '#fff' : '#fafafa' }}>
                   {row.split('|').filter(c => c.trim()).map((cell, cIdx) => (
-                    <td key={cIdx} style={{ padding: '6px 10px', color: '#1e293b' }}>
+                    <td key={cIdx} style={{ padding: '6px 10px', color: '#27272a' }}>
                       {formatInline(cell.trim())}
                     </td>
                   ))}
@@ -50,11 +50,10 @@ const renderMarkdown = (text) => {
   };
 
   const formatInline = (str) => {
+    if (!str) return '';
     const parts = [];
-    let remaining = str;
     let idx = 0;
 
-    // Replace [label](url) links
     const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
     let lastIndex = 0;
     let match;
@@ -88,29 +87,61 @@ const renderMarkdown = (text) => {
   };
 
   const renderBasicFormatting = (text, key) => {
-    // Replace **bold**
-    const boldRegex = /\*\*([^*]+)\*\*/g;
+    if (!text) return text;
+
+    const tokenRegex = /(`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|_([^_]+)_)/g;
     const segments = [];
     let last = 0;
-    let bMatch;
+    let match;
 
-    while ((bMatch = boldRegex.exec(text)) !== null) {
-      if (bMatch.index > last) {
-        segments.push(text.substring(last, bMatch.index));
+    while ((match = tokenRegex.exec(text)) !== null) {
+      if (match.index > last) {
+        const plain = text.substring(last, match.index).replace(/[*#_`]/g, '');
+        if (plain) segments.push(plain);
       }
-      segments.push(<strong key={`${key}-${bMatch.index}`}>{bMatch[1]}</strong>);
-      last = boldRegex.lastIndex;
+
+      if (match[2]) {
+        segments.push(
+          <code key={`${key}-c-${match.index}`} style={{
+            background: '#f4f4f5',
+            color: '#09090b',
+            padding: '1px 5px',
+            borderRadius: '4px',
+            fontSize: '0.85em',
+            fontWeight: 600,
+            fontFamily: 'monospace'
+          }}>
+            {match[2]}
+          </code>
+        );
+      } else if (match[3]) {
+        segments.push(
+          <strong key={`${key}-b-${match.index}`} style={{ fontWeight: 700, color: '#09090b' }}>
+            {match[3].replace(/[*#_`]/g, '')}
+          </strong>
+        );
+      } else if (match[4] || match[5]) {
+        const italicContent = (match[4] || match[5]).replace(/[*#_`]/g, '');
+        segments.push(
+          <span key={`${key}-i-${match.index}`} style={{ fontStyle: 'italic', color: '#52525b' }}>
+            {italicContent}
+          </span>
+        );
+      }
+      last = tokenRegex.lastIndex;
     }
+
     if (last < text.length) {
-      segments.push(text.substring(last));
+      const remaining = text.substring(last).replace(/[*#_`]/g, '');
+      if (remaining) segments.push(remaining);
     }
-    return segments.length > 0 ? segments : text;
+
+    return segments.length > 0 ? segments : text.replace(/[*#_`]/g, '');
   };
 
   lines.forEach((line, index) => {
-    const trimmed = line.trim();
+    let trimmed = line.trim();
 
-    // Table row detection
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
       inTable = true;
       tableRows.push(trimmed);
@@ -119,35 +150,62 @@ const renderMarkdown = (text) => {
       flushTable(index);
     }
 
-    // Heading 3 / 4
-    if (trimmed.startsWith('### ')) {
+    // Clean headings: strip # symbols
+    if (/^#{1,6}\s+/.test(trimmed)) {
+      const headingLevel = trimmed.match(/^(#{1,6})\s+/)[1].length;
+      const headingText = trimmed.replace(/^#{1,6}\s+/, '').replace(/^[*_]+|[*_]+$/g, '');
+
+      if (headingLevel <= 3) {
+        elements.push(
+          <h4 key={index} style={{ margin: '0.75rem 0 0.35rem', fontSize: '0.95rem', fontWeight: 800, color: '#09090b' }}>
+            {formatInline(headingText)}
+          </h4>
+        );
+      } else {
+        elements.push(
+          <h5 key={index} style={{ margin: '0.6rem 0 0.3rem', fontSize: '0.86rem', fontWeight: 800, color: '#27272a' }}>
+            {formatInline(headingText)}
+          </h5>
+        );
+      }
+      return;
+    }
+
+    // Unordered lists (- or • or *)
+    if (/^[-•*]\s+/.test(trimmed)) {
+      const listContent = trimmed.replace(/^[-•*]\s+/, '');
       elements.push(
-        <h4 key={index} style={{ margin: '0.85rem 0 0.4rem', fontSize: '0.98rem', fontWeight: 800, color: '#0f172a' }}>
-          {formatInline(trimmed.replace('### ', ''))}
-        </h4>
-      );
-    } else if (trimmed.startsWith('#### ')) {
-      elements.push(
-        <h5 key={index} style={{ margin: '0.65rem 0 0.35rem', fontSize: '0.88rem', fontWeight: 800, color: '#334155' }}>
-          {formatInline(trimmed.replace('#### ', ''))}
-        </h5>
-      );
-    } else if (trimmed.startsWith('- ') || trimmed.startsWith('• ') || /^\d+\.\s/.test(trimmed)) {
-      elements.push(
-        <div key={index} style={{ display: 'flex', gap: '6px', margin: '3px 0', fontSize: '0.83rem', lineHeight: 1.5, color: '#334155' }}>
-          <span style={{ color: '#0d9488' }}>&bull;</span>
-          <span style={{ flex: 1 }}>{formatInline(trimmed.replace(/^[-•\d\.]+\s*/, ''))}</span>
+        <div key={index} style={{ display: 'flex', gap: '6px', margin: '3px 0', fontSize: '0.83rem', lineHeight: 1.5, color: '#27272a' }}>
+          <span style={{ color: '#2563eb', fontWeight: 'bold' }}>&bull;</span>
+          <span style={{ flex: 1 }}>{formatInline(listContent)}</span>
         </div>
       );
-    } else if (trimmed === '') {
-      elements.push(<div key={index} style={{ height: '6px' }} />);
-    } else {
-      elements.push(
-        <p key={index} style={{ margin: '4px 0', fontSize: '0.84rem', lineHeight: 1.55, color: '#1e293b' }}>
-          {formatInline(trimmed)}
-        </p>
-      );
+      return;
     }
+
+    // Ordered numbered lists (1. or 2.)
+    if (/^\d+\.\s+/.test(trimmed)) {
+      const numberMatch = trimmed.match(/^(\d+)\.\s+/)[1];
+      const listContent = trimmed.replace(/^\d+\.\s+/, '');
+      elements.push(
+        <div key={index} style={{ display: 'flex', gap: '6px', margin: '3px 0', fontSize: '0.83rem', lineHeight: 1.5, color: '#27272a' }}>
+          <span style={{ color: '#2563eb', fontWeight: 700, minWidth: '16px' }}>{numberMatch}.</span>
+          <span style={{ flex: 1 }}>{formatInline(listContent)}</span>
+        </div>
+      );
+      return;
+    }
+
+    if (trimmed === '') {
+      elements.push(<div key={index} style={{ height: '6px' }} />);
+      return;
+    }
+
+    elements.push(
+      <p key={index} style={{ margin: '4px 0', fontSize: '0.84rem', lineHeight: 1.55, color: '#18181b' }}>
+        {formatInline(trimmed)}
+      </p>
+    );
   });
 
   if (inTable) {
@@ -175,7 +233,7 @@ const OperationsCopilotDrawer = () => {
     {
       sender: 'agent',
       text: `### 👋 Operations Copilot Ready
-I am your internal operations intelligence assistant. You can ask me questions about **schools, learners, subscriptions, support tickets, and live system error detection** with instant real-time answers.`,
+I am your internal operations intelligence assistant. You can ask me questions about schools, learners, subscriptions, support tickets, and live system error detection with instant real-time answers.`,
       suggestions: [
         "Run system diagnostics",
         "Show recent system errors",
