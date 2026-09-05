@@ -49,11 +49,14 @@ const ReferralManagementDashboard = () => {
       setConfig(currentConfig);
 
       if (navigator.onLine) {
-        const { data: sList } = await supabase
+        // Query authentic report_schools. Using core columns ensures compatibility even if total_referral_earnings isn't in cloud schema
+        const { data: sList, error: sErr } = await supabase
           .from('report_schools')
-          .select('id, name, wallet_balance, total_referral_earnings')
+          .select('id, name, wallet_balance')
           .order('name');
-        if (sList && sList.length > 0) setCloudSchools(sList);
+        if (!sErr && sList && sList.length > 0) {
+          setCloudSchools(sList);
+        }
       }
     } catch (err) {
       console.warn('[ReferralDashboard] Data load notice:', err);

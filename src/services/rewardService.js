@@ -376,24 +376,26 @@ export const rewardService = {
       }
 
       if (navigator.onLine) {
-        const { data: cloudSchool } = await supabase
-          .from('report_schools')
-          .select('total_referral_earnings, total_successful_referrals')
-          .eq('id', cleanSchoolId)
-          .maybeSingle();
-
-        if (cloudSchool) {
-          const curEarnings = Math.max(0, Number(cloudSchool.total_referral_earnings || 0) - deductAmount);
-          const curCount = Math.max(0, Number(cloudSchool.total_successful_referrals || 0) - 1);
-          await supabase
+        try {
+          const { data: cloudSchool, error: readErr } = await supabase
             .from('report_schools')
-            .update({
-              total_referral_earnings: curEarnings,
-              total_successful_referrals: curCount,
-              updated_at: nowIso
-            })
-            .eq('id', cleanSchoolId);
-        }
+            .select('*')
+            .eq('id', cleanSchoolId)
+            .maybeSingle();
+
+          if (!readErr && cloudSchool && ('total_referral_earnings' in cloudSchool || 'total_successful_referrals' in cloudSchool)) {
+            const curEarnings = Math.max(0, Number(cloudSchool.total_referral_earnings || 0) - deductAmount);
+            const curCount = Math.max(0, Number(cloudSchool.total_successful_referrals || 0) - 1);
+            await supabase
+              .from('report_schools')
+              .update({
+                total_referral_earnings: curEarnings,
+                total_successful_referrals: curCount,
+                updated_at: nowIso
+              })
+              .eq('id', cleanSchoolId);
+          }
+        } catch (_) {}
       }
     } catch (statsErr) {
       console.warn('[RewardService] School referral stats rollback notice:', statsErr);

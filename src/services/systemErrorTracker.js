@@ -349,8 +349,8 @@ class SystemErrorTracker {
         const user = sessionData?.session?.user;
         diagnostics.pillars.supabase.userRole = user?.email || 'Anonymous / Platform Key';
 
-        // Test lightweight query to verify API table permissions
-        const { error: queryErr } = await supabase.from('schools').select('id').limit(1);
+        // Test lightweight query to verify API table permissions on authentic report_schools table
+        const { error: queryErr } = await supabase.from('report_schools').select('id').limit(1);
         if (queryErr) {
           diagnostics.pillars.supabase.status = 'warning';
           diagnostics.pillars.supabase.details = `API accessible, query notice: ${queryErr.message}`;
