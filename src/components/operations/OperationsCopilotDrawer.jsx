@@ -69,7 +69,7 @@ const renderMarkdown = (text) => {
         <Link
           key={idx++}
           to={url}
-          style={{ color: '#0d9488', fontWeight: 700, textDecoration: 'underline' }}
+          style={{ color: '#2563eb', fontWeight: 700, textDecoration: 'underline' }}
           onClick={(e) => {
             // Keep drawer open or allow navigation
           }}
@@ -235,95 +235,83 @@ I am your internal operations intelligence assistant. You can ask me questions a
 
   return (
     <>
-      {/* ── Floating Launcher Button ── */}
+      {/* ── Floating Launcher Button (Icon-Only Circular) ── */}
       <div
         className="no-print"
         style={{
           position: 'fixed',
           bottom: '24px',
           right: '24px',
-          zIndex: 9999,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: '8px'
+          zIndex: 9999
         }}
       >
         <button
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           style={{
-            background: 'linear-gradient(135deg, #09090b 0%, #18181b 100%)',
+            width: '54px',
+            height: '54px',
+            borderRadius: '50%',
+            background: unresolvedCount > 0 
+              ? 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)' 
+              : 'linear-gradient(135deg, #09090b 0%, #1e3a8a 100%)',
             color: '#ffffff',
-            border: unresolvedCount > 0 ? '1.5px solid #EF4444' : '1.5px solid rgba(255, 255, 255, 0.15)',
-            borderRadius: '9999px',
-            padding: '0.75rem 1.25rem',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px',
-            cursor: 'pointer',
-            boxShadow: unresolvedCount > 0 ? '0 10px 30px rgba(239, 68, 68, 0.35)' : '0 10px 30px rgba(0, 0, 0, 0.3)',
-            fontWeight: 800,
-            fontSize: '0.85rem',
-            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-            transform: isOpen ? 'scale(0.96)' : 'scale(1)'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-          onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          title={unresolvedCount > 0 ? `${unresolvedCount} system error(s) detected! Click to inspect.` : "Open Operations Copilot"}
-        >
-          <div style={{
-            position: 'relative',
-            width: '24px',
-            height: '24px',
-            borderRadius: '6px',
-            background: unresolvedCount > 0 ? '#EF4444' : '#10B981',
+            border: unresolvedCount > 0 ? '2px solid #FECA CA' : '2px solid rgba(255, 255, 255, 0.2)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            fontSize: '0.75rem'
-          }}>
-            <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-robot"} />
-            {unresolvedCount > 0 && (
-              <span style={{
-                position: 'absolute',
-                top: '-4px',
-                right: '-4px',
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                background: '#ffffff',
-                boxShadow: '0 0 0 2px #EF4444'
-              }} />
-            )}
-          </div>
-          <span>Operations Copilot</span>
-          {unresolvedCount > 0 ? (
+            cursor: 'pointer',
+            boxShadow: unresolvedCount > 0 
+              ? '0 10px 25px rgba(239, 68, 68, 0.45)' 
+              : '0 10px 25px rgba(9, 9, 11, 0.35)',
+            fontSize: '1.25rem',
+            transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+            transform: isOpen ? 'scale(0.92)' : 'scale(1)',
+            position: 'relative'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = isOpen ? 'scale(0.92)' : 'scale(1)'; }}
+          title={unresolvedCount > 0 ? `${unresolvedCount} system error(s) detected! Click to inspect.` : "Operations Copilot"}
+          aria-label="Open Operations Copilot"
+        >
+          <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-robot"} />
+
+          {/* Unresolved Error Badge */}
+          {unresolvedCount > 0 && (
             <span style={{
-              background: 'rgba(239, 68, 68, 0.25)',
-              color: '#fca5a5',
-              fontSize: '0.65rem',
-              padding: '2px 7px',
+              position: 'absolute',
+              top: '-3px',
+              right: '-3px',
+              minWidth: '18px',
+              height: '18px',
               borderRadius: '999px',
-              fontWeight: 800,
+              background: '#ffffff',
+              color: '#EF4444',
+              fontSize: '0.65rem',
+              fontWeight: 900,
               display: 'flex',
               alignItems: 'center',
-              gap: '4px'
+              justifyContent: 'center',
+              padding: '0 4px',
+              boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25)',
+              border: '1.5px solid #EF4444'
             }}>
-              <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: '#EF4444' }} />
-              {unresolvedCount} Error{unresolvedCount > 1 ? 's' : ''}
+              {unresolvedCount > 9 ? '9+' : unresolvedCount}
             </span>
-          ) : (
+          )}
+
+          {/* Pulse ping for normal state */}
+          {unresolvedCount === 0 && (
             <span style={{
-              background: 'rgba(16, 185, 129, 0.2)',
-              color: '#34d399',
-              fontSize: '0.65rem',
-              padding: '2px 6px',
-              borderRadius: '4px',
-              fontWeight: 800
-            }}>
-              0 API Cost
-            </span>
+              position: 'absolute',
+              top: '2px',
+              right: '2px',
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: '#2563eb',
+              boxShadow: '0 0 0 2px #ffffff'
+            }} />
           )}
         </button>
       </div>
@@ -383,8 +371,8 @@ I am your internal operations intelligence assistant. You can ask me questions a
               }
               .copilot-chip:hover {
                 background: #e2e8f0;
-                border-color: #0d9488;
-                color: #0d9488;
+                border-color: #2563eb;
+                color: #2563eb;
               }
             `}</style>
 
@@ -404,7 +392,7 @@ I am your internal operations intelligence assistant. You can ask me questions a
                   width: '32px',
                   height: '32px',
                   borderRadius: '8px',
-                  background: unresolvedCount > 0 ? '#EF4444' : '#10B981',
+                  background: unresolvedCount > 0 ? '#EF4444' : '#2563eb',
                   color: '#ffffff',
                   display: 'flex',
                   alignItems: 'center',
@@ -433,138 +421,92 @@ I am your internal operations intelligence assistant. You can ask me questions a
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Link
-                  to="/platform/operations/copilot"
-                  onClick={() => setIsOpen(false)}
-                  style={{
-                    color: '#a1a1aa',
-                    padding: '6px',
-                    borderRadius: '6px',
-                    fontSize: '0.8rem',
-                    textDecoration: 'none'
-                  }}
-                  title="Expand to Full Workspace"
-                >
-                  <i className="fas fa-up-right-and-down-left-from-center" />
-                </Link>
-
-                <button
-                  type="button"
-                  onClick={() => setMessages([messages[0]])}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#a1a1aa',
-                    padding: '6px',
-                    borderRadius: '6px',
-                    fontSize: '0.8rem',
-                    cursor: 'pointer'
-                  }}
-                  title="Clear Chat History"
-                >
-                  <i className="fas fa-trash-can" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsOpen(false)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: '#ffffff',
-                    padding: '6px',
-                    borderRadius: '6px',
-                    fontSize: '0.9rem',
-                    cursor: 'pointer'
-                  }}
-                  title="Close Drawer"
-                >
-                  <i className="fas fa-times" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#a1a1aa',
+                  fontSize: '1.1rem',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  borderRadius: '6px'
+                }}
+              >
+                <i className="fas fa-times" />
+              </button>
             </div>
 
-            {/* ── Active Errors Alert Banner ── */}
+            {/* Error Telemetry Alert Banner */}
             {unresolvedCount > 0 && (
               <div style={{
                 background: '#FEF2F2',
                 borderBottom: '1px solid #FECACA',
-                padding: '8px 14px',
+                padding: '8px 1rem',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                fontSize: '0.76rem',
+                fontSize: '0.75rem',
                 color: '#991B1B',
                 flexShrink: 0
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <i className="fas fa-triangle-exclamation" style={{ color: '#EF4444' }} />
-                  <span><strong>{unresolvedCount} System Error{unresolvedCount > 1 ? 's' : ''}</strong> captured</span>
+                  <span><strong>{unresolvedCount} error{unresolvedCount > 1 ? 's' : ''}</strong> captured in telemetry</span>
                 </div>
-                <div style={{ display: 'flex', gap: '6px' }}>
-                  <button
-                    type="button"
-                    onClick={() => handleSend('Show recent system errors')}
-                    style={{
-                      background: '#DC2626',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      padding: '2px 8px',
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    View
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSend('Clear resolved errors')}
-                    style={{
-                      background: '#ffffff',
-                      color: '#7f1d1d',
-                      border: '1px solid #fca5a5',
-                      borderRadius: '6px',
-                      padding: '2px 6px',
-                      fontSize: '0.7rem',
-                      fontWeight: 600,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Clear
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSend('Show recent system errors')}
+                  style={{
+                    background: '#EF4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '3px 8px',
+                    fontSize: '0.7rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  View
+                </button>
               </div>
             )}
 
-            {/* ── Messages Stream ── */}
-            <div style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '1.25rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '1rem',
-              background: '#f8fafc'
-            }}>
+            {/* ── Chat Feed ── */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem',
+                background: '#FAFAFA'
+              }}
+            >
               {messages.map((m, idx) => (
-                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start'
-                  }}>
-                    <div style={{
-                      maxWidth: '88%',
-                      borderRadius: m.sender === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                      padding: m.sender === 'user' ? '0.65rem 1rem' : '0.85rem 1.15rem',
-                      background: m.sender === 'user' ? '#0f172a' : '#ffffff',
-                      color: m.sender === 'user' ? '#ffffff' : '#0f172a',
-                      fontSize: '0.85rem',
-                      border: m.sender === 'user' ? 'none' : '1px solid #e2e8f0',
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)'
-                    }}>
+                <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start'
+                    }}
+                  >
+                    <div
+                      style={{
+                        maxWidth: '88%',
+                        borderRadius: m.sender === 'user' ? '14px 14px 2px 14px' : '14px 14px 14px 2px',
+                        padding: m.sender === 'user' ? '0.65rem 0.95rem' : '0.85rem 1rem',
+                        background: m.sender === 'user' ? '#09090b' : '#ffffff',
+                        color: m.sender === 'user' ? '#ffffff' : '#18181b',
+                        fontSize: '0.82rem',
+                        lineHeight: 1.45,
+                        border: m.sender === 'user' ? 'none' : '1px solid #E4E4E7',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)'
+                      }}
+                    >
                       {m.sender === 'user' ? (
                         <span>{m.text}</span>
                       ) : (
@@ -576,15 +518,15 @@ I am your internal operations intelligence assistant. You can ask me questions a
                   {m.queryTimeMs !== undefined && (
                     <div style={{
                       fontSize: '0.65rem',
-                      color: '#94a3b8',
-                      textAlign: m.sender === 'user' ? 'right' : 'left',
-                      paddingLeft: m.sender === 'user' ? '0' : '4px'
+                      color: '#a1a1aa',
+                      paddingLeft: m.sender === 'user' ? '0' : '4px',
+                      textAlign: m.sender === 'user' ? 'right' : 'left'
                     }}>
-                      ⚡ Computed in {m.queryTimeMs}ms (Local DB)
+                      ⚡ {m.queryTimeMs}ms (Internal DB)
                     </div>
                   )}
 
-                  {/* Suggestions pills */}
+                  {/* Suggestion Chips */}
                   {m.suggestions && m.suggestions.length > 0 && idx === messages.length - 1 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
                       {m.suggestions.map((s, sIdx) => (
@@ -603,8 +545,8 @@ I am your internal operations intelligence assistant. You can ask me questions a
               ))}
 
               {loading && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '0.8rem', padding: '0.5rem' }}>
-                  <i className="fas fa-spinner fa-spin" style={{ color: '#0d9488' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#71717a', fontSize: '0.8rem', padding: '0.5rem' }}>
+                  <i className="fas fa-spinner fa-spin" style={{ color: '#2563eb' }} />
                   <span>Analyzing database...</span>
                 </div>
               )}
@@ -616,7 +558,7 @@ I am your internal operations intelligence assistant. You can ask me questions a
             <div style={{
               padding: '0.85rem 1rem',
               background: '#ffffff',
-              borderTop: '1px solid #e2e8f0',
+              borderTop: '1px solid #E4E4E7',
               flexShrink: 0
             }}>
               <form
@@ -635,20 +577,20 @@ I am your internal operations intelligence assistant. You can ask me questions a
                     flex: 1,
                     padding: '0.65rem 0.95rem',
                     borderRadius: '10px',
-                    border: '1.5px solid #e2e8f0',
+                    border: '1.5px solid #E4E4E7',
                     fontSize: '0.85rem',
                     outline: 'none',
-                    background: '#f8fafc',
-                    color: '#0f172a'
+                    background: '#FAFAFA',
+                    color: '#18181b'
                   }}
-                  onFocus={(e) => e.target.style.borderColor = '#0d9488'}
-                  onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                  onFocus={(e) => e.target.style.borderColor = '#2563eb'}
+                  onBlur={(e) => e.target.style.borderColor = '#E4E4E7'}
                 />
                 <button
                   type="submit"
                   disabled={!query.trim() || loading}
                   style={{
-                    background: '#0d9488',
+                    background: '#2563eb',
                     color: '#ffffff',
                     border: 'none',
                     borderRadius: '10px',
@@ -659,7 +601,8 @@ I am your internal operations intelligence assistant. You can ask me questions a
                     justifyContent: 'center',
                     cursor: 'pointer',
                     opacity: (!query.trim() || loading) ? 0.5 : 1,
-                    transition: 'opacity 0.2s'
+                    transition: 'all 0.2s',
+                    boxShadow: '0 2px 8px rgba(37, 99, 235, 0.3)'
                   }}
                 >
                   <i className="fas fa-paper-plane" style={{ fontSize: '0.85rem' }} />
