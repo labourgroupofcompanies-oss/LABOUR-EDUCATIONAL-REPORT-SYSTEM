@@ -15,6 +15,101 @@
  */
 
 /**
+ * Natural-language description phrases users might say for each activity.
+ * Used for fuzzy "did you mean?" matching when no keyword matches.
+ * Each phrase is a real-world paraphrase of the activity, written the way
+ * a non-technical school user would describe it.
+ */
+const ACTIVITY_DESCRIPTIONS = {
+  enter_scores: [
+    'put marks for students', 'record exam results', 'type in student grades',
+    'fill in test scores', 'add marks for my class', 'write marks for students',
+    'input assessment results', 'put in scores', 'record student performance',
+    'type grades', 'fill marks', 'grade my students', 'enter results',
+    'put exam marks', 'where to put exam marks', 'where to enter marks', 'where to record marks'
+  ],
+  submit_scores: [
+    'send marks to headteacher', 'finalize student marks', 'send results',
+    'finish entering marks', 'complete score entry', 'forward marks to administration',
+    'confirm marks', 'lock in grades', 'done entering scores'
+  ],
+  release_reports: [
+    'let parents see results', 'send results to parents', 'make report cards available',
+    'share reports with parents', 'open reports for parents', 'parents view results',
+    'publish end of term results', 'give parents access to results', 'send cards to parents'
+  ],
+  print_reports: [
+    'print student results', 'get report card', 'download results', 'produce report card',
+    'print end of term card', 'generate terminal report', 'get pdf of results',
+    'print broadsheet', 'generate certificates', 'print class result'
+  ],
+  register_student: [
+    'put new student in the system', 'add a child to school', 'register a pupil',
+    'add new pupil', 'enter student details', 'add child to class', 'sign up a student',
+    'put student name in the portal', 'new admission', 'admit a new pupil', 'add a kid'
+  ],
+  excel_upload: [
+    'add many students at once', 'register all students at once', 'upload student list',
+    'upload student list from computer', 'upload student list from laptop', 'upload excel of students',
+    'import from spreadsheet', 'add students from file', 'upload names from excel',
+    'bulk student entry', 'paste students from excel', 'upload student data'
+  ],
+  add_teacher: [
+    'bring a new teacher on board', 'create login for teacher', 'add staff member',
+    'give teacher access to portal', 'register a new teacher', 'set up teacher account',
+    'create teacher login', 'add new staff', 'add teacher to the system'
+  ],
+  assign_teacher: [
+    'give teacher a class', 'put teacher in charge of class', 'allocate class to teacher',
+    'set class for teacher', 'assign form master', 'who teaches which class',
+    'link teacher to subject', 'give teacher subjects to teach', 'set teaching load'
+  ],
+  enter_remarks: [
+    'write comments for students', 'add conduct for students', 'enter behavior notes',
+    'write student comment', 'fill attendance', 'put days present', 'write end of term comment',
+    'student behaviour', 'class teacher comment', 'add attendance days'
+  ],
+  top_up_wallet: [
+    'add money to account', 'pay for reports', 'recharge school account',
+    'use mobile money for school', 'add funds', 'credit school wallet',
+    'top up momo', 'buy report credits', 'pay subscription', 'load wallet'
+  ],
+  promote_students: [
+    'move students to next class', 'end of year transition', 'graduate students',
+    'move pupils up a level', 'send students to higher class', 'class progression',
+    'move kids to next grade', 'advance students', 'advance pupils to next grade level',
+    'advance students to next grade', 'end of term promotion'
+  ],
+  school_profile: [
+    'upload school badge', 'add headmaster signature', 'put school logo on reports',
+    'brand report card', 'sign reports officially', 'add stamp to report card',
+    'put emblem on report', 'set school name and details', 'configure school profile'
+  ],
+  offline_sync: [
+    'work without internet', 'use portal with no network', 'enter marks without wifi',
+    'save data offline', 'backup my work', 'upload saved records', 'internet not working',
+    'poor network', 'synchronize saved work', 'send saved data'
+  ],
+  create_class: [
+    'organize students into groups', 'put students into groups', 'put students in classes',
+    'put students into classes', 'divide school into levels', 'set up class levels',
+    'group students by year', 'create basic 1 to 6', 'add kg class', 'put students in sections',
+    'set up school structure', 'make a new class level', 'divide pupils into classes',
+    'create jhs class', 'school classes setup', 'organize into year groups'
+  ],
+  create_subject: [
+    'add courses to school', 'set up school timetable subjects', 'put mathematics on the system',
+    'add english to subjects', 'configure what students learn', 'add school curriculum',
+    'put subjects for teachers', 'add lessons', 'add courses', 'setup what is taught'
+  ],
+  configure_grading: [
+    'change how marks are calculated', 'set pass mark', 'adjust grade boundaries',
+    'change ca and exam ratio', 'set grading rules', 'how scores are graded',
+    'change marking scheme', 'customize score calculation', 'set minimum pass score'
+  ]
+};
+
+/**
  * Keywords and semantic intent patterns for portal activities
  */
 const ACTIVITY_INTENTS = [
@@ -286,7 +381,7 @@ Make your report cards official and tamper-proof:
   {
     id: 'offline_sync',
     roles: ['teacher', 'headteacher'],
-    keywords: ['offline', 'no internet', 'work offline', 'sync', 'upload', 'save without internet', 'how does offline work'],
+    keywords: ['offline', 'no internet', 'work offline', 'sync data', 'save without internet', 'how does offline work', 'upload saved work', 'synchronize work'],
     title: 'How to Work Offline & Sync Work Later',
     route: '/',
     generateGuide: (context) => {
@@ -301,6 +396,77 @@ The Labour Educational Report System is built to work seamlessly in areas with p
 4. **Syncing When Reconnected**: As soon as your device connects to Wi-Fi or mobile data, your saved records will automatically upload to the school cloud. You can also tap the **Sync indicator** at the top anytime to upload immediately.
 
 🛡️ *You never have to worry about power cuts or lost internet — your records are always safe!*`;
+    }
+  },
+  {
+    id: 'create_class',
+    roles: ['headteacher'],
+    keywords: [
+      'create class', 'create classes', 'add class', 'add classes', 'new class',
+      'new classes', 'setup class', 'setup classes', 'configure class', 'configure classes',
+      'how to create classes', 'how to add classes', 'make class', 'open class'
+    ],
+    title: 'How to Create & Set Up Classes',
+    route: '/setup',
+    generateGuide: (context) => {
+      return `### 🏫 How to Create & Set Up Classes
+Follow these simple steps to add or configure classes for **${context.schoolName || 'Your School'}**:
+
+1. Open **[School Setup](/setup)** from your sidebar menu under **Management**.
+2. Under the **"Classes"** tab, you have two quick options:
+   - **Option A (Instant GES Standards Wizard)**: Tap the blue **"Apply Ghanaian Standards"** button to automatically create all standard classes (**KG 1 through JHS 3 / Basic 9**) with one click.
+   - **Option B (Custom Class)**: Click **"+ Add New Class"**, type your class name (e.g. *Creche*, *Nursery 1*, *Basic 4 A*), choose the category (*Early Grade*, *Basic 1-3*, *Basic 4-6*, *Basic 7-9*), and choose the teaching mode (*Class Teacher* for primary or *Subject Teacher* for JHS).
+3. Click **"Save Class"**.
+
+✅ Once saved, that class immediately appears in student registration, terminal broadsheets, and teacher assignments!`;
+    }
+  },
+  {
+    id: 'create_subject',
+    roles: ['headteacher'],
+    keywords: [
+      'create subject', 'create subjects', 'add subject', 'add subjects', 'new subject',
+      'new subjects', 'setup subject', 'configure subject', 'curriculum', 'how to add subjects',
+      'assign subject'
+    ],
+    title: 'How to Add & Manage Subjects',
+    route: '/setup',
+    generateGuide: (context) => {
+      return `### 📖 How to Add & Manage Subjects
+Follow these steps to set up your curriculum subjects:
+
+1. Open **[School Setup](/setup)** from your sidebar menu.
+2. Click the **"Subjects"** tab at the top.
+3. Choose how to set them up:
+   - **One-Click Standard Subjects**: Click **"Apply GES Standard Subjects"** to automatically add standard subjects (*Mathematics, English Language, Science, Social Studies, Computing, R.M.E, Creative Arts, Career Tech, French, etc.*).
+   - **Custom Subject**: Click **"+ Add Subject"**, enter the subject name, and click **"Save"**.
+4. Link subjects to each class by clicking **"Manage Class Subjects"**.
+
+✅ Once configured, teachers can immediately start recording test and exam marks for those subjects!`;
+    }
+  },
+  {
+    id: 'configure_grading',
+    roles: ['headteacher'],
+    keywords: [
+      'grading scale', 'grade scale', 'change grading', 'pass mark', 'assessment settings',
+      'ca weight', 'exam weight', 'grading system', 'how does grading work', 'configure grading'
+    ],
+    title: 'How to Configure Grading Scales & Assessment Weights',
+    route: '/settings',
+    generateGuide: (context) => {
+      return `### ⚙️ How to Configure Grading Scales & Assessment Weights
+Customize your school's assessment policy in 3 steps:
+
+1. Open **[Settings](/settings)** from your sidebar menu.
+2. Click the **"Assessment Settings"** tab.
+3. Configure your school rules:
+   - **Assessment Weight Ratio**: Set your Class Assessment (CA) vs Exam weighting (e.g. *50% CA / 50% Exam*, *30% CA / 70% Exam*, or *40% CA / 60% Exam*).
+   - **Grading Scheme**: Customize the 9-point GES standard scale (1 = Highest / Grade 9) or set custom letter boundaries (A+, A, B, C, D, F).
+   - **Pass Mark Threshold**: Set the minimum mark required for passing.
+4. Click **"Save Assessment Settings"**.
+
+✅ All terminal student marks and report cards will automatically compute based on these rules!`;
     }
   }
 ];
@@ -329,27 +495,41 @@ export const isDataOrCensusQuery = (userQuery) => {
     return true;
   }
 
-  // Data status / lookup questions
-  if (
-    q.startsWith('who is') ||
-    q.startsWith('who are') ||
-    q.startsWith('who teaches') ||
-    q.startsWith('which student') ||
-    q.startsWith('which teacher') ||
-    q.startsWith('which class') ||
-    q.startsWith('which subject') ||
-    q.startsWith('list ') ||
-    q.startsWith('show ') ||
-    q.startsWith('find ') ||
-    q.startsWith('search ')
-  ) {
-    return true;
+  // Data status / lookup questions (excluding instructional 'show me how/where/steps')
+  const isInstructionalShow =
+    q.startsWith('show me how') ||
+    q.startsWith('show me where') ||
+    q.startsWith('show me the steps') ||
+    q.startsWith('show me what to do') ||
+    q.includes('how to') ||
+    q.includes('where to') ||
+    q.includes('how do i') ||
+    q.includes('how can i');
+
+  if (!isInstructionalShow) {
+    if (
+      q.startsWith('who is') ||
+      q.startsWith('who are') ||
+      q.startsWith('who teaches') ||
+      q.startsWith('which student') ||
+      q.startsWith('which teacher') ||
+      q.startsWith('which class') ||
+      q.startsWith('which subject') ||
+      q.startsWith('list ') ||
+      q.startsWith('show ') ||
+      q.startsWith('find ') ||
+      q.startsWith('search ')
+    ) {
+      return true;
+    }
   }
 
   // Balance or census data inquiry without instructional intent
   if (
     (q.includes('balance') || q.includes('teachers') || q.includes('students') || q.includes('classes') || q.includes('scores')) &&
-    !q.includes('how to') && !q.includes('how do i') && !q.includes('steps') && !q.includes('guide')
+    !q.includes('how to') && !q.includes('how do i') && !q.includes('how can i') && !q.includes('how do we') &&
+    !q.includes('steps') && !q.includes('guide') && !q.includes('create') && !q.includes('add') &&
+    !q.includes('setup') && !q.includes('configure') && !q.includes('make')
   ) {
     if (q.includes('how many') || q.includes('count') || q.includes('list') || q.includes('show') || q.includes('total') || q.includes('summary')) {
       return true;
@@ -362,6 +542,11 @@ export const isDataOrCensusQuery = (userQuery) => {
 /**
  * Score how well a user query matches a guide intent.
  * Strict scoring ensures quantitative/census questions NEVER trigger instructional how-to guides.
+ *
+ * Three-pass matching:
+ *   Pass 1 — Exact keyword phrase match (highest confidence)
+ *   Pass 2 — Multi-word keyword all-words-present match
+ *   Pass 3 — Fuzzy description word-overlap match (catches vague natural-language descriptions)
  */
 export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
   const q = (userQuery || '').toLowerCase().trim();
@@ -378,19 +563,44 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
     q.includes('how do i') ||
     q.includes('how can i') ||
     q.includes('how do we') ||
+    q.includes('how can we') ||
     q.includes('how does') ||
     q.includes('steps to') ||
     q.includes('steps for') ||
     q.includes('step by step') ||
     q.includes('show me how') ||
+    q.includes('show me where') ||
+    q.includes('show me where to') ||
+    q.includes('can you show') ||
     q.includes('guide me') ||
     q.includes('teach me') ||
+    q.includes('where to') ||
     q.includes('where do i') ||
     q.includes('where can i') ||
+    q.includes('where should i') ||
+    q.includes('where do we') ||
+    q.includes('where can we') ||
     q.includes('what are the steps') ||
     q.includes('what should i do') ||
     q.includes('procedure for') ||
-    q.includes('walkthrough');
+    q.includes('walkthrough') ||
+    q.includes('i want to') ||
+    q.includes('we want to') ||
+    q.includes('i need to') ||
+    q.includes('we need to') ||
+    q.includes('i would like to') ||
+    q.includes('we would like to') ||
+    q.includes('i wish to') ||
+    q.includes('help me') ||
+    q.includes('assist me') ||
+    q.includes('tell me how') ||
+    q.includes('can i') ||
+    q.includes('can we') ||
+    q.includes('is it possible');
+
+  // Tokenize the query into meaningful words (ignore short grammatical particles)
+  const STOP_WORDS = new Set(['a', 'an', 'the', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'or', 'is', 'it', 'do', 'i', 'me', 'my', 'we', 'be', 'as', 'up', 'if', 'so', 'no', 'can', 'and', 'how', 'what', 'where', 'who', 'with', 'from', 'into', 'than', 'are', 'that', 'this', 'his', 'her', 'they', 'them', 'their', 'will', 'was', 'has', 'had', 'not', 'but', 'all', 'any', 'out', 'now', 'put']);
+  const qWords = q.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
 
   let bestMatch = null;
   let highestScore = 0;
@@ -401,7 +611,7 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
 
     let bestKwScore = 0;
 
-    // Evaluate keyword matches
+    // ── PASS 1 & 2: Keyword matching ──────────────────────────────────────────
     intent.keywords.forEach(kw => {
       // Exact phrase match (e.g. "add teacher", "top up")
       if (q.includes(kw)) {
@@ -419,7 +629,7 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
         }
       }
 
-      // Single-word keyword matching
+      // Single-word keyword matching — only with how-to pattern
       if (words.length === 1 && q.includes(words[0])) {
         if (isHowToPattern) {
           bestKwScore = Math.max(bestKwScore, 8);
@@ -432,8 +642,45 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
       totalScore += 5;
     }
 
-    // Require at least 10 for direct action phrase or 12 when combined with how-to
-    const threshold = isHowToPattern ? 12 : 10;
+    // ── PASS 3: Fuzzy description word-overlap (catches vague descriptions) ───
+    // Only run if keyword matching didn't already find a strong match
+    if (bestKwScore < 10) {
+      const descPhrases = ACTIVITY_DESCRIPTIONS[intent.id] || [];
+      let bestDescScore = 0;
+
+      descPhrases.forEach(phrase => {
+        // Direct phrase containment (exact match with user's description)
+        if (q.includes(phrase)) {
+          bestDescScore = Math.max(bestDescScore, 12);
+          return;
+        }
+
+        // Word-overlap scoring: count how many meaningful words in the phrase appear in the query
+        const phraseWords = phrase.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+        if (phraseWords.length === 0) return;
+
+        const matchedWords = phraseWords.filter(w => qWords.some(qw => qw.includes(w) || w.includes(qw)));
+        const overlapRatio = matchedWords.length / phraseWords.length;
+
+        // Require at least 50% word overlap and at least 2 matching words for multi-word phrases
+        if (overlapRatio >= 0.5 && (matchedWords.length >= 2 || phraseWords.length === 1)) {
+          const descScore = Math.round(overlapRatio * 8); // max 8 from description pass
+          bestDescScore = Math.max(bestDescScore, descScore);
+        }
+      });
+
+      if (bestDescScore > 0) {
+        // Description matches only qualify if query is descriptive/instructional
+        const descThreshold = isHowToPattern ? 5 : 7;
+        if (bestDescScore >= descThreshold) {
+          totalScore = Math.max(totalScore, bestDescScore);
+          if (isHowToPattern) totalScore += 3; // slight boost for instructional phrasing
+        }
+      }
+    }
+
+    // Threshold: keyword match = 12+, description match = 7+ (or 8+ without how-to)
+    const threshold = isHowToPattern ? 8 : 10;
     if (totalScore >= threshold && totalScore > highestScore) {
       highestScore = totalScore;
       bestMatch = intent;
@@ -442,3 +689,56 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
 
   return bestMatch;
 };
+
+/**
+ * Return the top N activity guides that best match a user's vague query.
+ * Used by fallback handlers to surface "did you mean?" suggestions.
+ * Unlike findBestActivityGuide, this never returns null — it always returns
+ * the top candidates (even with low confidence) so the fallback can suggest them.
+ *
+ * @param {string} userQuery
+ * @param {string} role  'headteacher' | 'teacher'
+ * @param {number} topN  max results to return (default 3)
+ * @returns {{ intent: object, score: number }[]}
+ */
+export const findTopActivitySuggestions = (userQuery, role = 'headteacher', topN = 3) => {
+  const q = (userQuery || '').toLowerCase().trim();
+  if (!q) return [];
+
+  // Don't suggest activity guides for pure data/count queries
+  if (isDataOrCensusQuery(q)) return [];
+
+  const STOP_WORDS = new Set(['a', 'an', 'the', 'to', 'for', 'of', 'in', 'on', 'at', 'by', 'or', 'is', 'it', 'do', 'i', 'me', 'my', 'we', 'be', 'as', 'up', 'if', 'so', 'no', 'can', 'and', 'how', 'what', 'where', 'who', 'with', 'from', 'into', 'than', 'are', 'that', 'this', 'his', 'her', 'they', 'them', 'their', 'will', 'was', 'has', 'had', 'not', 'but', 'all', 'any', 'out', 'now', 'put']);
+  const qWords = q.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+
+  const scored = [];
+
+  ACTIVITY_INTENTS.forEach(intent => {
+    if (!intent.roles.includes(role)) return;
+
+    let score = 0;
+
+    // Keyword partial overlap
+    intent.keywords.forEach(kw => {
+      if (q.includes(kw)) { score = Math.max(score, 10); return; }
+      const kwWords = kw.split(' ').filter(w => w.length > 2 && !STOP_WORDS.has(w));
+      const matched = kwWords.filter(w => qWords.some(qw => qw.includes(w) || w.includes(qw)));
+      if (matched.length > 0) score = Math.max(score, matched.length * 2);
+    });
+
+    // Description word overlap
+    const descPhrases = ACTIVITY_DESCRIPTIONS[intent.id] || [];
+    descPhrases.forEach(phrase => {
+      if (q.includes(phrase)) { score = Math.max(score, 9); return; }
+      const pWords = phrase.split(/\s+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+      const matched = pWords.filter(w => qWords.some(qw => qw.includes(w) || w.includes(qw)));
+      if (matched.length >= 1) score = Math.max(score, matched.length * 2 + 1);
+    });
+
+    if (score > 0) scored.push({ intent, score });
+  });
+
+  // Sort by descending score, return top N
+  return scored.sort((a, b) => b.score - a.score).slice(0, topN);
+};
+

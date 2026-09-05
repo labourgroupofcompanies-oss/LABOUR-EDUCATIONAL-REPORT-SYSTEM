@@ -13,7 +13,7 @@
 
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
-import { findBestActivityGuide, isDataOrCensusQuery } from './portalActivityAssistant';
+import { findBestActivityGuide, isDataOrCensusQuery, findTopActivitySuggestions } from './portalActivityAssistant';
 
 /**
  * Normalize input query
@@ -212,13 +212,7 @@ ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n'
     // ── 5. HOW-TO ACTIVITY GUIDES & STEP-BY-STEP WORKFLOWS ──
     const isDataQuery = isDataOrCensusQuery(userQuery);
     const activityGuide = !isDataQuery ? findBestActivityGuide(userQuery, 'teacher') : null;
-    if (activityGuide && (
-      q.includes('how to') || q.includes('how do i') || q.includes('how can i') ||
-      q.includes('how do we') || q.includes('how does') || q.includes('steps') ||
-      q.includes('guide') || q.includes('where do i') || q.includes('where can i') ||
-      q.includes('what should i do') || q.includes('way to') || q.includes('teach me') ||
-      q.includes('walkthrough')
-    )) {
+    if (activityGuide) {
       const draftCount = myScores.filter(s => s.isSubmitted === 0 || s.isSubmitted === false).length;
       const classNames = Array.from(assignedClassIds)
         .map(id => classMap.get(id)?.name)
@@ -616,11 +610,40 @@ ${!isOnline ? `⚠️ **Working Offline**: You can continue entering marks and g
     }
 
     // ── 11. GENERAL SMART FALLBACK ──
+    // Try to find the top matching activity guides from the user's description
+    const topGuides = findTopActivitySuggestions(userQuery, 'teacher', 3);
+
+    if (topGuides.length > 0) {
+      const guideLines = topGuides.map(({ intent }) =>
+        `- 👉 **[${intent.title}](${intent.route})** — tap to go there, or ask me *"${intent.title}"* for step-by-step instructions`
+      ).join('\n');
+
+      const suggestionChips = topGuides.map(({ intent }) => intent.title);
+
+      return {
+        text: `### 🤔 Did You Mean One of These?
+I understood you were asking about: **"${userQuery}"**
+
+Here are the closest things I can help you with right now:
+
+${guideLines}
+
+💬 *Just describe what you want to do in your own words and I will find the right guide for you — no exact wording needed!*`,
+        suggestions: [
+          ...suggestionChips,
+          'What is my score entry progress?',
+          'Show my assigned classes'
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // Fully generic fallback when no guides matched at all
     return {
       text: `### 🤔 Teacher Copilot
-I could not find an exact match for **"${userQuery}"** in your assigned classes.
+I could not find a match for **"${userQuery}"** — try describing what you want to do in your own words.
 
-**Here are some questions I can answer right now:**
+**Here are some things I can help with right now:**
 - 📝 *"What is my score entry progress?"*
 - ⚠️ *"Which students are missing scores?"*
 - 🏆 *"Who are the top students in my class?"*

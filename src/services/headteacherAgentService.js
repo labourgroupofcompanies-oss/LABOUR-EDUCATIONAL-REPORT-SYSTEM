@@ -12,7 +12,7 @@
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
 import { handleHeadteacherErrorQuery } from './errorIntelligence';
-import { findBestActivityGuide, isDataOrCensusQuery } from './portalActivityAssistant';
+import { findBestActivityGuide, isDataOrCensusQuery, findTopActivitySuggestions } from './portalActivityAssistant';
 
 /**
  * Format currency in Ghana Cedis
@@ -130,13 +130,7 @@ Ask me anything you want from your portal and I will help you do it! I analyze y
     // ── 3. HOW-TO ACTIVITY GUIDES & STEP-BY-STEP WORKFLOWS ──
     const isDataQuery = isDataOrCensusQuery(userQuery);
     const activityGuide = !isDataQuery ? findBestActivityGuide(userQuery, 'headteacher') : null;
-    if (activityGuide && (
-      q.includes('how to') || q.includes('how do i') || q.includes('how can i') ||
-      q.includes('how do we') || q.includes('how does') || q.includes('steps') ||
-      q.includes('guide') || q.includes('where do i') || q.includes('where can i') ||
-      q.includes('what should i do') || q.includes('way to') || q.includes('procedure') ||
-      q.includes('walkthrough')
-    )) {
+    if (activityGuide) {
       const unreleasedCount = db.reportSummaries
         ? await db.reportSummaries.filter(r => String(r.schoolId || r.school_id) === String(cleanSchoolId) && (r.isReleased === 0 || r.isReleased === false)).count()
         : 0;
@@ -155,7 +149,8 @@ Ask me anything you want from your portal and I will help you do it! I analyze y
         suggestions: [
           'Score submission status',
           'Are report cards released?',
-          'How to bulk upload students with Excel',
+          'How to create classes',
+          'How to add subjects',
           'School wallet balance'
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
@@ -299,7 +294,10 @@ Current report production and release metrics for **${schoolName}**:
       q.includes('census') || q.includes('enrollment') || q.includes('population') ||
       q.includes('how many in each') || q.includes('class list') || q.includes('breakdown') ||
       q.includes('headcount') || q.includes('alumni') || q.includes('how many classes') ||
-      q.includes('number of classes') || q.includes('total classes')
+      q.includes('number of classes') || q.includes('total classes') ||
+      q.includes('gender') || q.includes('boy') || q.includes('girl') ||
+      q.includes('male') || q.includes('female') || q.includes('classes') ||
+      q.includes('our classes') || (q.includes('class') && !q.includes('teacher') && !q.includes('remark'))
     ) {
       const [learners, classes, teacherAssignments, profiles] = await Promise.all([
         getSchoolRecords('learners', cleanSchoolId),
@@ -311,6 +309,12 @@ Current report production and release metrics for **${schoolName}**:
       const active = learners.filter(l => (l.status || 'Active').toLowerCase() === 'active');
       const alumni = learners.filter(l => (l.status || '').toLowerCase() === 'alumni');
       const total = learners.length;
+
+      const maleCount = active.filter(l => (l.gender || '').toLowerCase().startsWith('m')).length;
+      const femaleCount = active.filter(l => (l.gender || '').toLowerCase().startsWith('f')).length;
+      const genderNotes = (maleCount > 0 || femaleCount > 0)
+        ? `👦 ${maleCount} Boys • 👧 ${femaleCount} Girls`
+        : 'Currently in school';
 
       // Class teacher map
       const teacherMap = {};
@@ -361,7 +365,7 @@ School enrollment overview for **${schoolName}**:
 
 | Category | Headcount | Notes |
 | :--- | :--- | :--- |
-| **Active Learners** | **${active.length.toLocaleString()}** | Currently in school |
+| **Active Learners** | **${active.length.toLocaleString()}** | ${genderNotes} |
 | **Alumni / Graduated** | **${alumni.length.toLocaleString()}** | Former students |
 | **Total Registered** | **${total.toLocaleString()}** | All records on file |
 | **Configured Classes** | **${classes.length}** | Active classes |
@@ -647,23 +651,54 @@ Connection and saved work for **${schoolName}**:
     }
 
     // ── 9. SMART SCHOOL FALLBACK ──
+    // Try to find the top matching activity guides from the user's description
+    const topGuides = findTopActivitySuggestions(userQuery, 'headteacher', 3);
+
+    if (topGuides.length > 0) {
+      // Build a "did you mean?" response with the closest matching guides
+      const guideLines = topGuides.map(({ intent }) =>
+        `- 👉 **[${intent.title}](${intent.route})** — tap to go there, or ask me *"${intent.title}"* for step-by-step instructions`
+      ).join('\n');
+
+      const suggestionChips = topGuides.map(({ intent }) => intent.title);
+
+      return {
+        text: `### 🤔 Did You Mean One of These?
+I understood you were asking about: **"${userQuery}"**
+
+Here are the closest things I can help you with right now:
+
+${guideLines}
+
+💬 *Just describe what you want to do in your own words and I will find the right guide for you — no exact wording needed!*`,
+        suggestions: [
+          ...suggestionChips,
+          'Score submission status',
+          'Class enrollment breakdown'
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // Fully generic fallback when no guides matched at all
     return {
       text: `### 🤔 Headteacher Copilot
-I could not find an exact match for **"${userQuery}"** in your school's current database.
+I could not find a match for **"${userQuery}"** — try describing what you want to do in your own words.
 
-**Here are some operational queries I can answer immediately:**
+**Here are some things I can help with right now:**
 - 📝 *"Score submission status"* — class-by-class completion rate
 - 📄 *"Are report cards released?"* — parent release and publication status
 - 👥 *"Class enrollment breakdown"* — active learners per class
-- 🔍 *"Find student [Name or Reg #]"* — lookup student status and reports
+- 🔍 *"Find student [Name]"* — lookup any student's status and reports
 - 👩‍🏫 *"Teacher assignments"* — staff matrix and unassigned classes
 - 💳 *"School wallet balance"* — available credit and subscription tier
-- 🔄 *"Sync status"* — saved offline records and connection`,
+- 🏫 *"How to create classes"* — set up class levels step by step
+- 📖 *"How to add subjects"* — configure your school curriculum`,
       suggestions: [
         'Score submission status',
         'Are report cards released?',
         'Class enrollment breakdown',
-        'Teacher assignments',
+        'How to create classes',
         'School wallet balance'
       ],
       queryTimeMs: Math.round(performance.now() - startTime)
