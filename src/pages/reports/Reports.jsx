@@ -14,6 +14,7 @@ import { calculateBest6Aggregate } from '../../lib/beceAggregateEngine';
 import { filterSubjectsForLearner, getLanguageLabel, formatSubjectNameForLearner } from '../../utils/languageUtils';
 import { getNextClassForPromotion, formatPromotionDecision } from '../../utils/promotionUtils';
 import ClassBroadsheetModal from '../../components/reports/ClassBroadsheetModal';
+import WriteReportModal from '../../components/reports/WriteReportModal';
 
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 const DEFAULT_GRADING_SCALE = [
@@ -1191,6 +1192,8 @@ const Reports = () => {
 
   // ── Preview state ─────────────────────────────────────────────────────────
   const [activeLearnerId, setActiveLearnerId] = useState(null);
+  const [modalLearner, setModalLearner] = useState(null);
+  const [isAutoGeneratingAll, setIsAutoGeneratingAll] = useState(false);
 
   // ── Remark form ───────────────────────────────────────────────────────────
   const [form, setForm] = useState({
@@ -1548,7 +1551,6 @@ const Reports = () => {
   // Save
   const handleSave = async (e) => {
     e?.preventDefault();
-    if (isAdmin) { alert('Headteachers have view-only access.'); return; }
     if (!activeLearnerId || !selectedClass || !academicYear || !selectedTerm) { alert('Missing required fields.'); return; }
     setIsSaving(true);
     const resolvedLearnerId = activeLearner?.supabaseId || activeLearnerId;
@@ -1584,6 +1586,125 @@ const Reports = () => {
       console.error(err);
       alert('Error saving. Please try again.');
     } finally { setIsSaving(false); }
+  };
+
+  // Batch auto-generate remarks for class
+  const handleAutoGenerateAllRemarks = async () => {
+    if (!classLearners || classLearners.length === 0) {
+      alert('No learners found in this class.');
+      return;
+    }
+    const eligibleLearners = classLearners.filter(l => {
+      const avg = learnerAverages[l.id];
+      return avg !== null && avg !== undefined;
+    });
+
+    if (eligibleLearners.length === 0) {
+      alert('None of the learners in this class have academic scores recorded yet.');
+      return;
+    }
+
+    const missingRemarks = eligibleLearners.filter(l => {
+      const summary = reportSummaries?.find(s =>
+        (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) &&
+        s.academicYear === academicYear &&
+        s.term === selectedTerm
+      );
+      return !summary || !summary.teacherRemark || summary.teacherRemark === '—' || summary.teacherRemark.trim() === '';
+    });
+
+    const targetList = missingRemarks.length > 0 ? missingRemarks : eligibleLearners;
+    const confirmMsg = missingRemarks.length > 0
+      ? `Auto-generate remarks for ${missingRemarks.length} learner(s) missing remarks based on their terminal averages?`
+      : `All scored learners already have remarks. Do you want to re-generate remarks for all ${eligibleLearners.length} scored learners?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsAutoGeneratingAll(true);
+    let updatedCount = 0;
+    try {
+      for (const l of targetList) {
+        const avg = Number(learnerAverages[l.id]);
+        let t = '', h = '', c = 'Satisfactory & Well-Behaved', a = 'Hardworking & Diligent';
+        if (avg >= 80) {
+          c = 'Exceptional & Respectful';
+          a = 'Hardworking & Diligent';
+          t = 'An exceptionally brilliant student with superb work ethics, exemplary conduct, and high intellectual standards.';
+          h = 'Outstanding academic result! Keep up this commendable standard of excellence.';
+        } else if (avg >= 70) {
+          c = 'Exceptional & Respectful';
+          a = 'Hardworking & Diligent';
+          t = 'A reliable and hardworking student who consistently delivers very good academic output and participates actively.';
+          h = 'Very good performance. Stay focused, determined, and push for even greater heights next term.';
+        } else if (avg >= 55) {
+          c = 'Satisfactory & Well-Behaved';
+          a = 'Attentive & Enthusiastic';
+          t = 'A satisfactory performance. Shows good comprehension of subject matter with potential for even higher achievement.';
+          h = 'Good result overall. Revise consistently during vacation to excel in all subjects next term.';
+        } else if (avg >= 45) {
+          c = 'Obedient & Disciplined';
+          a = 'Passive & Lacks Focus';
+          t = 'An average effort shown this term. Can perform much better if distractions are minimized and more time is devoted to studies.';
+          h = 'Fair performance. Needs to put in stronger personal effort and seek guidance in challenging areas.';
+        } else {
+          c = 'Needs Self-Discipline';
+          a = 'Careless & Reluctant';
+          t = 'Weak academic performance this term. Requires intensive remedial support, daily supervision, and regular homework completion.';
+          h = 'Unsatisfactory result. Must sit up, study daily, and receive close parental and teacher supervision.';
+        }
+
+        const existing = reportSummaries?.find(s =>
+          (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) &&
+          s.academicYear === academicYear &&
+          s.term === selectedTerm
+        );
+
+        const rank = learnerRankings[l.id];
+        const resolvedLearnerId = l.supabaseId || l.id;
+
+        const nextClassObj = getNextClassForPromotion(selectedClass, classes);
+        const autoPromotion = nextClassObj === 'Alumni' ? 'Alumni' : (nextClassObj?.id ? String(nextClassObj.id) : '');
+
+        const record = {
+          ...(existing || {}),
+          schoolId: user.schoolId,
+          learnerId: resolvedLearnerId,
+          classId: Number(selectedClass),
+          academicYear,
+          term: selectedTerm,
+          attendancePresent: existing?.attendancePresent ?? 0,
+          attendanceTotal: existing?.attendanceTotal ?? 0,
+          conduct: existing?.conduct && existing.conduct !== '—' ? existing.conduct : c,
+          attitude: existing?.attitude && existing.attitude !== '—' ? existing.attitude : a,
+          teacherRemark: t,
+          headteacherRemark: h,
+          vacationDate: existing?.vacationDate || schoolInfo?.vacationDate || '',
+          nextTermBegins: existing?.nextTermBegins || schoolInfo?.nextTermBegins || '',
+          feesOwed: existing?.feesOwed || '',
+          nextTermBill: existing?.nextTermBill || '',
+          promotedTo: existing?.promotedTo || autoPromotion,
+          classAverage: avg,
+          classRank: rank || null,
+          totalGraded: gradedCount || 0,
+          isReleased: existing ? Boolean(existing.isReleased || existing.is_released) : false,
+          synced: false
+        };
+
+        if (existing?.id) record.id = existing.id;
+        if (existing?.supabaseId) record.supabaseId = existing.supabaseId;
+
+        await db.reportSummaries.put(record);
+        updatedCount++;
+      }
+
+      syncUnsyncedReportSummaries().catch(err => console.warn('Sync warning:', err));
+      alert(`Successfully generated remarks for ${updatedCount} student(s)!`);
+    } catch (err) {
+      console.error(err);
+      alert('Error during batch remarks generation: ' + err.message);
+    } finally {
+      setIsAutoGeneratingAll(false);
+    }
   };
 
   // Execute Bulk Promotion (Admin only)
@@ -2918,6 +3039,15 @@ const Reports = () => {
                                             >
                                               Preview
                                             </button>
+                                            <button
+                                              type="button"
+                                              className="btn"
+                                              style={{ padding: '4px 8px', fontSize: '0.72rem', background: '#0d9488', color: 'white', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                              onClick={() => setModalLearner(l)}
+                                              title="Write / Edit Full Report"
+                                            >
+                                              <i className="fas fa-pen-to-square" /> Edit
+                                            </button>
                                           </div>
                                         </td>
                                       </tr>
@@ -2958,6 +3088,19 @@ const Reports = () => {
                     <i className="fas fa-print" /> Print All ({previewLearners.length})
                   </button>
                 )}
+                {generateMode === 'all' && (
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: '#0d9488', color: '#fff' }}
+                    onClick={handleAutoGenerateAllRemarks}
+                    disabled={isAutoGeneratingAll}
+                    title="Auto-generate remarks for students who need them"
+                  >
+                    <i className={`fas ${isAutoGeneratingAll ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'}`} />
+                    {isAutoGeneratingAll ? 'Generating...' : 'Auto-Generate Class Remarks'}
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn"
@@ -2986,6 +3129,16 @@ const Reports = () => {
                     disabled={isReleasing}
                   >
                     <i className="fas fa-ban" /> Revoke Release
+                  </button>
+                )}
+                {generateMode === 'individual' && activeLearner && (
+                  <button
+                    type="button"
+                    className="btn"
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, fontSize: '0.8rem', background: '#0d9488', color: '#fff' }}
+                    onClick={() => setModalLearner(activeLearner)}
+                  >
+                    <i className="fas fa-pen-to-square" /> Write / Edit Report
                   </button>
                 )}
                 <button
@@ -3027,24 +3180,75 @@ const Reports = () => {
                     No learners found in this class.
                   </p>
                 )}
-                {previewLearners.map((l, idx) => (
-                  <div key={l.id} className="rc-learner-block">
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      marginBottom: '0.75rem',
-                    }} className="no-print">
-                      <span style={{
-                        background: '#2563eb', color: 'white',
-                        borderRadius: '50%', width: '24px', height: '24px',
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: '0.72rem', fontWeight: 800, flexShrink: 0,
-                      }}>{idx + 1}</span>
-                      <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--primary)' }}>
-                        {l.fullName}
-                      </span>
-                    </div>
+                {previewLearners.map((l, idx) => {
+                  const lSummary = reportSummaries?.find(s =>
+                    (s.learnerId === l.id || s.learnerId === String(l.id) || (l.supabaseId && s.learnerId === l.supabaseId)) &&
+                    s.academicYear === academicYear &&
+                    s.term === selectedTerm
+                  );
+                  const hasRemarks = lSummary && (
+                    (lSummary.teacherRemark && lSummary.teacherRemark !== '—' && lSummary.teacherRemark.trim() !== '') ||
+                    (lSummary.headteacherRemark && lSummary.headteacherRemark !== '—' && lSummary.headteacherRemark.trim() !== '')
+                  );
+
+                  return (
+                    <div key={l.id} className="rc-learner-block">
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        marginBottom: '0.75rem',
+                        flexWrap: 'wrap'
+                      }} className="no-print">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span style={{
+                            background: '#2563eb', color: 'white',
+                            borderRadius: '50%', width: '24px', height: '24px',
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '0.72rem', fontWeight: 800, flexShrink: 0,
+                          }}>{idx + 1}</span>
+                          <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--primary)' }}>
+                            {l.fullName}
+                          </span>
+                          {hasRemarks ? (
+                            <span style={{
+                              fontSize: '0.68rem', padding: '2px 8px', borderRadius: '6px',
+                              background: '#dcfce7', color: '#15803d', fontWeight: 700,
+                              display: 'inline-flex', alignItems: 'center', gap: '4px'
+                            }}>
+                              <i className="fas fa-check-circle" /> Remarks Saved
+                            </span>
+                          ) : (
+                            <span style={{
+                              fontSize: '0.68rem', padding: '2px 8px', borderRadius: '6px',
+                              background: '#fef3c7', color: '#b45309', fontWeight: 700,
+                              display: 'inline-flex', alignItems: 'center', gap: '4px'
+                            }}>
+                              <i className="fas fa-exclamation-circle" /> Needs Remarks
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => setModalLearner(l)}
+                          style={{
+                            background: '#0d9488',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            fontSize: '0.76rem',
+                            padding: '0.35rem 0.85rem',
+                            borderRadius: '8px',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 6px rgba(13, 148, 136, 0.2)'
+                          }}
+                        >
+                          <i className="fas fa-pen-to-square" /> Write / Edit Report
+                        </button>
+                      </div>
                     <div className="rc-card-scroll-wrap">
                       <div className="rc-mobile-scroll-hint no-print">
                         <i className="fas fa-arrows-left-right" /> Swipe horizontally to view full report card &rarr;
@@ -3054,7 +3258,8 @@ const Reports = () => {
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+              })}
               </div>
             )}
 
@@ -3072,8 +3277,8 @@ const Reports = () => {
                   </div>
                 )}
 
-                {/* Editor (advisor only) */}
-                {activeLearner && !isAdmin && (
+                {/* Editor (Advisors & Headteachers) */}
+                {activeLearner && (
                   <div className="rc-editor no-print">
                     <div className="rc-editor-head">
                       <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3173,15 +3378,6 @@ const Reports = () => {
                     </form>
                   </div>
                 )}
-
-                {activeLearner && isAdmin && (
-                  <div className="no-print" style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', background: 'var(--accent-light)', border: '1px solid rgba(13,148,136,0.2)', borderRadius: '12px', padding: '1rem 1.25rem', marginTop: '1.25rem' }}>
-                    <i className="fas fa-info-circle" style={{ color: 'var(--accent)', fontSize: '1.2rem', marginTop: '2px' }} />
-                    <div style={{ fontSize: '0.82rem', color: 'var(--accent-dark)', fontWeight: 600, lineHeight: 1.55 }}>
-                      <strong>Headteacher View-Only Mode.</strong> Only the assigned Class Advisor can edit remarks and attendance.
-                    </div>
-                  </div>
-                )}
               </>
             )}
           </div>
@@ -3201,6 +3397,46 @@ const Reports = () => {
         subjects={subjects || []}
         classSubjects={classSubjects || []}
         scores={scores || []}
+      />
+
+      {/* ── WRITE / EDIT REPORT MODAL ────────────────────────────────────── */}
+      <WriteReportModal
+        isOpen={Boolean(modalLearner)}
+        onClose={() => setModalLearner(null)}
+        learner={modalLearner}
+        summary={modalLearner ? reportSummaries?.find(s =>
+          (s.learnerId === modalLearner.id || s.learnerId === String(modalLearner.id) || (modalLearner.supabaseId && s.learnerId === modalLearner.supabaseId)) &&
+          s.academicYear === academicYear &&
+          s.term === selectedTerm
+        ) : null}
+        classId={selectedClass}
+        className={selectedClassInfo?.name}
+        academicYear={academicYear}
+        term={selectedTerm}
+        average={modalLearner ? learnerAverages[modalLearner.id] : null}
+        rank={modalLearner ? learnerRankings[modalLearner.id] : null}
+        totalGraded={gradedCount}
+        schoolInfo={schoolInfo}
+        classes={classes || []}
+        userSchoolId={schoolId}
+        onSaveSuccess={(savedRecord) => {
+          if (activeLearnerId === modalLearner?.id) {
+            setForm({
+              attendancePresent: savedRecord.attendancePresent ?? '',
+              attendanceTotal: savedRecord.attendanceTotal ?? '',
+              conduct: savedRecord.conduct || '',
+              attitude: savedRecord.attitude || '',
+              teacherRemark: savedRecord.teacherRemark || '',
+              headteacherRemark: savedRecord.headteacherRemark || '',
+              promotedTo: savedRecord.promotedTo || '',
+              vacationDate: savedRecord.vacationDate || schoolInfo?.vacationDate || '',
+              nextTermBegins: savedRecord.nextTermBegins || schoolInfo?.nextTermBegins || '',
+              feesOwed: savedRecord.feesOwed || '',
+              nextTermBill: savedRecord.nextTermBill || ''
+            });
+          }
+        }}
+        syncCallback={syncUnsyncedReportSummaries}
       />
     </Layout>
   );

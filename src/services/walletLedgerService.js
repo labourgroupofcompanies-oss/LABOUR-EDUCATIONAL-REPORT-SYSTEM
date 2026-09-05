@@ -96,7 +96,11 @@ export const walletLedgerService = {
           reference: txRecord.reference,
           description: txRecord.type === 'REFERRAL_REWARD'
             ? 'Referral Reward Credit (+GH₵20.00)'
-            : (txRecord.type === 'WELCOME_BONUS' ? 'Welcome Bonus Credit (+GH₵10.00)' : 'Wallet Credit'),
+            : (txRecord.type === 'WELCOME_BONUS'
+              ? 'Welcome Bonus Credit (+GH₵10.00)'
+              : (txRecord.type === 'REFERRAL_DEDUCTION'
+                ? `Referral Reward Deduction (-GH₵${Math.abs(numAmount).toFixed(2)})${metadata?.reason ? `: ${metadata.reason}` : ''}`
+                : (numAmount < 0 ? 'Wallet Debit' : 'Wallet Credit'))),
           created_by: txRecord.processedBy
         };
 

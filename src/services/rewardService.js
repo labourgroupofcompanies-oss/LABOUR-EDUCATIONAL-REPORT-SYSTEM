@@ -251,6 +251,192 @@ export const rewardService = {
       ...updatedReferral,
       newWalletBalance: creditResult?.newBalance
     };
+  },
+
+  /**
+   * Deduct or revoke a referral reward given to a school.
+   * Debits the school's wallet ledger, updates the referral record,
+   * decrements school referral earnings, records an audit log, and notifies the school.
+   *
+   * @param {object} params
+   * @param {string} [params.referralId] - Optional specific referral record ID
+   * @param {string} params.schoolId - The school whose referral reward is being deducted
+   * @param {number} [params.amount=20.00] - Amount in GH₵ to deduct
+   * @param {string} [params.reason='Referral reward deduction / clawback'] - Reason for deduction
+   * @param {string} [params.deductedBy='Super Admin'] - Identity of the admin
+   */
+  async deductReferralReward({
+    referralId = null,
+    schoolId,
+    amount = 20.00,
+    reason = 'Referral reward deduction / clawback',
+    deductedBy = 'Super Admin'
+  }) {
+    if (!schoolId) {
+      throw new Error('School ID is required to deduct referral reward.');
+    }
+
+    const cleanSchoolId = String(schoolId).trim();
+    const deductAmount = Math.abs(Number(amount) || 20.00);
+    if (deductAmount <= 0) {
+      throw new Error('Deduction amount must be greater than zero.');
+    }
+
+    const nowIso = new Date().toISOString();
+    const refYear = new Date().getFullYear();
+    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const deductionReference = `DED-REF-${refYear}-${randomSuffix}`;
+
+    // 1. If referralId is provided, lookup the referral record
+    let referral = null;
+    if (referralId) {
+      referral = await db.referrals.get(referralId);
+      if (!referral && navigator.onLine) {
+        try {
+          const { data: cRef } = await supabase
+            .from('report_referrals')
+            .select('*')
+            .eq('id', referralId)
+            .maybeSingle();
+          if (cRef) {
+            referral = {
+              id: cRef.id,
+              referrerSchoolId: cRef.referrer_school_id,
+              referredSchoolId: cRef.referred_school_id,
+              rewardAmount: Number(cRef.reward_amount) || deductAmount,
+              status: cRef.status
+            };
+          }
+        } catch (_) {}
+      }
+    }
+
+    // 2. Add DEBIT transaction to Wallet Ledger (Source of Truth)
+    const debitResult = await walletLedgerService.addLedgerTransaction({
+      schoolId: cleanSchoolId,
+      type: 'REFERRAL_DEDUCTION',
+      amount: -deductAmount, // Negative triggers DEBIT in walletLedgerService
+      reference: deductionReference,
+      sourceSchoolId: referral?.referredSchoolId || null,
+      processedBy: deductedBy,
+      metadata: {
+        referralId: referral?.id || referralId,
+        reason,
+        deductedBy,
+        originalRewardAmount: referral?.rewardAmount || deductAmount
+      }
+    });
+
+    // 3. If referral record exists, update its status to 'REVOKED'
+    if (referral) {
+      const updatedRef = {
+        ...referral,
+        status: 'REVOKED',
+        rejectionReason: `Reward deducted: ${reason}`,
+        deductedAt: nowIso,
+        deductedBy,
+        deductedAmount: deductAmount,
+        updatedAt: nowIso
+      };
+
+      await db.referrals.put(updatedRef).catch(() => null);
+
+      if (navigator.onLine) {
+        try {
+          let q = supabase
+            .from('report_referrals')
+            .update({
+              status: 'REVOKED',
+              rejection_reason: `Reward deducted: ${reason}`,
+              updated_at: nowIso
+            });
+
+          if (referral.id && typeof referral.id === 'string' && referral.id.includes('-') && !referral.id.startsWith('REF_')) {
+            q = q.eq('id', referral.id);
+          } else {
+            q = q.eq('referrer_school_id', cleanSchoolId);
+          }
+          await q;
+        } catch (err) {
+          console.warn('[RewardService] Supabase referral status revocation notice:', err);
+        }
+      }
+    }
+
+    // 4. Rollback school referral statistics (decrement totalReferralEarnings & totalSuccessfulReferrals)
+    try {
+      const localSchool = await db.schools.get(cleanSchoolId);
+      if (localSchool) {
+        const curEarnings = Math.max(0, Number(localSchool.totalReferralEarnings || 0) - deductAmount);
+        const curCount = Math.max(0, Number(localSchool.totalSuccessfulReferrals || 0) - 1);
+        await db.schools.update(cleanSchoolId, {
+          totalReferralEarnings: curEarnings,
+          totalSuccessfulReferrals: curCount
+        }).catch(() => null);
+      }
+
+      if (navigator.onLine) {
+        const { data: cloudSchool } = await supabase
+          .from('report_schools')
+          .select('total_referral_earnings, total_successful_referrals')
+          .eq('id', cleanSchoolId)
+          .maybeSingle();
+
+        if (cloudSchool) {
+          const curEarnings = Math.max(0, Number(cloudSchool.total_referral_earnings || 0) - deductAmount);
+          const curCount = Math.max(0, Number(cloudSchool.total_successful_referrals || 0) - 1);
+          await supabase
+            .from('report_schools')
+            .update({
+              total_referral_earnings: curEarnings,
+              total_successful_referrals: curCount,
+              updated_at: nowIso
+            })
+            .eq('id', cleanSchoolId);
+        }
+      }
+    } catch (statsErr) {
+      console.warn('[RewardService] School referral stats rollback notice:', statsErr);
+    }
+
+    // 5. Audit Log in Dexie
+    if (db.referralAuditLogs) {
+      await db.referralAuditLogs.add({
+        id: `LOG_${Date.now()}`,
+        referralId: referral?.id || referralId || `DED_${cleanSchoolId}`,
+        action: 'REWARD_DEDUCTED',
+        details: `Referral reward of GH₵${deductAmount.toFixed(2)} deducted from school ${cleanSchoolId}. Reason: ${reason}. Reference: ${deductionReference}`,
+        createdAt: nowIso
+      }).catch(() => null);
+    }
+
+    // 6. In-App Notification to the School
+    if (db.notifications) {
+      await db.notifications.add({
+        schoolId: cleanSchoolId,
+        title: '⚠️ Referral Reward Deducted',
+        content: `A referral reward of GH₵ ${deductAmount.toFixed(2)} has been deducted from your school wallet. Reason: ${reason}. Reference: ${deductionReference}`,
+        created_at: nowIso,
+        isRead: false
+      }).catch(() => null);
+    }
+
+    // 7. Publish Event
+    await eventBus.publish('ReferralRewardDeducted', {
+      schoolId: cleanSchoolId,
+      deductedAmount: deductAmount,
+      reference: deductionReference,
+      reason,
+      referralId: referral?.id || referralId,
+      newWalletBalance: debitResult?.newBalance
+    });
+
+    return {
+      success: true,
+      deductedAmount: deductAmount,
+      reference: deductionReference,
+      newWalletBalance: debitResult?.newBalance
+    };
   }
 };
 

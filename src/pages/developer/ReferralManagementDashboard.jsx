@@ -4,6 +4,7 @@ import referralService from '../../services/referralService';
 import rewardService from '../../services/rewardService';
 import configurationService from '../../services/configurationService';
 import { db } from '../../lib/db';
+import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 const ReferralManagementDashboard = () => {
@@ -22,6 +23,19 @@ const ReferralManagementDashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [actionNotice, setActionNotice] = useState(null);
   const [rowActions, setRowActions] = useState({});
+  const [cloudSchools, setCloudSchools] = useState([]);
+
+  // Deduction Modal State
+  const [deductModal, setDeductModal] = useState({
+    isOpen: false,
+    referral: null,
+    schoolId: '',
+    schoolName: '',
+    amount: 20.00,
+    reason: 'Referral reward clawback / administrative deduction',
+    loading: false,
+    error: ''
+  });
 
   const rawReferrals = useLiveQuery(() => db.referrals.toArray(), []);
   const allSchools = useLiveQuery(() => db.schools.toArray(), []);
@@ -33,6 +47,14 @@ const ReferralManagementDashboard = () => {
 
       const currentConfig = await configurationService.getReferralConfig();
       setConfig(currentConfig);
+
+      if (navigator.onLine) {
+        const { data: sList } = await supabase
+          .from('report_schools')
+          .select('id, name, wallet_balance, total_referral_earnings')
+          .order('name');
+        if (sList && sList.length > 0) setCloudSchools(sList);
+      }
     } catch (err) {
       console.warn('[ReferralDashboard] Data load notice:', err);
     } finally {
@@ -43,6 +65,95 @@ const ReferralManagementDashboard = () => {
   useEffect(() => {
     loadData();
   }, [rawReferrals]);
+
+  // Combined school list for dropdown selector
+  const availableSchools = (allSchools && allSchools.length > 0) ? allSchools : cloudSchools;
+
+  // Deduction Handlers
+  const handleOpenRowDeduct = (referral) => {
+    const refSchool = availableSchools?.find(s => String(s.id).trim() === String(referral.referrerSchoolId).trim());
+    setDeductModal({
+      isOpen: true,
+      referral,
+      schoolId: referral.referrerSchoolId,
+      schoolName: refSchool?.name || referral.referrerSchoolName || `School #${referral.referrerSchoolId}`,
+      amount: Number(referral.rewardAmount || config.rewardAmount || 20.00),
+      reason: 'Referral reward clawback / administrative deduction',
+      loading: false,
+      error: ''
+    });
+  };
+
+  const handleOpenDirectDeduct = () => {
+    const firstSchool = availableSchools?.[0];
+    setDeductModal({
+      isOpen: true,
+      referral: null,
+      schoolId: firstSchool ? String(firstSchool.id) : '',
+      schoolName: firstSchool?.name || '',
+      amount: Number(config.rewardAmount || 20.00),
+      reason: 'Referral reward clawback / administrative deduction',
+      loading: false,
+      error: ''
+    });
+  };
+
+  const handleExecuteDeduction = async (e) => {
+    e.preventDefault();
+    if (!deductModal.schoolId) {
+      setDeductModal(prev => ({ ...prev, error: 'Please select a school to deduct from.' }));
+      return;
+    }
+    const amt = Number(deductModal.amount);
+    if (!amt || amt <= 0) {
+      setDeductModal(prev => ({ ...prev, error: 'Please enter a valid deduction amount greater than 0.' }));
+      return;
+    }
+
+    setDeductModal(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const res = await rewardService.deductReferralReward({
+        referralId: deductModal.referral?.id || null,
+        schoolId: deductModal.schoolId,
+        amount: amt,
+        reason: deductModal.reason,
+        deductedBy: 'Super Admin'
+      });
+
+      const schoolLabel = deductModal.schoolName || `School #${deductModal.schoolId}`;
+      setActionNotice({
+        type: 'success',
+        text: `✅ Successfully deducted GH₵ ${amt.toFixed(2)} from ${schoolLabel}. New wallet balance: GH₵ ${Number(res?.newWalletBalance || 0).toFixed(2)}.`
+      });
+      setTimeout(() => setActionNotice(null), 5000);
+
+      if (deductModal.referral?.id) {
+        setRowActions(prev => ({
+          ...prev,
+          [deductModal.referral.id]: {
+            loading: null,
+            status: 'REVOKED',
+            message: `Deducted (-GH₵ ${amt.toFixed(2)})`
+          }
+        }));
+      }
+
+      setDeductModal({
+        isOpen: false,
+        referral: null,
+        schoolId: '',
+        schoolName: '',
+        amount: 20.00,
+        reason: '',
+        loading: false,
+        error: ''
+      });
+
+      await loadData();
+    } catch (err) {
+      setDeductModal(prev => ({ ...prev, loading: false, error: err.message || 'Deduction failed.' }));
+    }
+  };
 
   const handleConfigSave = async (e) => {
     e.preventDefault();
@@ -132,7 +243,8 @@ const ReferralManagementDashboard = () => {
   const filteredReferrals = referralsList.filter((r) => {
     if (statusFilter !== 'ALL') {
       if (statusFilter === 'UNDER_VERIFICATION' && (r.status !== 'UNDER_VERIFICATION' && r.status !== 'PENDING')) return false;
-      if (statusFilter !== 'UNDER_VERIFICATION' && r.status !== statusFilter) return false;
+      if (statusFilter === 'REVOKED' && (r.status !== 'REVOKED' && r.status !== 'DEDUCTED')) return false;
+      if (statusFilter !== 'UNDER_VERIFICATION' && statusFilter !== 'REVOKED' && r.status !== statusFilter) return false;
     }
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -148,6 +260,9 @@ const ReferralManagementDashboard = () => {
     switch (status) {
       case 'REWARDED':
         return { bg: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: 'rgba(34, 197, 94, 0.3)', icon: 'fa-gift', label: 'Rewarded' };
+      case 'REVOKED':
+      case 'DEDUCTED':
+        return { bg: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: 'rgba(239, 68, 68, 0.3)', icon: 'fa-rotate-left', label: 'Deducted' };
       case 'VERIFIED':
         return { bg: 'rgba(56, 189, 248, 0.15)', color: '#38bdf8', border: 'rgba(56, 189, 248, 0.3)', icon: 'fa-shield-check', label: 'Verified' };
       case 'UNDER_REVIEW':
@@ -176,26 +291,50 @@ const ReferralManagementDashboard = () => {
           </p>
         </div>
 
-        <button
-          onClick={loadData}
-          style={{
-            padding: '0.55rem 1.1rem',
-            borderRadius: '10px',
-            background: '#292524',
-            border: '1px solid #44403c',
-            color: '#e7e5e4',
-            fontWeight: 700,
-            fontSize: '0.83rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s ease'
-          }}
-        >
-          <i className="fas fa-sync-alt" style={{ color: '#f59e0b' }} />
-          <span>Refresh Analytics</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleOpenDirectDeduct}
+            style={{
+              padding: '0.55rem 1.15rem',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+              border: 'none',
+              color: '#ffffff',
+              fontWeight: 800,
+              fontSize: '0.83rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 4px 14px rgba(220, 38, 38, 0.35)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <i className="fas fa-minus-circle" />
+            <span>Deduct School Reward</span>
+          </button>
+
+          <button
+            onClick={loadData}
+            style={{
+              padding: '0.55rem 1.1rem',
+              borderRadius: '10px',
+              background: '#292524',
+              border: '1px solid #44403c',
+              color: '#e7e5e4',
+              fontWeight: 700,
+              fontSize: '0.83rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <i className="fas fa-sync-alt" style={{ color: '#f59e0b' }} />
+            <span>Refresh Analytics</span>
+          </button>
+        </div>
       </div>
 
       {/* Action Notification Banner */}
@@ -206,7 +345,7 @@ const ReferralManagementDashboard = () => {
       )}
 
       {/* ── Telemetry KPI Cards Grid ─────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
         
         {/* Total Referrals */}
         <div style={{ background: '#292524', padding: '1.25rem', borderRadius: '16px', border: '1px solid #44403c', borderLeft: '4px solid #d97706', boxShadow: '0 4px 15px rgba(0,0,0,0.15)' }}>
@@ -242,6 +381,15 @@ const ReferralManagementDashboard = () => {
             {telemetry?.rewardedCount || 0}
           </div>
           <div style={{ fontSize: '0.72rem', color: '#a8a29e', marginTop: '0.2rem' }}>Successfully credited</div>
+        </div>
+
+        {/* Revoked / Deducted */}
+        <div style={{ background: '#292524', padding: '1.25rem', borderRadius: '16px', border: '1px solid #44403c', borderLeft: '4px solid #f43f5e', boxShadow: '0 4px 15px rgba(0,0,0,0.15)' }}>
+          <div style={{ fontSize: '0.72rem', color: '#fda4af', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rewards Deducted</div>
+          <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.85rem', fontWeight: 900, color: '#f43f5e', marginTop: '0.2rem' }}>
+            {telemetry?.revokedCount || 0}
+          </div>
+          <div style={{ fontSize: '0.72rem', color: '#a8a29e', marginTop: '0.2rem' }}>Clawed back from wallets</div>
         </div>
 
         {/* Total Credits Issued */}
@@ -419,7 +567,7 @@ const ReferralManagementDashboard = () => {
 
             {/* Filter Tabs */}
             <div style={{ display: 'flex', background: '#1c1917', borderRadius: '10px', padding: '3px', border: '1px solid #3d3834' }}>
-              {['ALL', 'PENDING', 'UNDER_REVIEW', 'VERIFIED', 'REWARDED', 'REJECTED'].map((st) => (
+              {['ALL', 'PENDING', 'UNDER_REVIEW', 'VERIFIED', 'REWARDED', 'REVOKED', 'REJECTED'].map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
@@ -435,7 +583,7 @@ const ReferralManagementDashboard = () => {
                     transition: 'all 0.15s ease'
                   }}
                 >
-                  {st === 'ALL' ? 'All' : st === 'UNDER_REVIEW' ? 'Review' : st.charAt(0) + st.slice(1).toLowerCase()}
+                  {st === 'ALL' ? 'All' : st === 'UNDER_REVIEW' ? 'Review' : st === 'REVOKED' ? 'Deducted' : st.charAt(0) + st.slice(1).toLowerCase()}
                 </button>
               ))}
             </div>
@@ -524,11 +672,34 @@ const ReferralManagementDashboard = () => {
                         {(() => {
                           const rowState = rowActions[r.id] || rowActions[r.referredSchoolId] || {};
                           const isRewarded = r.status === 'REWARDED' || rowState.status === 'CREDITED';
+                          const isRevoked = r.status === 'REVOKED' || r.status === 'DEDUCTED' || rowState.status === 'REVOKED';
                           const rewardAmt = Number(r.rewardAmount || config.rewardAmount || 20.00).toFixed(2);
+
+                          if (isRevoked) {
+                            return (
+                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                <span style={{
+                                  padding: '0.35rem 0.85rem',
+                                  borderRadius: '8px',
+                                  background: 'rgba(239, 68, 68, 0.18)',
+                                  border: '1px solid rgba(239, 68, 68, 0.45)',
+                                  color: '#f87171',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 800,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px'
+                                }} title={r.rejectionReason || 'Reward was deducted'}>
+                                  <i className="fas fa-rotate-left" style={{ color: '#f87171' }} />
+                                  <span>Deducted (-GH₵ {rewardAmt})</span>
+                                </span>
+                              </div>
+                            );
+                          }
 
                           if (isRewarded) {
                             return (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
                                 <span style={{
                                   padding: '0.35rem 0.85rem',
                                   borderRadius: '8px',
@@ -544,6 +715,29 @@ const ReferralManagementDashboard = () => {
                                   <i className="fas fa-check-circle" style={{ color: '#4ade80' }} />
                                   <span>Credited (+GH₵ {rewardAmt})</span>
                                 </span>
+
+                                <button
+                                  onClick={() => handleOpenRowDeduct(r)}
+                                  title="Deduct / Clawback referral reward from school wallet"
+                                  style={{
+                                    padding: '0.35rem 0.75rem',
+                                    borderRadius: '8px',
+                                    background: 'rgba(239, 68, 68, 0.14)',
+                                    border: '1px solid rgba(239, 68, 68, 0.35)',
+                                    color: '#fca5a5',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.28)'}
+                                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.14)'}
+                                >
+                                  <i className="fas fa-minus-circle" /> Deduct
+                                </button>
                               </div>
                             );
                           }
@@ -630,6 +824,274 @@ const ReferralManagementDashboard = () => {
           </table>
         </div>
       </div>
+
+      {/* ── Referral Reward Deduction Modal ───────────────────────────────── */}
+      {deductModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(6px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 99999,
+          padding: '1rem'
+        }}>
+          <div style={{
+            background: '#1c1917',
+            border: '1px solid #44403c',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.8)',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              borderBottom: '1px solid #292524',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: '#262320'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#ef4444'
+                }}>
+                  <i className="fas fa-rotate-left" style={{ fontSize: '1rem' }} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#f5f5f4', fontFamily: 'Outfit, sans-serif' }}>
+                    Deduct Referral Reward
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#a8a29e' }}>
+                    Claw back referral reward directly from school wallet
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeductModal(prev => ({ ...prev, isOpen: false }))}
+                style={{ background: 'none', border: 'none', color: '#a8a29e', fontSize: '1.4rem', cursor: 'pointer', padding: '4px 8px', lineHeight: 1 }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Body / Form */}
+            <form onSubmit={handleExecuteDeduction} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+              
+              {/* Error Message */}
+              {deductModal.error && (
+                <div style={{ padding: '0.75rem 1rem', borderRadius: '10px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5', fontSize: '0.82rem', fontWeight: 600 }}>
+                  <i className="fas fa-exclamation-triangle" style={{ marginRight: '6px' }} />
+                  {deductModal.error}
+                </div>
+              )}
+
+              {/* Target School Info */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#d6d3d1', fontWeight: 700, marginBottom: '0.4rem' }}>
+                  Target School
+                </label>
+                {deductModal.referral ? (
+                  <div style={{ padding: '0.75rem 1rem', borderRadius: '12px', background: '#292524', border: '1px solid #3d3834' }}>
+                    <div style={{ fontWeight: 800, color: '#f5f5f4', fontSize: '0.92rem' }}>
+                      {deductModal.schoolName}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: '#a8a29e', marginTop: '3px' }}>
+                      Referral Code: <span style={{ color: '#f59e0b', fontWeight: 700 }}>{deductModal.referral.referralCodeUsed || 'N/A'}</span> • School ID: <span style={{ color: '#cbd5e1' }}>{deductModal.schoolId}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <select
+                    value={deductModal.schoolId}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const selSchool = availableSchools.find(s => String(s.id).trim() === String(selId).trim());
+                      setDeductModal(prev => ({
+                        ...prev,
+                        schoolId: selId,
+                        schoolName: selSchool?.name || ''
+                      }));
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: '10px',
+                      background: '#292524',
+                      border: '1px solid #3d3834',
+                      color: '#f5f5f4',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                      outline: 'none'
+                    }}
+                  >
+                    <option value="">-- Select School to Deduct Reward From --</option>
+                    {availableSchools.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} (Wallet: GH₵ {Number(s.wallet_balance || s.walletBalance || 0).toFixed(2)})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Deduction Amount */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#d6d3d1', fontWeight: 700, marginBottom: '0.4rem' }}>
+                  Deduction Amount (GH₵)
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <span style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#ef4444', fontWeight: 800, fontSize: '0.88rem' }}>
+                    -GH₵
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={deductModal.amount}
+                    onChange={(e) => setDeductModal(prev => ({ ...prev, amount: e.target.value }))}
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.85rem 0.65rem 3.8rem',
+                      borderRadius: '10px',
+                      background: '#292524',
+                      border: '1px solid #3d3834',
+                      color: '#ef4444',
+                      fontSize: '1.05rem',
+                      fontWeight: 800,
+                      outline: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Reason Input & Quick Presets */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#d6d3d1', fontWeight: 700, marginBottom: '0.4rem' }}>
+                  Reason for Deduction
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Duplicate account, self-referral, disqualified school"
+                  value={deductModal.reason}
+                  onChange={(e) => setDeductModal(prev => ({ ...prev, reason: e.target.value }))}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '10px',
+                    background: '#292524',
+                    border: '1px solid #3d3834',
+                    color: '#f5f5f4',
+                    fontSize: '0.82rem',
+                    outline: 'none'
+                  }}
+                />
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                  {[
+                    'Self-referral / abuse detected',
+                    'Referred school disqualified',
+                    'Duplicate school registration',
+                    'Administrative correction'
+                  ].map(preset => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setDeductModal(prev => ({ ...prev, reason: preset }))}
+                      style={{
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: '6px',
+                        background: '#262320',
+                        border: '1px solid #3d3834',
+                        color: '#a8a29e',
+                        fontSize: '0.7rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Warning Notice */}
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px dashed rgba(239, 68, 68, 0.3)',
+                borderRadius: '10px',
+                padding: '0.85rem 1rem',
+                fontSize: '0.76rem',
+                color: '#fca5a5',
+                lineHeight: 1.45
+              }}>
+                <i className="fas fa-shield-halved" style={{ marginRight: '6px', color: '#ef4444' }} />
+                This action will permanently record a <strong>DEBIT</strong> transaction in the school's immutable wallet ledger, decrement total referral earnings, update referral status to <strong>REVOKED</strong>, and send a notification to the school.
+              </div>
+
+              {/* Modal Actions */}
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setDeductModal(prev => ({ ...prev, isOpen: false }))}
+                  style={{
+                    padding: '0.65rem 1.15rem',
+                    borderRadius: '10px',
+                    background: '#292524',
+                    border: '1px solid #3d3834',
+                    color: '#a8a29e',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deductModal.loading}
+                  style={{
+                    padding: '0.65rem 1.35rem',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    cursor: deductModal.loading ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 15px rgba(220, 38, 38, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {deductModal.loading ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin" />
+                      <span>Deducting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-check" />
+                      <span>Confirm &amp; Deduct Reward</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

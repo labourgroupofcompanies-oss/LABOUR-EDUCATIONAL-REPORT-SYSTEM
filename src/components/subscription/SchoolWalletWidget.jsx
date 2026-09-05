@@ -547,6 +547,10 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem', maxHeight: '360px', overflowY: 'auto' }}>
                 {topUpHistory.map((item) => {
                   const isDebit = item.isDebit;
+                  const isReferralDeduction = isDebit && (
+                    item.description?.toLowerCase().includes('referral') ||
+                    item.reference?.startsWith('DED-REF-')
+                  );
                   const isReferral = !isDebit && (
                     item.description?.toLowerCase().includes('referral') || 
                     item.reference?.startsWith('REF-') || 
@@ -570,14 +574,14 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
                           width: '38px',
                           height: '38px',
                           borderRadius: '10px',
-                          background: isDebit ? '#FEF2F2' : (isReferral ? '#EFF6FF' : '#ECFDF5'),
-                          color: isDebit ? '#EF4444' : (isReferral ? '#2563EB' : '#10B981'),
+                          background: isReferralDeduction ? '#FEF2F2' : (isDebit ? '#FEF2F2' : (isReferral ? '#EFF6FF' : '#ECFDF5')),
+                          color: isReferralDeduction ? '#DC2626' : (isDebit ? '#EF4444' : (isReferral ? '#2563EB' : '#10B981')),
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           fontSize: '1rem'
                         }}>
-                          <i className={`fas ${isDebit ? 'fa-arrow-up' : (isReferral ? 'fa-gift' : 'fa-arrow-down')}`} />
+                          <i className={`fas ${isReferralDeduction ? 'fa-rotate-left' : (isDebit ? 'fa-arrow-up' : (isReferral ? 'fa-gift' : 'fa-arrow-down'))}`} />
                         </div>
                         <div>
                           <strong style={{ color: isDebit ? '#EF4444' : (isReferral ? '#2563EB' : '#18181b'), fontSize: '0.95rem', display: 'block' }}>
@@ -593,14 +597,14 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
                         <span style={{
                           padding: '0.25rem 0.65rem',
                           borderRadius: '6px',
-                          background: isDebit ? '#FEF2F2' : (isReferral ? '#EFF6FF' : '#ECFDF5'),
-                          color: isDebit ? '#EF4444' : (isReferral ? '#2563EB' : '#10B981'),
+                          background: isReferralDeduction ? '#FEF2F2' : (isDebit ? '#FEF2F2' : (isReferral ? '#EFF6FF' : '#ECFDF5')),
+                          color: isReferralDeduction ? '#DC2626' : (isDebit ? '#EF4444' : (isReferral ? '#2563EB' : '#10B981')),
                           fontSize: '0.72rem',
                           fontWeight: 800,
                           display: 'inline-block',
-                          border: `1px solid ${isDebit ? '#FECACA' : (isReferral ? '#BFDBFE' : '#A7F3D0')}`
+                          border: `1px solid ${isReferralDeduction ? '#FECACA' : (isDebit ? '#FECACA' : (isReferral ? '#BFDBFE' : '#A7F3D0'))}`
                         }}>
-                          {isDebit ? '✓ SUBSCRIPTION DEBIT' : (isReferral ? '🎁 REFERRAL REWARD' : '💳 DIRECT TOP-UP')}
+                          {isReferralDeduction ? '⚠️ REFERRAL DEDUCTION' : (isDebit ? '✓ SUBSCRIPTION DEBIT' : (isReferral ? '🎁 REFERRAL REWARD' : '💳 DIRECT TOP-UP'))}
                         </span>
                         <div style={{ fontSize: '0.72rem', color: '#71717a', fontFamily: 'monospace', marginTop: '2px' }}>
                           Ref: {item.reference}

@@ -63,6 +63,7 @@ import BlogManager from './pages/operations/BlogManager';
 import KnowledgeBase from './pages/knowledge/KnowledgeBase';
 import PrivacyPolicy from './pages/legal/PrivacyPolicy';
 import BroadcastManager from './pages/operations/BroadcastManager';
+import OperationsAgentView from './pages/operations/OperationsAgentView';
 import GesNewsWatcher from './pages/operations/GesNewsWatcher';
 
 
@@ -224,7 +225,7 @@ function App() {
             <Route 
               path="/reports" 
               element={
-                <ProtectedRoute role="super_admin">
+                <ProtectedRoute>
                   <Reports />
                 </ProtectedRoute>
               } 
@@ -307,6 +308,7 @@ function App() {
               {/* Platform Operations Center Sub-Routes */}
               <Route path="operations" element={<OperationsLayout />}>
                 <Route index element={<OperationsDashboard />} />
+                <Route path="copilot" element={<OperationsAgentView />} />
                 <Route path="ges-radar" element={<GesNewsWatcher />} />
                 <Route path="broadcasts" element={<BroadcastManager />} />
                 <Route path="schools" element={<OperationsSchoolsDirectory />} />

@@ -83,7 +83,8 @@ const Sidebar = ({ isOpen, onClose }) => {
       title: 'Classroom',
       links: [
         { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
-        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Remarks' }
+        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Remarks' },
+        { to: '/reports', icon: 'fa-file-invoice', label: 'Report Cards' }
       ]
     },
     {

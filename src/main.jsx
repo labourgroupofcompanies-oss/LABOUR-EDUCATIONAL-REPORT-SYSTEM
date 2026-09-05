@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './assets/styles/global.css'
 import { formatUserFriendlyMessage } from './utils/errorMessageHelper'
+import { systemErrorTracker } from './services/systemErrorTracker'
 
 // One-time cleanup: clear old session if from a previous DB version
 const DB_KEY = 'labour_edu_db_version';
@@ -251,6 +252,32 @@ window.confirm = (message) => {
     okBtn.addEventListener('click', () => closeDialog(true));
   });
 };
+
+// Global System Telemetry & Error Listeners (suppressing third-party extensions/DevTools noise)
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    const msg = event?.message || (event?.error ? event.error.message : '') || '';
+    if (
+      msg.includes("Cannot read properties of undefined (reading 'startTime')") ||
+      msg.includes('reportAllChanges') ||
+      (event.filename && event.filename.includes('<anonymous>') && msg.includes('startTime'))
+    ) {
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+      return true;
+    }
+
+    try {
+      systemErrorTracker.recordRuntimeError(event);
+    } catch (_) {}
+  }, true);
+
+  window.addEventListener('unhandledrejection', (event) => {
+    try {
+      systemErrorTracker.recordUnhandledRejection(event);
+    } catch (_) {}
+  });
+}
 
 // Global button click micro-interaction & processing animation processor
 if (typeof window !== 'undefined') {

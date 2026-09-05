@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { usePlatformNotifications } from '../../context/PlatformNotificationContext';
+import OperationsCopilotDrawer from './OperationsCopilotDrawer';
 
 const OperationsLayout = () => {
   const location = useLocation();
@@ -17,6 +18,7 @@ const OperationsLayout = () => {
       title: 'CORE',
       items: [
         { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', iconColor: '#F59E0B', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
+        { to: '/platform/operations/copilot', icon: 'fa-robot', label: 'Copilot Agent', iconColor: '#10B981', badge: 'AI', badgeColor: '#10B981' },
         { to: '/platform/operations/analytics', icon: 'fa-chart-pie', label: 'Analytics', iconColor: '#8B5CF6' },
       ]
     },
@@ -286,6 +288,9 @@ const OperationsLayout = () => {
         <Outlet />
       </main>
       </div>
+
+      {/* Floating Operations Copilot Drawer */}
+      <OperationsCopilotDrawer />
     </div>
   );
 };

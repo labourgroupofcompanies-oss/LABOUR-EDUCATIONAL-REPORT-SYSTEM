@@ -513,16 +513,26 @@ export const getSchoolTimelineEvents = async (schoolId) => {
       .single();
 
     if (school) {
-      // Auto-seed the registration timeline event so it's not empty
-      await supabase.from('platform_school_timeline_events').upsert([{
-        school_id: schoolId,
-        event_type: 'school_registration',
-        title: 'School Profile Registered',
-        description: `${school.name} was onboarded into the Labour Educational Report System.`,
-        actor_name: 'System',
-        metadata: { academic_year: school.current_academic_year },
-        created_at: school.created_at || new Date().toISOString()
-      }], { onConflict: 'school_id,event_type,title' }).select();
+      // Check if registration event already exists to avoid duplicate seeding
+      const { data: existing } = await supabase
+        .from('platform_school_timeline_events')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('event_type', 'school_registration')
+        .limit(1)
+        .maybeSingle();
+
+      if (!existing) {
+        await supabase.from('platform_school_timeline_events').insert([{
+          school_id: schoolId,
+          event_type: 'school_registration',
+          title: 'School Profile Registered',
+          description: `${school.name} was onboarded into the Labour Educational Report System.`,
+          actor_name: 'System',
+          metadata: { academic_year: school.current_academic_year },
+          created_at: school.created_at || new Date().toISOString()
+        }]);
+      }
 
       // Re-fetch after seeding
       const { data: seeded } = await supabase

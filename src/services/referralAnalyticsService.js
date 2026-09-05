@@ -71,6 +71,7 @@ export const referralAnalyticsService = {
     const underReview = allReferrals.filter(r => r.status === 'UNDER_REVIEW').length;
     const verified = allReferrals.filter(r => r.status === 'VERIFIED').length;
     const rewarded = allReferrals.filter(r => r.status === 'REWARDED').length;
+    const revoked = allReferrals.filter(r => r.status === 'REVOKED' || r.status === 'DEDUCTED').length;
     const rejected = allReferrals.filter(r => r.status === 'REJECTED').length;
 
     const totalCreditsIssued = allReferrals
@@ -114,6 +115,8 @@ export const referralAnalyticsService = {
       underReviewCount: underReview,
       verifiedCount: verified,
       rewardedCount: rewarded,
+      revokedCount: revoked,
+      deductedCount: revoked,
       rejectedCount: rejected,
       totalCreditsIssued,
       fraudCount,

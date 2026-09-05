@@ -23,6 +23,7 @@
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { ensureAuth } from '../lib/authUtils';
+import { systemErrorTracker } from './systemErrorTracker';
 
 const MAX_RETRIES = 8;     // Only for true server-side errors, not network errors
 let _isSyncing = false;
@@ -496,6 +497,14 @@ async function processSingleItem(item) {
 
     if (newStatus === 'failed') {
       console.warn(`[SyncEngine] ❌ Item ${item.id} (${item.operation}→${item.table}) permanently failed after ${retries} attempts:`, err?.message);
+      try {
+        systemErrorTracker.recordSyncError({
+          table: item.table,
+          operation: item.operation,
+          schoolId: item.schoolId,
+          error: err
+        });
+      } catch (_) {}
     } else {
       console.warn(`[SyncEngine] ⚠️ Item ${item.id} failed (attempt ${retries}/${MAX_RETRIES}), retry in ${delayMs / 1000}s:`, err?.message);
     }

@@ -306,6 +306,7 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
                 { id: 'ALL', label: 'All' },
                 { id: 'UNDER_VERIFICATION', label: 'Under Verification' },
                 { id: 'REWARDED', label: 'Rewarded' },
+                { id: 'REVOKED', label: 'Revoked' },
                 { id: 'REJECTED', label: 'Rejected' }
               ].map((t) => (
                 <button
@@ -381,6 +382,10 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
                     badgeBg = 'var(--success-bg)'; badgeColor = 'var(--success)'; badgeBorder = 'var(--success-border)'; 
                     label = 'Rewarded (+GH₵ 20.00)'; 
                     subtext = 'Credited to school wallet balance';
+                  } else if (item.status === 'REVOKED' || item.status === 'DEDUCTED') { 
+                    badgeBg = '#FEF2F2'; badgeColor = '#DC2626'; badgeBorder = '#FECACA'; 
+                    label = 'Revoked / Deducted'; 
+                    subtext = item.rejectionReason || 'Referral reward deducted by administration';
                   } else if (item.status === 'REJECTED') { 
                     badgeBg = 'var(--surface-alt)'; badgeColor = 'var(--text-muted)'; badgeBorder = 'var(--border)'; 
                     label = 'Rejected'; 

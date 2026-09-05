@@ -14,6 +14,30 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <!-- Paystack Inline SDK -->
     <script src="https://js.paystack.co/v1/inline.js"></script>
+    <!-- DevTools / Web Vitals Live Metrics Error Guard -->
+    <script>
+      try {
+        if (typeof window !== 'undefined' && window.PerformanceObserver) {
+          const OriginalObserver = window.PerformanceObserver;
+          const PatchedObserver = function (callback) {
+            const safeCallback = function (entryList, observer) {
+              try {
+                return callback(entryList, observer);
+              } catch (err) {
+                if (err && err.message && (err.message.includes('startTime') || err.message.includes('reportAllChanges'))) {
+                  return;
+                }
+                throw err;
+              }
+            };
+            return new OriginalObserver(safeCallback);
+          };
+          PatchedObserver.prototype = OriginalObserver.prototype;
+          PatchedObserver.supportedEntryTypes = OriginalObserver.supportedEntryTypes;
+          window.PerformanceObserver = PatchedObserver;
+        }
+      } catch (_) {}
+    </script>
   </head>
   <body>
     <div id="root">

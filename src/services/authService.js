@@ -113,7 +113,11 @@ export const authService = {
             lastLogin: new Date().toISOString()
           };
         } else {
-          console.warn('[Auth] Profile query failed, building fallback from auth metadata:', profileError?.message);
+          if (profileError) {
+            console.warn('[Auth] Profile query notice:', profileError.message);
+          } else {
+            console.info('[Auth] No existing row found in report_profiles table. Generating fallback profile from auth metadata.');
+          }
           const meta = authData.user.user_metadata || {};
           const appMeta = authData.user.app_metadata || {};
           // Role priority: user_metadata > app_metadata > profile DB > default
@@ -136,6 +140,29 @@ export const authService = {
         if (cleanedEmail === 'shrtgallery3@gmail.com') {
           profileToSave.role = 'super_admin';
           profileToSave.isPlatformDeveloper = true;
+        }
+
+        // Self-heal: attempt to persist missing profile row into Supabase report_profiles table
+        if (!profile && navigator.onLine) {
+          supabase
+            .from('report_profiles')
+            .upsert({
+              id: profileToSave.id,
+              email: profileToSave.email,
+              full_name: profileToSave.fullName,
+              role: profileToSave.role,
+              school_id: profileToSave.schoolId,
+              staff_id: profileToSave.staffId,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'id' })
+            .then(({ error: upsertErr }) => {
+              if (upsertErr) {
+                console.warn('[Auth] Non-fatal profile auto-sync notice:', upsertErr.message);
+              } else {
+                console.info('[Auth] Automatically provisioned report_profiles record in Supabase.');
+              }
+            })
+            .catch(() => {});
         }
 
         // Cache profile with password hash locally for offline login
@@ -166,6 +193,11 @@ export const authService = {
           passwordSalt: salt,
           lastLogin: new Date().toISOString()
         };
+
+        if (cleanedEmail === 'shrtgallery3@gmail.com') {
+          fallbackProfile.role = 'super_admin';
+          fallbackProfile.isPlatformDeveloper = true;
+        }
 
         await db.profiles.put(fallbackProfile);
         if (fallbackProfile.schoolId) {
