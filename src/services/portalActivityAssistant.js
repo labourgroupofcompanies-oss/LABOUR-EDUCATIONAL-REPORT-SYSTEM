@@ -106,6 +106,42 @@ const ACTIVITY_DESCRIPTIONS = {
     'change how marks are calculated', 'set pass mark', 'adjust grade boundaries',
     'change ca and exam ratio', 'set grading rules', 'how scores are graded',
     'change marking scheme', 'customize score calculation', 'set minimum pass score'
+  ],
+  ges_grading_scale: [
+    'what do grades mean', 'ges grading system', 'nacca grades', 'explain grade 1 to 9',
+    'pass mark percentage', 'what is grade 1', 'what is exemplary', 'grade descriptors',
+    'how is grade assigned', 'scale of grading', 'grade boundary percentages'
+  ],
+  score_breakdown_rules: [
+    'how total score is calculated', 'ca percentage', 'exam percentage', '50 50 assessment',
+    'class score calculation', 'how marks are weighted', 'continuous assessment formula',
+    'why is total different', 'exam mark vs class mark'
+  ],
+  save_vs_submit: [
+    'difference between save and submit', 'why submit scores', 'save draft vs submit',
+    'are my scores saved', 'headteacher cannot see my marks', 'why marks not on report card',
+    'submit scores to office', 'save offline marks'
+  ],
+  missing_learner: [
+    'student not in class list', 'cannot find pupil', 'student disappeared from scores',
+    'why student name missing', 'excluded student', 'pupil not registered in class',
+    'add missing student to score sheet'
+  ],
+  parent_portal_guide: [
+    'how parents check results', 'parent portal login', 'parent access code',
+    'parents view terminal report', 'check child marks online', 'parent phone results'
+  ],
+  bece_mock_aggregate: [
+    'bece aggregate calculation', 'best 6 subjects', 'how aggregate is calculated',
+    'basic 9 aggregate score', 'core subjects aggregate', 'jhs mock results'
+  ],
+  wallet_and_pricing: [
+    'how much to print reports', 'first term free offer', 'momo top up procedure',
+    'wallet balance payment', 'cost per student report', 'how to pay for reports'
+  ],
+  student_photo_guide: [
+    'how to take passport picture', 'upload student photo', 'webcam photo capture',
+    'add picture to report card', 'change student picture', 'passport photo 3:4'
   ]
 };
 
@@ -454,6 +490,7 @@ Follow these steps to set up your curriculum subjects:
     ],
     title: 'How to Configure Grading Scales & Assessment Weights',
     route: '/settings',
+    actions: [{ label: 'Assessment Settings', route: '/settings', icon: 'fa-sliders' }],
     generateGuide: (context) => {
       return `### ⚙️ How to Configure Grading Scales & Assessment Weights
 Customize your school's assessment policy in 3 steps:
@@ -467,6 +504,218 @@ Customize your school's assessment policy in 3 steps:
 4. Click **"Save Assessment Settings"**.
 
 ✅ All terminal student marks and report cards will automatically compute based on these rules!`;
+    }
+  },
+  {
+    id: 'ges_grading_scale',
+    roles: ['teacher', 'headteacher'],
+    keywords: [
+      'grading scale', 'grade scale', 'how grading works', 'grade 1', 'grade 9',
+      'proficiency', 'grade descriptor', 'grades meaning', 'what do grades mean',
+      'ges scale', 'nacca grade', 'grade breakdown'
+    ],
+    title: 'GES & NaCCA 9-Point Grading System',
+    route: '/scores',
+    actions: [{ label: 'Open Score Entry', route: '/scores', icon: 'fa-pen-to-square' }],
+    generateGuide: () => {
+      return `### 📊 GES & NaCCA 9-Point Grading System
+The National Council for Curriculum and Assessment (NaCCA) and GES use this standard 9-point proficiency grading system:
+
+| Grade | Marks Range | Proficiency Descriptor | Interpretation |
+| :---: | :---: | :--- | :--- |
+| **1** | **80% - 100%** | **Exemplary (High Mastery)** | Excellent conceptual understanding |
+| **2** | **75% - 79%** | **Advanced** | Strong grasp with minimal errors |
+| **3** | **70% - 74%** | **High Proficient** | Demonstrates solid competency |
+| **4** | **65% - 69%** | **Proficient** | Satisfactory performance on core tasks |
+| **5** | **60% - 64%** | **Approaching Proficiency**| Basic grasp, needs guided practice |
+| **6** | **50% - 59%** | **Developing** | Partial understanding, needs improvement |
+| **7** | **45% - 49%** | **Emerging** | Minimum passing benchmark |
+| **8** | **40% - 44%** | **Beginning** | Struggling, requires remedial support |
+| **9** | **0% - 39%** | **Lowest** | Urgent pedagogical intervention needed |
+
+💡 *Tip: The system assigns these grades and remarks automatically the moment you type exam and class marks!*`;
+    }
+  },
+  {
+    id: 'score_breakdown_rules',
+    roles: ['teacher', 'headteacher'],
+    keywords: [
+      'ca score', 'class score', 'exam score', '50 50', '30 70',
+      'continuous assessment', 'assessment breakdown', 'how total calculated',
+      'calculate total', 'score calculation'
+    ],
+    title: 'Assessment & Score Calculation Breakdown',
+    route: '/scores',
+    actions: [{ label: 'Go to Score Entry', route: '/scores', icon: 'fa-calculator' }],
+    generateGuide: () => {
+      return `### 🧮 How Total Scores Are Calculated
+Your student's final terminal score combines **Class Assessment (CA)** and the **Terminal Exam**:
+
+1. **Class Assessment (CA) Weight (50% Standard)**:
+   - Formative tests, group projects, class homework, and practical tasks.
+   - All sub-assessments are automatically scaled to your school's configured CA weight (e.g. 50 points).
+2. **Terminal Exam Weight (50% Standard)**:
+   - End-of-term examination score (out of 50 or 100 scaled to 50%).
+3. **Overall Terminal Score (100%)**:
+   - \`Total Score = Scaled Class Score + Scaled Exam Score\`
+   - The final score out of 100 determines the student's **Grade (1–9)** and **Terminal Class Position**.
+
+💡 *Headteachers can customize the 50/50, 30/70, or 40/60 ratio anytime in **Settings > Assessment Settings**.*`;
+    }
+  },
+  {
+    id: 'save_vs_submit',
+    roles: ['teacher'],
+    keywords: [
+      'save draft', 'save vs submit', 'difference between save and submit', 'why submit',
+      'submit draft', 'draft score', 'draft marks', 'unsaved marks', 'are scores submitted'
+    ],
+    title: 'Difference Between "Save Draft" and "Submit Scores"',
+    route: '/scores',
+    actions: [{ label: 'Go to Score Entry', route: '/scores', icon: 'fa-floppy-disk' }],
+    generateGuide: (context) => {
+      const draftNotice = context?.draftScoresCount > 0
+        ? `You have **${context.draftScoresCount} draft mark(s)** currently saved on this device.`
+        : '';
+      return `### 💾 Save Draft vs. 🚀 Submit Scores
+Understanding the two stages of score entry:
+
+* **Save Draft (Local Safe Mode)**:
+  - Saves your marks directly onto your laptop or phone (works **100% offline**).
+  - You can return tomorrow, change marks, or continue grading without losing anything.
+  - **Important:** Draft marks remain private to your device and are NOT yet locked for terminal report cards.
+
+* **Submit Scores (Official Submission)**:
+  - Officially finalizes your marks and transmits them to the Headteacher's broadsheet.
+  - Once submitted, your scores compile into terminal positions and official student report cards.
+
+${draftNotice}
+👉 *Rule of thumb: Tap **Save** often while typing. Only click **Submit** when all students in the class are graded!*`;
+    }
+  },
+  {
+    id: 'missing_learner',
+    roles: ['teacher', 'headteacher'],
+    keywords: [
+      'missing student', 'learner not showing', 'student not on list', 'cannot find student',
+      'student disappeared', 'pupil missing', 'student missing from class', 'cant find pupil', 'excluded student'
+    ],
+    title: 'Why is a Student Missing from the Score List?',
+    route: '/learners',
+    actions: [{ label: 'Check Learners Directory', route: '/learners', icon: 'fa-users' }],
+    generateGuide: () => {
+      return `### 🔍 Troubleshooting Missing Students in Class Lists
+If a student's name is not showing on your score entry table:
+
+1. **Verify Class Enrollment**:
+   - The learner might be assigned to a different class stream (e.g. *Basic 7 B* instead of *Basic 7 A*).
+   - Go to **Learners**, find the student, and verify their **Current Class**.
+2. **Check Student Status**:
+   - Only **Active** students appear on score entry sheets. If the pupil is marked *Alumni*, *Graduated*, or *Withdrawn*, their row is hidden.
+3. **Check "Exclude from PDF" Setting**:
+   - In **Learners**, click the student's edit icon and check if **"Exclude from Terminal Reports"** was enabled.
+4. **Offline Sync Status**:
+   - If the student was admitted recently on another computer, connect to the internet to let your device download the latest student roster.`;
+    }
+  },
+  {
+    id: 'parent_portal_guide',
+    roles: ['headteacher'],
+    keywords: [
+      'parent portal', 'parent login', 'parent check results', 'how parents login',
+      'parent access code', 'parent report', 'parent view', 'parents view terminal report'
+    ],
+    title: 'How Parents Access the Parent Portal',
+    route: '/reports',
+    actions: [{ label: 'View Terminal Reports', route: '/reports', icon: 'fa-mobile-screen-button' }],
+    generateGuide: () => {
+      return `### 📱 How Parents Access Digital Report Cards
+Parents can view, download, and print official terminal report cards right from their phones with zero paper hassle:
+
+1. **Step 1: Headteacher Releases Reports**:
+   - Go to **[Terminal Reports](/reports)**, click the green **"Release Reports to Parents"** button for each class.
+2. **Step 2: Parents Visit Portal**:
+   - Parents navigate to the portal link on their phone or scan the verification QR code stamped on any student document.
+3. **Step 3: Secure Verification**:
+   - The parent enters their child's unique **Registration Number / Student ID** and verified school code.
+4. **Step 4: View & Download**:
+   - The parent can view subject grades, teacher remarks, attendance, and download the official PDF stamped with your digital signature!`;
+    }
+  },
+  {
+    id: 'bece_mock_aggregate',
+    roles: ['headteacher', 'teacher'],
+    keywords: [
+      'bece aggregate', 'best 6', 'best six', 'aggregate calculation', 'core subjects',
+      'mock aggregate', 'jhs aggregate', 'basic 9 aggregate'
+    ],
+    title: 'BECE / JHS Best-6 Aggregate Calculation',
+    route: '/reports',
+    actions: [{ label: 'View Master Broadsheet', route: '/reports', icon: 'fa-table-list' }],
+    generateGuide: () => {
+      return `### 🎓 BECE Best-6 Aggregate Calculation Explained
+For Basic 9 (JHS 3) students and Mock Examinations, the system computes the standard WAEC / GES **Best 6 Aggregate**:
+
+1. **The 4 Core Compulsory Subjects**:
+   - **English Language**
+   - **Mathematics**
+   - **Integrated Science**
+   - **Social Studies**
+2. **The 2 Best Elective Subjects**:
+   - The system automatically selects the pupil's two highest grades among their electives (*Computing, R.M.E., Career Technology, Creative Arts, Ghanaian Language, French*).
+3. **Final Aggregate Sum**:
+   - \`Aggregate = Grade(Eng) + Grade(Math) + Grade(Sci) + Grade(Soc) + BestElective1 + BestElective2\`
+   - *Lower aggregate is better (Aggregate 6 is the highest possible distinction!)*`;
+    }
+  },
+  {
+    id: 'wallet_and_pricing',
+    roles: ['headteacher'],
+    keywords: [
+      'free term', 'first term free', 'how much does it cost', 'cost per report',
+      'momo payment', 'pay subscription', 'wallet pricing', 'billing rules', 'how to pay'
+    ],
+    title: 'School Wallet, MoMo Top-Up & First Term Free',
+    route: '/financials',
+    actions: [{ label: 'Open School Wallet', route: '/financials', icon: 'fa-wallet' }],
+    generateGuide: (context) => {
+      return `### 💳 School Wallet & Subscription Details
+${context?.walletBalance ? `Your current wallet balance is: **${context.walletBalance}**.` : ''}
+
+1. **🎉 First Term 100% Free**:
+   - All newly onboarded schools enjoy their entire first academic term **completely free of charge** with unlimited report card generations!
+2. **Affordable Termly Billing**:
+   - Following your trial term, generate professional terminal report cards for as low as **GH₵ 2.00 - GH₵ 3.00** per active student per term.
+3. **Instant Mobile Money (MoMo) Top-Up**:
+   - Go to **Top Up & Billing**.
+   - Enter the amount to credit and your MoMo phone number (MTN, Telecel, AT).
+   - Authorize the prompt on your phone — your balance credits instantly!
+4. **Referral Bonuses**:
+   - Share your unique referral code with other schools and earn automatic cash bonuses in your school wallet for every school that joins!`;
+    }
+  },
+  {
+    id: 'student_photo_guide',
+    roles: ['headteacher'],
+    keywords: [
+      'student photo', 'passport photo', 'take photo', 'upload picture',
+      'webcam photo', 'learner photo', 'picture on report card'
+    ],
+    title: 'Capturing & Uploading Student Passport Photos',
+    route: '/learners',
+    actions: [{ label: 'Open Learners Directory', route: '/learners', icon: 'fa-camera' }],
+    generateGuide: () => {
+      return `### 📸 How to Add Student Passport Photos
+Add crisp, professional 3:4 passport photos to learner profiles and report cards:
+
+1. Go to **[Learners](/learners)** from your menu.
+2. Find the student and tap the **Camera / Photo** icon next to their name.
+3. Choose your preferred method:
+   - **Instant Webcam / Phone Camera**: Click **"Take Photo"** to open your device camera, frame the pupil in the 3:4 portrait guide, and snap!
+   - **Upload Existing Picture**: Click **"Upload Photo"** to choose a picture from your computer or phone gallery.
+4. Crop to fit the portrait frame and click **"Save Photo"**.
+
+✅ Photos are automatically compressed and formatted to appear on all printed terminal report cards!`;
     }
   }
 ];
@@ -686,6 +935,13 @@ export const findBestActivityGuide = (userQuery, role = 'headteacher') => {
       bestMatch = intent;
     }
   });
+
+  if (bestMatch && (!bestMatch.actions || bestMatch.actions.length === 0) && bestMatch.route) {
+    return {
+      ...bestMatch,
+      actions: [{ label: bestMatch.title || 'Open Section', route: bestMatch.route, icon: 'fa-arrow-right' }]
+    };
+  }
 
   return bestMatch;
 };

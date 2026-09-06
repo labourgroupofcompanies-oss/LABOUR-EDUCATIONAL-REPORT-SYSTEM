@@ -7,6 +7,7 @@ import { db } from '../lib/db';
 import { enqueueSync, retryFailed, forceDrain } from '../services/syncEngine';
 import AdminAnalytics from '../components/analytics/AdminAnalytics';
 import TeacherAnalytics from '../components/analytics/TeacherAnalytics';
+import TeacherReferralCard from '../components/referrals/TeacherReferralCard';
 import learnerRepository from '../repositories/learnerRepository';
 import subscriptionService from '../services/subscriptionService';
 
@@ -857,6 +858,10 @@ const Dashboard = () => {
                 currentTerm={currentSchool?.currentTerm}
                 currentAcademicYear={currentSchool?.currentAcademicYear}
               />
+            </div>
+
+            <div style={{ marginTop: '1.5rem' }}>
+              <TeacherReferralCard schoolId={user?.schoolId} schoolName={currentSchool?.name} />
             </div>
           </>
         )}

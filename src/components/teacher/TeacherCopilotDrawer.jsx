@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
 import { askTeacherAgent } from '../../services/teacherAgentService';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -181,6 +182,8 @@ const renderMarkdown = (text) => {
  */
 const TeacherCopilotDrawer = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -244,8 +247,13 @@ Ask me anything you want from your portal and I will help you do it! Whether you
       suggestions: [
         'What is my score entry progress?',
         'Which students are missing scores?',
-        'Show my assigned classes',
+        'How do I refer another school?',
         'Are my marks safely saved on this device?'
+      ],
+      actions: [
+        { label: 'Score Entry', route: '/scores', icon: 'fa-pen-to-square' },
+        { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' },
+        { label: 'Refer a School', route: '/referrals', icon: 'fa-share-nodes' }
       ]
     }
   ]);
@@ -276,13 +284,14 @@ Ask me anything you want from your portal and I will help you do it! Whether you
     setLoading(true);
 
     try {
-      const response = await askTeacherAgent(textToSend, user);
+      const response = await askTeacherAgent(textToSend, user, { currentRoute: location.pathname });
       setMessages(prev => [
         ...prev,
         {
           sender: 'agent',
           text: response.text,
-          suggestions: response.suggestions
+          suggestions: response.suggestions,
+          actions: response.actions || []
         }
       ]);
     } catch (err) {
@@ -395,7 +404,7 @@ Ask me anything you want from your portal and I will help you do it! Whether you
             userSelect: 'none',
             WebkitUserSelect: 'none'
           }}
-          title="Teacher Grading & Class Copilot - Drag to move"
+          title="Teacher Assistant - Drag to move"
           onMouseEnter={e => {
             if (!isActivelyDragging) {
               e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)';
@@ -411,7 +420,7 @@ Ask me anything you want from your portal and I will help you do it! Whether you
             }
           }}
         >
-          <i className="fas fa-robot" style={{ color: '#ffffff' }} />
+          <i className="fas fa-headset" style={{ color: '#ffffff' }} />
 
           {/* Draft Scores Indicator Badge */}
           {draftScoresCount > 0 ? (
@@ -506,11 +515,11 @@ Ask me anything you want from your portal and I will help you do it! Whether you
                   fontSize: '0.9rem',
                   boxShadow: '0 2px 8px rgba(37, 99, 235, 0.4)'
                 }}>
-                  <i className="fas fa-chalkboard-teacher" />
+                  <i className="fas fa-headset" />
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                    Teacher Copilot
+                    Teacher Assistant
                   </h3>
                   <div style={{ fontSize: '0.7rem', color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{
@@ -645,6 +654,50 @@ Ask me anything you want from your portal and I will help you do it! Whether you
                       textAlign: 'left'
                     }}>
                       ⚡ Verified School Records
+                    </div>
+                  )}
+
+                  {/* Quick Action Navigation Buttons */}
+                  {m.actions && m.actions.length > 0 && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '2px', paddingLeft: '2px' }}>
+                      {m.actions.map((act, actIdx) => (
+                        <button
+                          key={actIdx}
+                          type="button"
+                          onClick={() => {
+                            if (act.route) {
+                              navigate(act.route);
+                              setIsOpen(false);
+                            }
+                          }}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: '#EFF6FF',
+                            color: '#1D4ED8',
+                            border: '1px solid #BFDBFE',
+                            borderRadius: '8px',
+                            padding: '5px 11px',
+                            fontSize: '0.74rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease'
+                          }}
+                          onMouseEnter={e => {
+                            e.currentTarget.style.background = '#2563EB';
+                            e.currentTarget.style.color = '#FFFFFF';
+                          }}
+                          onMouseLeave={e => {
+                            e.currentTarget.style.background = '#EFF6FF';
+                            e.currentTarget.style.color = '#1D4ED8';
+                          }}
+                        >
+                          {act.icon && <i className={`fas ${act.icon}`} style={{ fontSize: '0.75rem' }} />}
+                          <span>{act.label}</span>
+                          <i className="fas fa-arrow-right" style={{ fontSize: '0.62rem', opacity: 0.8 }} />
+                        </button>
+                      ))}
                     </div>
                   )}
 

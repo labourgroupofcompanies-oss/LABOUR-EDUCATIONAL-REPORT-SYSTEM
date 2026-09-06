@@ -111,18 +111,41 @@ const ScoreEntry = () => {
           .select('*')
           .eq('school_id', user.schoolId);
         if (!classErr && remoteClasses) {
+          const localClasses = await db.classes.where('schoolId').equals(user.schoolId).toArray();
           for (const rc of remoteClasses) {
-            const local = await db.classes.get(rc.id);
-            if (!local) {
+            const localByName = localClasses.find(
+              c => c.name && c.name.toLowerCase().trim() === rc.name.toLowerCase().trim()
+            );
+
+            if (localByName && Number(localByName.id) !== Number(rc.id)) {
+              const oldId = localByName.id;
+              const newId = rc.id;
+              console.log(`[ScoreEntry Sync] Reconciling class "${rc.name}" (${oldId} → ${newId})`);
+              await db.scores.where('classId').equals(oldId).modify({ classId: newId });
+              await db.learners.where('currentClassId').equals(oldId).modify({ currentClassId: newId });
+              await db.teacherAssignments.where('classId').equals(oldId).modify({ classId: newId });
+              await db.classSubjects.where('classId').equals(oldId).modify({ classId: newId });
+              await db.classes.delete(oldId);
               await db.classes.put({
-                id: rc.id,
+                id: newId,
                 schoolId: rc.school_id,
                 name: rc.name,
                 teachingMode: rc.teaching_mode,
                 createdAt: rc.created_at
               });
-            } else if (local.name !== rc.name || local.teachingMode !== rc.teaching_mode) {
-              await db.classes.update(rc.id, { name: rc.name, teachingMode: rc.teaching_mode });
+            } else {
+              const local = await db.classes.get(rc.id);
+              if (!local) {
+                await db.classes.put({
+                  id: rc.id,
+                  schoolId: rc.school_id,
+                  name: rc.name,
+                  teachingMode: rc.teaching_mode,
+                  createdAt: rc.created_at
+                });
+              } else if (local.name !== rc.name || local.teachingMode !== rc.teaching_mode) {
+                await db.classes.update(rc.id, { name: rc.name, teachingMode: rc.teaching_mode });
+              }
             }
           }
         }
@@ -137,17 +160,38 @@ const ScoreEntry = () => {
           .select('*')
           .eq('school_id', user.schoolId);
         if (!subErr && remoteSubjects) {
+          const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
           for (const rs of remoteSubjects) {
-            const local = await db.subjects.get(rs.id);
-            if (!local) {
+            const localByName = localSubjects.find(
+              s => s.name && s.name.toLowerCase().trim() === rs.name.toLowerCase().trim()
+            );
+
+            if (localByName && Number(localByName.id) !== Number(rs.id)) {
+              const oldId = localByName.id;
+              const newId = rs.id;
+              console.log(`[ScoreEntry Sync] Reconciling subject "${rs.name}" (${oldId} → ${newId})`);
+              await db.scores.where('subjectId').equals(oldId).modify({ subjectId: newId });
+              await db.teacherAssignments.where('subjectId').equals(oldId).modify({ subjectId: newId });
+              await db.classSubjects.where('subjectId').equals(oldId).modify({ subjectId: newId });
+              await db.subjects.delete(oldId);
               await db.subjects.put({
-                id: rs.id,
+                id: newId,
                 schoolId: user.schoolId,
                 name: rs.name,
                 createdAt: rs.created_at
               });
-            } else if (local.name !== rs.name) {
-              await db.subjects.update(rs.id, { name: rs.name });
+            } else {
+              const local = await db.subjects.get(rs.id);
+              if (!local) {
+                await db.subjects.put({
+                  id: rs.id,
+                  schoolId: user.schoolId,
+                  name: rs.name,
+                  createdAt: rs.created_at
+                });
+              } else if (local.name !== rs.name) {
+                await db.subjects.update(rs.id, { name: rs.name });
+              }
             }
           }
         }
@@ -513,8 +557,76 @@ const ScoreEntry = () => {
       // synced scores from Supabase (scores entered by teachers on other devices).
       for (const groupKey of groupKeysToSync) {
         const [classIdStr, subjectIdStr, term, academicYear] = groupKey.split('_');
-        const classId   = Number(classIdStr);
-        const subjectId = Number(subjectIdStr);
+        let classId   = Number(classIdStr);
+        let subjectId = Number(subjectIdStr);
+
+        // Pre-reconcile subjectId against Supabase/Dexie
+        try {
+          const { data: subRemote } = await supabase.from('report_subjects').select('id').eq('id', subjectId).maybeSingle();
+          if (!subRemote?.id) {
+            const localSub = await db.subjects.get(subjectId);
+            if (localSub?.name) {
+              const { data: subByName } = await supabase.from('report_subjects')
+                .select('id')
+                .eq('school_id', user.schoolId)
+                .ilike('name', localSub.name.trim())
+                .maybeSingle();
+              if (subByName?.id) {
+                const newSubId = subByName.id;
+                await db.scores.where('subjectId').equals(subjectId).modify({ subjectId: newSubId });
+                await db.subjects.delete(subjectId);
+                await db.subjects.put({ ...localSub, id: newSubId });
+                subjectId = newSubId;
+              } else {
+                const { data: newSub } = await supabase.from('report_subjects')
+                  .insert([{ school_id: user.schoolId, name: localSub.name.trim() }])
+                  .select('id')
+                  .single();
+                if (newSub?.id) {
+                  const newSubId = newSub.id;
+                  await db.scores.where('subjectId').equals(subjectId).modify({ subjectId: newSubId });
+                  await db.subjects.delete(subjectId);
+                  await db.subjects.put({ ...localSub, id: newSubId });
+                  subjectId = newSubId;
+                }
+              }
+            }
+          }
+        } catch (_) {}
+
+        // Pre-reconcile classId against Supabase/Dexie
+        try {
+          const { data: clsRemote } = await supabase.from('report_classes').select('id').eq('id', classId).maybeSingle();
+          if (!clsRemote?.id) {
+            const localCls = await db.classes.get(classId);
+            if (localCls?.name) {
+              const { data: clsByName } = await supabase.from('report_classes')
+                .select('id')
+                .eq('school_id', user.schoolId)
+                .ilike('name', localCls.name.trim())
+                .maybeSingle();
+              if (clsByName?.id) {
+                const newClsId = clsByName.id;
+                await db.scores.where('classId').equals(classId).modify({ classId: newClsId });
+                await db.classes.delete(classId);
+                await db.classes.put({ ...localCls, id: newClsId });
+                classId = newClsId;
+              } else {
+                const { data: newCls } = await supabase.from('report_classes')
+                  .insert([{ school_id: user.schoolId, name: localCls.name.trim(), teaching_mode: localCls.teachingMode || 'class' }])
+                  .select('id')
+                  .single();
+                if (newCls?.id) {
+                  const newClsId = newCls.id;
+                  await db.scores.where('classId').equals(classId).modify({ classId: newClsId });
+                  await db.classes.delete(classId);
+                  await db.classes.put({ ...localCls, id: newClsId });
+                  classId = newClsId;
+                }
+              }
+            }
+          }
+        } catch (_) {}
 
         // Get ALL scores for this group (both synced and unsynced)
         const allGroupScores = await db.scores

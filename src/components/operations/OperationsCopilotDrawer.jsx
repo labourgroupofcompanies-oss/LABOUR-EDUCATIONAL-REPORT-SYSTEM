@@ -380,10 +380,10 @@ I am your internal operations intelligence assistant. You can ask me questions a
           }}
           onMouseEnter={(e) => { if (!isActivelyDragging) e.currentTarget.style.transform = 'translateY(-3px) scale(1.05)'; }}
           onMouseLeave={(e) => { if (!isActivelyDragging) e.currentTarget.style.transform = isOpen ? 'scale(0.92)' : 'scale(1)'; }}
-          title={unresolvedCount > 0 ? `${unresolvedCount} system error(s) detected! Click to inspect.` : "Operations Copilot - Drag to move"}
-          aria-label="Open Operations Copilot"
+          title={unresolvedCount > 0 ? `${unresolvedCount} system error(s) detected! Click to inspect.` : "Operations Assistant - Drag to move"}
+          aria-label="Open Operations Assistant"
         >
-          <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-robot"} />
+          <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-headset"} />
 
           {/* Unresolved Error Badge */}
           {unresolvedCount > 0 && (
@@ -498,11 +498,11 @@ I am your internal operations intelligence assistant. You can ask me questions a
                   justifyContent: 'center',
                   fontSize: '0.9rem'
                 }}>
-                  <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-robot"} />
+                  <i className={unresolvedCount > 0 ? "fas fa-triangle-exclamation" : "fas fa-headset"} />
                 </div>
                 <div>
                   <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 800, color: '#ffffff' }}>
-                    Operations Copilot
+                    Operations Assistant
                   </h3>
                   <div style={{ fontSize: '0.7rem', color: '#a1a1aa', display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{

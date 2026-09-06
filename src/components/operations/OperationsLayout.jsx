@@ -18,7 +18,7 @@ const OperationsLayout = () => {
       title: 'CORE',
       items: [
         { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', iconColor: '#F59E0B', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
-        { to: '/platform/operations/copilot', icon: 'fa-robot', label: 'Copilot Agent', iconColor: '#10B981', badge: 'AI', badgeColor: '#10B981' },
+        { to: '/platform/operations/copilot', icon: 'fa-headset', label: 'Operations Assistant', iconColor: '#10B981', badge: 'Assistant', badgeColor: '#10B981' },
         { to: '/platform/operations/analytics', icon: 'fa-chart-pie', label: 'Analytics', iconColor: '#8B5CF6' },
       ]
     },

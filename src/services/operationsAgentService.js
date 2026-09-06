@@ -94,8 +94,8 @@ export const askOperationsAgent = async (userQuery) => {
       q.includes('who are you') || q.includes('what can you do') || q.includes('help')
     ) {
       return {
-        text: `### 👋 Hello! I am your Operations Copilot.
-I am an internal intelligent agent designed to give you real-time information about your schools, subscriptions, learners, support tickets, and **live system error detection**—**with zero latency and zero API cost**.
+        text: `### 👋 Hello! I am your Operations Assistant.
+I am an internal intelligent assistant designed to give you real-time information about your schools, subscriptions, learners, support tickets, and **live system error detection**—**with zero latency and zero API cost**.
 
 **Here are some things you can ask me:**
 - 🩺 **System Diagnostics & Errors**: *"Are there any system errors?"*, *"Run 5-pillar diagnostics"*, *"Why did it fail?"*
@@ -924,7 +924,7 @@ Unable to load referral metrics at this time. You can visit the [Referral Manage
 
     // ── 19. SMART FALLBACK WITH HELPFUL PROMPTS ──
     return {
-      text: `### 🤔 Operations Copilot
+      text: `### 🤔 Operations Assistant
 I couldn't find an exact match for **"${userQuery}"**.
 
 **Here are some queries I can answer immediately:**

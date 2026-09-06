@@ -46,7 +46,7 @@ const getSchoolRecords = async (tableName, schoolId) => {
  * @param {string} userQuery - The natural language question
  * @param {string|number} schoolId - The authenticated headteacher's schoolId (mandatory tenant context)
  */
-export const askHeadteacherAgent = async (userQuery, schoolId) => {
+export const askHeadteacherAgent = async (userQuery, schoolId, pageContext = {}) => {
   const startTime = performance.now();
 
   // 1. Strict Tenant Isolation Guard
@@ -95,7 +95,7 @@ export const askHeadteacherAgent = async (userQuery, schoolId) => {
       q.includes('who are you') || q.includes('what can you do') || q.includes('help')
     ) {
       return {
-        text: `### 👋 Hello Headteacher! Welcome to your School Copilot
+        text: `### 👋 Hello Headteacher! Welcome to your School Assistant
 Ask me anything you want from your portal and I will help you do it! I analyze your school records in real time to give you instant answers and step-by-step guidance for **${schoolName}**.
 
 **Here is what you can ask me anytime:**
@@ -113,6 +113,11 @@ Ask me anything you want from your portal and I will help you do it! I analyze y
           'Are report cards released?',
           'Class enrollment breakdown',
           'School wallet balance'
+        ],
+        actions: [
+          { label: 'Score Progress', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Report Cards', route: '/reports', icon: 'fa-file-lines' },
+          { label: 'Learners', route: '/learners', icon: 'fa-user-graduate' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -152,6 +157,228 @@ Ask me anything you want from your portal and I will help you do it! I analyze y
           'How to create classes',
           'How to add subjects',
           'School wallet balance'
+        ],
+        actions: activityGuide.actions || [],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // ── 3b. LIVE PAGE CONTEXT INTELLIGENCE ──
+    if (
+      q.includes('what do i do here') ||
+      q.includes('help with this screen') ||
+      q.includes('help with this page') ||
+      q.includes('what is this page') ||
+      q.includes('explain this screen') ||
+      q.includes('where am i') ||
+      q.includes('what can i do here')
+    ) {
+      const currentRoute = pageContext?.currentRoute || '';
+
+      if (currentRoute.includes('/reports')) {
+        return {
+          text: `### 📄 Page Guide: Terminal Report Cards
+You are on the **Report Cards** screen. Here you oversee generation, verification, and distribution of terminal reports.
+
+**What you can do here:**
+1. **Generate Reports**: Compile terminal reports for entire classes or individual students.
+2. **Review Marks & Aggregates**: Inspect student positions, GPA, and BECE mock best 6 aggregate.
+3. **Batch PDF Download**: Generate print-ready single or double-page PDF booklets for speech/prize giving or distribution.
+4. **Release to Parents**: Publish reports to the parent portal so parents can check grades using their ward's index number and SMS token.
+
+*Tip: Generating reports uses credits from your school wallet. Make sure your wallet balance is topped up before bulk generation.*`,
+          suggestions: [
+            'Are report cards released?',
+            'Score submission status',
+            'School wallet balance'
+          ],
+          actions: [
+            { label: 'Generate Reports', route: '/reports', icon: 'fa-file-lines' },
+            { label: 'Top Up Wallet', route: '/financials', icon: 'fa-wallet' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/scores')) {
+        return {
+          text: `### 📝 Page Guide: Assessment & Scores Oversight
+You are on the **Scores & Grading** management screen.
+
+**What you can do here:**
+1. **Track Teacher Submissions**: See real-time completion rates for all classes and subjects.
+2. **Review Marks**: Inspect Continuous Assessment (50%) and Exam scores (50%).
+3. **Unlock or Edit**: If a teacher made an error, unlock submitted marks to allow them to revise the entry.
+4. **Verify Grades**: Confirm that all classes have finished scoring before starting report card compilation.`,
+          suggestions: [
+            'Score submission status',
+            'Are report cards released?',
+            'Teacher assignments'
+          ],
+          actions: [
+            { label: 'Scores & Grading', route: '/scores', icon: 'fa-pen-to-square' },
+            { label: 'Review Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/class-remarks')) {
+        return {
+          text: `### ✍️ Page Guide: Class Remarks & Observations
+You are on the **Class Remarks** screen.
+
+**What you can do here:**
+1. **Review Class Teacher Remarks**: Check that Form Masters have entered conduct, attitude, and terminal comments.
+2. **Headteacher Endorsement**: Enter overall Headteacher remarks and signature for each student.
+3. **Batch Update**: Apply bulk remarks or standard observations to expedite end-of-term processing.`,
+          suggestions: [
+            'Are report cards released?',
+            'Score submission status'
+          ],
+          actions: [
+            { label: 'Review Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' },
+            { label: 'Report Cards', route: '/reports', icon: 'fa-file-lines' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/learners')) {
+        return {
+          text: `### 👥 Page Guide: Student Census & Enrollment
+You are on the **Learners Directory** screen.
+
+**What you can do here:**
+1. **Enroll New Students**: Register individual learners with full name, gender, date of birth, and parent contacts.
+2. **Excel Import**: Batch-upload entire class lists using the standardized Excel template.
+3. **Passport Photos**: Upload or capture learner photos directly via camera.
+4. **Class Promotions**: Transfer learners to the next class or update their enrollment status.`,
+          suggestions: [
+            'Class enrollment breakdown',
+            'Score submission status',
+            'How to register learners'
+          ],
+          actions: [
+            { label: 'Learners Directory', route: '/learners', icon: 'fa-user-graduate' },
+            { label: 'School Setup', route: '/setup', icon: 'fa-school' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/teachers')) {
+        return {
+          text: `### 👩‍🏫 Page Guide: Staff & Teaching Assignments
+You are on the **Teachers & Staff** screen.
+
+**What you can do here:**
+1. **Add Teachers**: Register teaching staff and create their portal login credentials.
+2. **Assign Classes & Subjects**: Designate who teaches which subject in each class.
+3. **Assign Class Teachers**: Appoint Form Masters responsible for terminal remarks and attendance.
+4. **Permissions**: Manage teacher portal access and activate/deactivate accounts.`,
+          suggestions: [
+            'Teacher assignments',
+            'Score submission status',
+            'How to assign teachers'
+          ],
+          actions: [
+            { label: 'Staff Management', route: '/teachers', icon: 'fa-chalkboard-user' },
+            { label: 'School Setup', route: '/setup', icon: 'fa-school' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/financials')) {
+        return {
+          text: `### 💳 Page Guide: School Wallet & Billing
+You are on the **Top Up & Billing** screen.
+
+**What you can do here:**
+1. **Check Wallet Balance**: View available balance for generating report cards and sending SMS notifications.
+2. **Instant MoMo Top-Up**: Top up your wallet using MTN Mobile Money, Telecel Cash, or AT Money with instant automated activation.
+3. **Transaction Receipts**: Review your payment history, invoice breakdowns, and SMS usage logs.`,
+          suggestions: [
+            'School wallet balance',
+            'Are report cards released?',
+            'How to top up wallet'
+          ],
+          actions: [
+            { label: 'Top Up Wallet', route: '/financials', icon: 'fa-wallet' },
+            { label: 'Report Cards', route: '/reports', icon: 'fa-file-lines' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/setup')) {
+        return {
+          text: `### 🏫 Page Guide: School Configuration
+You are on the **School Setup** screen.
+
+**What you can do here:**
+1. **Academic Terms & Calendar**: Set current academic year, term, resumption dates, and vacation dates.
+2. **Classes & Streams**: Create classes (e.g. Basic 7A, Creche, Primary 4) and set teaching modes.
+3. **Subjects**: Add core and elective subjects aligned with GES / NaCCA curriculum.
+4. **Grading Scales**: Verify score bands, grade letters, and 9-point scale descriptions.`,
+          suggestions: [
+            'How to create classes',
+            'How to add subjects',
+            'Class enrollment breakdown'
+          ],
+          actions: [
+            { label: 'School Setup', route: '/setup', icon: 'fa-school' },
+            { label: 'School Settings', route: '/settings', icon: 'fa-sliders-h' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/settings')) {
+        return {
+          text: `### ⚙️ Page Guide: School Settings & Customization
+You are on the **School Settings** screen.
+
+**What you can do here:**
+1. **School Branding**: Upload school badge / crest, set official motto, postal address, and phone numbers.
+2. **Report Card Header**: Customize what appears on the generated terminal reports.
+3. **Security & Passwords**: Change administrative credentials and review school metadata.`,
+          suggestions: [
+            'School wallet balance',
+            'School Setup',
+            'Score submission status'
+          ],
+          actions: [
+            { label: 'School Settings', route: '/settings', icon: 'fa-sliders-h' },
+            { label: 'School Setup', route: '/setup', icon: 'fa-school' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      // Default (Dashboard)
+      return {
+        text: `### 📊 Page Guide: Headteacher Command Center
+You are on the **Headteacher Dashboard** for **${schoolName}**.
+
+**Key Administrative Activities:**
+- **Assessments**: Monitor score entry progress across all classes.
+- **Report Cards**: Generate, inspect, and release terminal report cards.
+- **Learners & Staff**: Oversee student enrollments and teacher assignments.
+- **Finances**: Keep your school wallet topped up for instant report compilation.
+
+Use the quick action buttons below or ask me anything you need assistance with!`,
+        suggestions: [
+          'Score submission status',
+          'Are report cards released?',
+          'Class enrollment breakdown',
+          'School wallet balance'
+        ],
+        actions: [
+          { label: 'Score Progress', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Report Cards', route: '/reports', icon: 'fa-file-lines' },
+          { label: 'Wallet & Billing', route: '/financials', icon: 'fa-wallet' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -236,6 +463,10 @@ Overview for **${schoolName}** across configured classes:
           'Teacher assignments',
           'Class enrollment breakdown'
         ],
+        actions: [
+          { label: 'Scores & Grading', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -283,6 +514,10 @@ Current report production and release metrics for **${schoolName}**:
           'Score submission status',
           'Class enrollment breakdown',
           'School wallet balance'
+        ],
+        actions: [
+          { label: 'Generate Reports', route: '/reports', icon: 'fa-file-lines' },
+          { label: 'Top Up Wallet', route: '/financials', icon: 'fa-wallet' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -390,6 +625,10 @@ School enrollment overview for **${schoolName}**:
           'Teacher assignments',
           'Are report cards released?'
         ],
+        actions: [
+          { label: 'Learners Directory', route: '/learners', icon: 'fa-user-graduate' },
+          { label: 'School Setup', route: '/setup', icon: 'fa-school' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -409,6 +648,9 @@ School enrollment overview for **${schoolName}**:
         return {
           text: '### 🔍 Learner Search\nPlease provide a student name or registration number. Example: *"Find student Kofi Mensah"* or *"Search learner REG-002"*.',
           suggestions: ['Class enrollment breakdown', 'Score submission status'],
+          actions: [
+            { label: 'Learners Directory', route: '/learners', icon: 'fa-user-graduate' }
+          ],
           queryTimeMs: Math.round(performance.now() - startTime)
         };
       }
@@ -439,6 +681,9 @@ School enrollment overview for **${schoolName}**:
         return {
           text: `### 🔍 Learner Search — No Results\nNo learner matching **"${term}"** was found in **${schoolName}**'s records. Check the spelling or try their registration number.`,
           suggestions: ['Class enrollment breakdown', 'Score submission status'],
+          actions: [
+            { label: 'Learners Directory', route: '/learners', icon: 'fa-user-graduate' }
+          ],
           queryTimeMs: Math.round(performance.now() - startTime)
         };
       }
@@ -461,6 +706,9 @@ School enrollment overview for **${schoolName}**:
           'Score submission status',
           'Class enrollment breakdown',
           'Are report cards released?'
+        ],
+        actions: [
+          { label: 'Learners Directory', route: '/learners', icon: 'fa-user-graduate' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -551,6 +799,10 @@ ${teacherCountLead} at **${schoolName}**.\n\n` +
           'Class enrollment breakdown',
           'Are report cards released?'
         ],
+        actions: [
+          { label: 'Staff Management', route: '/teachers', icon: 'fa-chalkboard-user' },
+          { label: 'School Setup', route: '/setup', icon: 'fa-school' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -597,6 +849,10 @@ Financial overview for **${schoolName}**:
           'Score submission status',
           'Are report cards released?',
           'Class enrollment breakdown'
+        ],
+        actions: [
+          { label: 'Top Up Wallet', route: '/financials', icon: 'fa-wallet' },
+          { label: 'Report Cards', route: '/reports', icon: 'fa-file-lines' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -646,6 +902,9 @@ Connection and saved work for **${schoolName}**:
           'Are report cards released?',
           'School wallet balance'
         ],
+        actions: [
+          { label: 'Dashboard', route: '/', icon: 'fa-chart-pie' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -661,6 +920,11 @@ Connection and saved work for **${schoolName}**:
       ).join('\n');
 
       const suggestionChips = topGuides.map(({ intent }) => intent.title);
+      const guideActions = topGuides.map(({ intent }) => ({
+        label: intent.title,
+        route: intent.route,
+        icon: intent.icon || 'fa-arrow-right'
+      }));
 
       return {
         text: `### 🤔 Did You Mean One of These?
@@ -676,13 +940,14 @@ ${guideLines}
           'Score submission status',
           'Class enrollment breakdown'
         ],
+        actions: guideActions,
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
 
     // Fully generic fallback when no guides matched at all
     return {
-      text: `### 🤔 Headteacher Copilot
+      text: `### 🤔 Headteacher Assistant
 I could not find a match for **"${userQuery}"** — try describing what you want to do in your own words.
 
 **Here are some things I can help with right now:**

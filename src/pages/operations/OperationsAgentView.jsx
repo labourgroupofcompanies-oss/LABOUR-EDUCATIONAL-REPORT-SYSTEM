@@ -405,14 +405,14 @@ Key Features:
             fontSize: '1.25rem',
             boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)'
           }}>
-            <i className="fas fa-robot" />
+            <i className="fas fa-headset" />
           </div>
           <div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(37, 99, 235, 0.2)', border: '1px solid rgba(37, 99, 235, 0.4)', padding: '0.15rem 0.55rem', borderRadius: '999px', color: '#60a5fa', fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '2px' }}>
               <i className="fas fa-bolt" /> Zero API Cost • Local Intelligence
             </div>
             <h1 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 900, color: '#ffffff', fontFamily: 'Outfit, sans-serif' }}>
-              Operations Copilot
+              Operations Assistant
             </h1>
             <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: '#A1A1AA' }}>
               Real-time platform intelligence &amp; autonomous query agent

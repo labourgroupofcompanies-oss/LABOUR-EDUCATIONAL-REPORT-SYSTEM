@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Layout from '../../components/layout/Layout';
 import { useAuth } from '../../store/AuthContext';
 import ReferralRewardsWidget from '../../components/subscription/ReferralRewardsWidget';
+import TeacherReferralCard from '../../components/referrals/TeacherReferralCard';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../lib/db';
 
@@ -15,10 +16,11 @@ const ReferralPage = () => {
     [schoolId]
   );
 
+  const isTeacher = user?.role === 'teacher';
   const isSuperAdmin = user?.role === 'super_admin' || user?.isPlatformDeveloper;
 
   return (
-    <Layout title="Referral & Rewards">
+    <Layout title={isTeacher ? "Refer Other Schools" : "Referral & Rewards"}>
       <div 
         className="fade-in" 
         style={{ 
@@ -79,8 +81,13 @@ const ReferralPage = () => {
           </div>
         )}
 
-        {/* Core Referral Rewards Experience */}
-        <ReferralRewardsWidget schoolId={schoolId} schoolName={schoolInfo?.name} />
+        {/* For teachers: clean referral link sharing without any financial/balance information */}
+        {isTeacher ? (
+          <TeacherReferralCard schoolId={schoolId} schoolName={schoolInfo?.name} />
+        ) : (
+          /* For school admins: full referral rewards & pipeline widget */
+          <ReferralRewardsWidget schoolId={schoolId} schoolName={schoolInfo?.name} />
+        )}
       </div>
     </Layout>
   );

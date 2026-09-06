@@ -14,6 +14,7 @@
 import db from '../lib/db';
 import { assertSchoolContext } from '../repositories/tenantGuard';
 import { findBestActivityGuide, isDataOrCensusQuery, findTopActivitySuggestions } from './portalActivityAssistant';
+import { referralService } from './referralService';
 
 /**
  * Normalize input query
@@ -25,7 +26,7 @@ const normalize = (text) => (text || '').toLowerCase().trim();
  * @param {string} userQuery - The natural language question
  * @param {object} user - The authenticated user object ({ id, schoolId, role, fullName })
  */
-export const askTeacherAgent = async (userQuery, user) => {
+export const askTeacherAgent = async (userQuery, user, pageContext = {}) => {
   const startTime = performance.now();
 
   // 1. Strict Tenant & Role Isolation Guard
@@ -187,7 +188,7 @@ Ask me about your assigned classes: **${Array.from(assignedClassIds).map(id => c
 
       return {
         text: `### 👋 Hello Teacher ${user.fullName || ''}!
-Welcome to your **Teacher Grading & Class Copilot** for **${schoolName}**. I am here to help you manage your student scores, track grading completion, and verify your offline work.
+Welcome to your **Teacher Assistant** for **${schoolName}**. I am here to help you manage your student scores, track grading completion, and verify your offline work.
 
 **Your Current Teaching Assignments:**
 ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n') : '- *No classes assigned yet. Please contact your Headteacher to set up your class assignments.*'}
@@ -204,6 +205,151 @@ ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n'
           'Which students are missing scores?',
           'Show my assigned classes',
           'Are my marks safely saved on this device?'
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // ── 4b. LIVE PAGE CONTEXT INTELLIGENCE ──
+    if (
+      q.includes('what do i do here') ||
+      q.includes('help with this screen') ||
+      q.includes('help with this page') ||
+      q.includes('what is this page') ||
+      q.includes('explain this screen') ||
+      q.includes('where am i') ||
+      q.includes('what can i do here')
+    ) {
+      const currentRoute = pageContext?.currentRoute || '';
+
+      if (currentRoute.includes('/scores')) {
+        return {
+          text: `### 📝 Page Guide: Score Entry & Grading
+You are currently on the **Score Entry** screen. Here you record continuous assessment (CA) and terminal examination marks for your assigned learners.
+
+**What you can do here:**
+1. **Select Class & Subject**: Use the dropdown menus at the top to choose the class and subject you want to grade.
+2. **Enter Continuous Assessment (50%)**: Enter Class Tests, Projects, Homework, and Group Work. The portal automatically computes the 50% CA score according to GES / NaCCA standards.
+3. **Enter Exam Score (50%)**: Input the terminal exam mark out of 100 (automatically scaled to 50%).
+4. **Save Draft**: Click **Save Draft** to record your marks safely on this device without publishing.
+5. **Submit Scores**: When all scores are entered and verified, click **Submit Scores** to submit them to the Headteacher for report card compilation.
+
+*Tip: You can grade 100% offline. All marks are stored locally on your device in real-time.*`,
+          suggestions: [
+            'What is my score entry progress?',
+            'Which students are missing scores?',
+            'Are my marks safely saved on this device?'
+          ],
+          actions: [
+            { label: 'Open Score Entry', route: '/scores', icon: 'fa-pen-to-square' },
+            { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/class-remarks')) {
+        return {
+          text: `### ✍️ Page Guide: Class Remarks & Learner Observations
+You are on the **Class Remarks** screen. This section is designated for Form Masters / Class Teachers to record qualitative evaluations.
+
+**What you can do here:**
+1. **Select Assigned Class**: Choose the class where you are appointed as the Class Teacher.
+2. **Enter Conduct & Attitude**: Select or type remarks on learner behavior, punctuality, diligence, and social skills.
+3. **Class Teacher Remarks**: Provide your terminal academic assessment and words of encouragement.
+4. **Save Remarks**: Click save so your observations will be printed directly on each student's terminal report card.`,
+          suggestions: [
+            'Are teacher remarks completed?',
+            'Show my assigned classes',
+            'What is my score entry progress?'
+          ],
+          actions: [
+            { label: 'Open Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' },
+            { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      if (currentRoute.includes('/settings')) {
+        return {
+          text: `### ⚙️ Page Guide: Account Settings
+You are on your **Account Settings** page.
+
+**What you can do here:**
+- Update your full name and contact information.
+- Change your account password securely.
+- Verify your registered staff profile details.`,
+          suggestions: [
+            'Show my assigned classes',
+            'What is my score entry progress?'
+          ],
+          actions: [
+            { label: 'Score Entry', route: '/scores', icon: 'fa-pen-to-square' },
+            { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+          ],
+          queryTimeMs: Math.round(performance.now() - startTime)
+        };
+      }
+
+      // Default (Dashboard or general)
+      return {
+        text: `### 📊 Page Guide: Teacher Dashboard
+You are on your **Teacher Portal Dashboard** for **${schoolName}**.
+
+**Key Activities from this screen:**
+- **Enter Student Scores**: Grade your classes in continuous assessments and exams.
+- **Record Class Remarks**: Add behavioral and terminal observations for your students.
+- **Track Grading Progress**: Check which students or subjects are pending submission.
+
+Use the quick action buttons below or ask me anytime if you need help with a specific task!`,
+        suggestions: [
+          'What is my score entry progress?',
+          'Which students are missing scores?',
+          'Show my assigned classes',
+          'Are my marks safely saved on this device?'
+        ],
+        actions: [
+          { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+        ],
+        queryTimeMs: Math.round(performance.now() - startTime)
+      };
+    }
+
+    // ── 4c. REFER OTHER SCHOOLS (NO BALANCE / ZERO FINANCIAL MENTIONS) ──
+    if (
+      q.includes('refer') || q.includes('invite') || q.includes('recommend school') ||
+      q.includes('share link') || q.includes('referral') || q.includes('invite link') ||
+      q.includes('other school')
+    ) {
+      let code = school?.referralCode;
+      if (!code && user.schoolId) {
+        code = await referralService.getSchoolReferralCode(user.schoolId).catch(() => null);
+      }
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://laboureducation.com';
+      const shareUrl = code ? `${origin}/onboarding?ref=${code}` : `${origin}/onboarding`;
+
+      return {
+        text: `### 🤝 Refer Other Schools to ${schoolName}
+You can easily refer colleague teachers and headteachers in other schools to use the Labour Educational Report System!
+
+**Your School's Direct Invite Link:**
+\`${shareUrl}\`
+
+${code ? `**Your School's Referral Code:** \`${code}\`` : ''}
+
+**How it works:**
+1. Tap **"Refer a School"** below to copy your school's link or share directly to your educational **WhatsApp** groups.
+2. When the new school clicks your link to sign up, their school gets their **First Term Free**!`,
+        suggestions: [
+          'What is my score entry progress?',
+          'Which students are missing scores?',
+          'Show my assigned classes'
+        ],
+        actions: [
+          { label: 'Refer a School', route: '/referrals', icon: 'fa-share-nodes' },
+          { label: 'Score Entry', route: '/scores', icon: 'fa-pen-to-square' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -233,6 +379,7 @@ ${classNames.length > 0 ? classNames.map(name => `- 📚 **${name}**`).join('\n'
           'Show my assigned classes',
           'Are my marks safely saved on this device?'
         ],
+        actions: activityGuide.actions || [],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -280,6 +427,10 @@ Teaching schedule for **${user.fullName || 'Teacher'}**:
           'Which students are missing scores?',
           'Show my student list',
           'Are my marks safely saved on this device?'
+        ],
+        actions: [
+          { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -358,6 +509,10 @@ You have no assigned classes yet. Contact your Headteacher to assign your classe
           'Which students are missing scores?',
           'Show my assigned classes'
         ],
+        actions: [
+          { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -408,6 +563,10 @@ Grading progress for **${currentTerm} (${currentYear || 'Current Year'})**:
           'Which students are missing scores?',
           'Who are the top students in my class?',
           'Are my marks safely saved on this device?'
+        ],
+        actions: [
+          { label: 'Open Score Entry', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
         ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
@@ -463,6 +622,9 @@ The following students in your assigned classes do not have marks recorded for *
           'What is my score entry progress?',
           'Are my marks safely saved on this device?'
         ],
+        actions: [
+          { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -477,6 +639,9 @@ The following students in your assigned classes do not have marks recorded for *
           text: `### 🏆 Class Performance
 No scores have been entered for your assigned subjects yet. Once you enter and save marks in **Score Entry**, I will calculate the top performers for you.`,
           suggestions: ['What is my score entry progress?'],
+          actions: [
+            { label: 'Open Score Entry', route: '/scores', icon: 'fa-pen-to-square' }
+          ],
           queryTimeMs: Math.round(performance.now() - startTime)
         };
       }
@@ -527,6 +692,10 @@ Highest scoring learners in your assigned subjects:
           'What is my score entry progress?',
           'Which students are missing scores?'
         ],
+        actions: [
+          { label: 'Score Entry', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -545,6 +714,9 @@ You can enter academic marks for your assigned subjects anytime in **Score Entry
           suggestions: [
             'What is my score entry progress?',
             'Show my assigned classes'
+          ],
+          actions: [
+            { label: 'Score Entry', route: '/scores', icon: 'fa-pen-to-square' }
           ],
           queryTimeMs: Math.round(performance.now() - startTime)
         };
@@ -577,6 +749,10 @@ You are the designated Class Teacher for: **${Array.from(classTeacherClassIds).m
           'What is my score entry progress?',
           'Are my marks safely saved on this device?'
         ],
+        actions: [
+          { label: 'Open Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' },
+          { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -605,6 +781,10 @@ ${!isOnline ? `⚠️ **Working Offline**: You can continue entering marks and g
           'Which students are missing scores?',
           'Show my assigned classes'
         ],
+        actions: [
+          { label: 'Enter Scores', route: '/scores', icon: 'fa-pen-to-square' },
+          { label: 'Class Remarks', route: '/class-remarks', icon: 'fa-clipboard-user' }
+        ],
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
@@ -619,6 +799,11 @@ ${!isOnline ? `⚠️ **Working Offline**: You can continue entering marks and g
       ).join('\n');
 
       const suggestionChips = topGuides.map(({ intent }) => intent.title);
+      const guideActions = topGuides.map(({ intent }) => ({
+        label: intent.title,
+        route: intent.route,
+        icon: intent.icon || 'fa-arrow-right'
+      }));
 
       return {
         text: `### 🤔 Did You Mean One of These?
@@ -634,13 +819,14 @@ ${guideLines}
           'What is my score entry progress?',
           'Show my assigned classes'
         ],
+        actions: guideActions,
         queryTimeMs: Math.round(performance.now() - startTime)
       };
     }
 
     // Fully generic fallback when no guides matched at all
     return {
-      text: `### 🤔 Teacher Copilot
+      text: `### 🤔 Teacher Assistant
 I could not find a match for **"${userQuery}"** — try describing what you want to do in your own words.
 
 **Here are some things I can help with right now:**

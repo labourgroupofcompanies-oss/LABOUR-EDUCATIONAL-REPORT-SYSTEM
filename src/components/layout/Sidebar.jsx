@@ -64,6 +64,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       links: [
         { to: '/setup', icon: 'fa-school', label: 'School Setup' },
         { to: '/financials', icon: 'fa-wallet', label: 'Top Up & Billing' },
+        { to: '/referrals', icon: 'fa-gift', label: 'Referrals & Rewards' },
         { to: '/settings', icon: 'fa-sliders-h', label: 'Settings' },
         { to: '/recycle-bin', icon: 'fa-trash-can', label: 'Recycle Bin' },
         { to: '/blog', icon: 'fa-newspaper', label: 'Blog' },
@@ -84,6 +85,12 @@ const Sidebar = ({ isOpen, onClose }) => {
       links: [
         { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
         { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Remarks' }
+      ]
+    },
+    {
+      title: 'Community',
+      links: [
+        { to: '/referrals', icon: 'fa-share-nodes', label: 'Refer a School' }
       ]
     },
     {
