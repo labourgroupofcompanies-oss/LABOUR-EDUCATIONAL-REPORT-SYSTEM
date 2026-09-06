@@ -16,27 +16,58 @@
     <script src="https://js.paystack.co/v1/inline.js"></script>
     <!-- DevTools / Web Vitals Live Metrics Error Guard -->
     <script>
-      try {
-        if (typeof window !== 'undefined' && window.PerformanceObserver) {
-          const OriginalObserver = window.PerformanceObserver;
-          const PatchedObserver = function (callback) {
-            const safeCallback = function (entryList, observer) {
-              try {
-                return callback(entryList, observer);
-              } catch (err) {
-                if (err && err.message && (err.message.includes('startTime') || err.message.includes('reportAllChanges'))) {
-                  return;
+      (function () {
+        var isMetricsNoise = function (msg, file) {
+          var str = String(msg || '');
+          var f = String(file || '');
+          return str.indexOf('startTime') !== -1 ||
+                 str.indexOf('reportAllChanges') !== -1 ||
+                 (f.indexOf('VM') !== -1 && str.indexOf('startTime') !== -1) ||
+                 (f.indexOf('anonymous') !== -1 && str.indexOf('startTime') !== -1);
+        };
+
+        var prevOnError = window.onerror;
+        window.onerror = function (msg, file, line, col, err) {
+          if (isMetricsNoise(msg, file) || (err && isMetricsNoise(err.message, file))) {
+            return true; // Cancels DevTools console error display
+          }
+          if (typeof prevOnError === 'function') {
+            return prevOnError.apply(this, arguments);
+          }
+          return false;
+        };
+
+        window.addEventListener('error', function (event) {
+          var msg = (event && (event.message || (event.error && event.error.message))) || '';
+          if (isMetricsNoise(msg, event.filename)) {
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.preventDefault) event.preventDefault();
+            return true;
+          }
+        }, true);
+
+        try {
+          if (typeof window !== 'undefined' && window.PerformanceObserver) {
+            var OriginalObserver = window.PerformanceObserver;
+            var PatchedObserver = function (callback) {
+              var safeCallback = function (entryList, observer) {
+                try {
+                  return callback(entryList, observer);
+                } catch (err) {
+                  if (err && err.message && isMetricsNoise(err.message)) {
+                    return;
+                  }
+                  throw err;
                 }
-                throw err;
-              }
+              };
+              return new OriginalObserver(safeCallback);
             };
-            return new OriginalObserver(safeCallback);
-          };
-          PatchedObserver.prototype = OriginalObserver.prototype;
-          PatchedObserver.supportedEntryTypes = OriginalObserver.supportedEntryTypes;
-          window.PerformanceObserver = PatchedObserver;
-        }
-      } catch (_) {}
+            PatchedObserver.prototype = OriginalObserver.prototype;
+            PatchedObserver.supportedEntryTypes = OriginalObserver.supportedEntryTypes;
+            window.PerformanceObserver = PatchedObserver;
+          }
+        } catch (_) {}
+      })();
     </script>
   </head>
   <body>

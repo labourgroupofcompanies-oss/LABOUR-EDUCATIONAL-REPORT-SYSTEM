@@ -256,15 +256,19 @@ window.confirm = (message) => {
 // Global System Telemetry & Error Listeners (suppressing third-party extensions/DevTools noise)
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (event) => {
-    const msg = event?.message || (event?.error ? event.error.message : '') || '';
+    const msg = String(event?.message || event?.error?.message || '');
+    const filename = String(event?.filename || '');
     if (
-      msg.includes("Cannot read properties of undefined (reading 'startTime')") ||
+      msg.includes('startTime') ||
       msg.includes('reportAllChanges') ||
-      (event.filename && event.filename.includes('<anonymous>') && msg.includes('startTime'))
+      filename.includes('VM') ||
+      filename.includes('<anonymous>')
     ) {
-      event.preventDefault?.();
-      event.stopImmediatePropagation?.();
-      return true;
+      if (msg.includes('startTime') || msg.includes('reportAllChanges')) {
+        event.preventDefault?.();
+        event.stopImmediatePropagation?.();
+        return true;
+      }
     }
 
     try {
