@@ -54,6 +54,7 @@ const ScoreEntry = () => {
   }, [querySubject]);
   const [scores, setScores] = useState({}); // { learnerId: { caScores: [], examScore } }
   const [isDirty, setIsDirty] = useState(false);
+  const [isBatchSubmitted, setIsBatchSubmitted] = useState(false);
   const { user } = useAuth();
 
   const [selectedTerm, setSelectedTerm] = useState('Term 1');
@@ -483,6 +484,13 @@ const ScoreEntry = () => {
           .filter(s => s.subjectId === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
           .toArray();
 
+        if (existing.length > 0) {
+          const submittedScores = existing.filter(s => s.isSubmitted);
+          setIsBatchSubmitted(submittedScores.length > 0 && submittedScores.length === existing.length);
+        } else {
+          setIsBatchSubmitted(false);
+        }
+
         // Fetch all learners to resolve local ID → supabaseId (UUID) mappings
         const localLearners = await db.learners.toArray();
 
@@ -509,6 +517,7 @@ const ScoreEntry = () => {
             caScores: s.caScores || [],
             // Use ?? '' so exam score 0 is shown as 0, not converted to '' (which uploads as null)
             examScore: s.examScore ?? '',
+            isSubmitted: s.isSubmitted || false,
           };
         }
         setScores(scoreMap);
@@ -779,7 +788,7 @@ const ScoreEntry = () => {
 
   const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = async () => {
+  const handleSave = async (submitFinal = true) => {
     if (!selectedClass || !selectedSubject || !settings || !user?.schoolId || !selectedAcademicYear || !selectedTerm) {
       alert('Please select Class, Subject, Term, and Academic Year.');
       return;
@@ -810,7 +819,7 @@ const ScoreEntry = () => {
         totalScore: total,
         grade,
         remark,
-        isSubmitted: false,
+        isSubmitted: submitFinal,
         termId: null,
         term: selectedTerm,
         academicYear: selectedAcademicYear,
@@ -834,7 +843,11 @@ const ScoreEntry = () => {
     }
 
     setIsDirty(false);
-    alert('Scores saved offline in local database successfully!');
+    setIsBatchSubmitted(submitFinal);
+    alert(submitFinal 
+      ? '✓ Scores saved and submitted successfully! Status is now Submitted.'
+      : '✎ Scores saved as Draft successfully!'
+    );
 
     // Trigger background sync immediately if online
     if (navigator.onLine) {
@@ -1067,14 +1080,64 @@ const ScoreEntry = () => {
               }} 
             />
           </div>
-          <button className="btn btn-primary" onClick={handleSave} disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving} style={{ flex: '0 0 auto' }}>
-            {isSaving ? (
-              <i className="fas fa-spinner fa-spin"></i>
-            ) : (
-              <i className="fas fa-save"></i>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', flex: '0 0 auto' }}>
+            {selectedClass && selectedSubject && Object.keys(scores).length > 0 && (
+              <span style={{
+                padding: '0.45rem 0.85rem',
+                borderRadius: '8px',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                background: isBatchSubmitted ? '#DCFCE7' : '#FEF9C3',
+                color: isBatchSubmitted ? '#15803D' : '#A16207',
+                border: `1px solid ${isBatchSubmitted ? '#BBF7D0' : '#FEF08A'}`
+              }}>
+                <i className={`fas ${isBatchSubmitted ? 'fa-check-circle' : 'fa-pencil-alt'}`}></i>
+                {isBatchSubmitted ? 'Status: Submitted' : 'Status: Draft'}
+              </span>
             )}
-            <span>{isSaving ? 'Saving...' : 'Save Draft'}</span>
-          </button>
+            <button 
+              type="button"
+              className="btn" 
+              onClick={() => handleSave(false)} 
+              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving} 
+              style={{ 
+                background: '#f8fafc', 
+                border: '1.5px solid #cbd5e1', 
+                color: '#475569', 
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem'
+              }}
+              title="Save work offline as Draft without officially submitting"
+            >
+              <i className="fas fa-save"></i>
+              <span>Save Draft</span>
+            </button>
+            <button 
+              type="button"
+              className="btn btn-primary" 
+              onClick={() => handleSave(true)} 
+              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving} 
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                fontWeight: 700
+              }}
+              title="Save and mark as Submitted"
+            >
+              {isSaving ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                <i className="fas fa-cloud-upload-alt"></i>
+              )}
+              <span>{isSaving ? 'Submitting...' : 'Save & Sync (Submit)'}</span>
+            </button>
+          </div>
         </div>
 
         {selectedClass && selectedSubject ? (
@@ -1299,30 +1362,57 @@ const ScoreEntry = () => {
             <div style={{ 
               display: 'flex', 
               justifyContent: 'center', 
+              alignItems: 'center',
+              gap: '1rem',
               marginTop: '2rem', 
               paddingTop: '2rem', 
-              borderTop: '1px solid #e2e8f0' 
+              borderTop: '1px solid #e2e8f0',
+              flexWrap: 'wrap'
             }}>
               <button 
+                type="button"
+                className="btn" 
+                onClick={() => handleSave(false)} 
+                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving}
+                style={{ 
+                  padding: '0.8rem 1.8rem', 
+                  fontSize: '0.95rem', 
+                  borderRadius: '12px', 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  background: '#f8fafc',
+                  border: '1.5px solid #cbd5e1',
+                  color: '#334155',
+                  fontWeight: 600
+                }}
+              >
+                <i className="fas fa-save"></i>
+                <span>Save as Draft</span>
+              </button>
+
+              <button 
+                type="button"
                 className="btn btn-primary" 
-                onClick={handleSave} 
+                onClick={() => handleSave(true)} 
                 disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving}
                 style={{ 
                   padding: '0.8rem 2.5rem', 
                   fontSize: '1rem', 
                   borderRadius: '12px', 
-                  boxShadow: '0 10px 15px -3px rgba(59, 130, 246, 0.3), 0 4px 6px -4px rgba(59, 130, 246, 0.3)',
+                  boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.3), 0 4px 6px -4px rgba(37, 99, 235, 0.3)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '0.5rem'
+                  gap: '0.5rem',
+                  fontWeight: 800
                 }}
               >
                 {isSaving ? (
                   <i className="fas fa-spinner fa-spin"></i>
                 ) : (
-                  <i className="fas fa-save"></i>
+                  <i className="fas fa-cloud-upload-alt"></i>
                 )}
-                <span>{isSaving ? 'Saving Scores...' : 'Save Draft & Sync'}</span>
+                <span>{isSaving ? 'Submitting Scores...' : 'Save & Sync (Submit)'}</span>
               </button>
             </div>
           </div>
