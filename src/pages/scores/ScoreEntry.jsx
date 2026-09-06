@@ -786,14 +786,15 @@ const ScoreEntry = () => {
     });
   };
 
-  const [isSaving, setIsSaving] = useState(false);
+  const [savingAction, setSavingAction] = useState(null); // 'top-draft' | 'top-submit' | 'bottom-draft' | 'bottom-submit' | null
+  const isSavingAny = Boolean(savingAction);
 
-  const handleSave = async (submitFinal = true) => {
+  const handleSave = async (submitFinal = true, actionKey = 'top-submit') => {
     if (!selectedClass || !selectedSubject || !settings || !user?.schoolId || !selectedAcademicYear || !selectedTerm) {
       alert('Please select Class, Subject, Term, and Academic Year.');
       return;
     }
-    setIsSaving(true);
+    setSavingAction(actionKey);
 
     const scoreEntries = [];
 
@@ -854,7 +855,7 @@ const ScoreEntry = () => {
       syncUnsyncedScores().catch(err => console.warn('Failed to sync after save:', err));
     }
 
-    setIsSaving(false);
+    setSavingAction(null);
   };
 
   if (!settings || !settings.caBreakdown) {
@@ -1101,8 +1102,8 @@ const ScoreEntry = () => {
             <button 
               type="button"
               className="btn" 
-              onClick={() => handleSave(false)} 
-              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving} 
+              onClick={() => handleSave(false, 'top-draft')} 
+              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny} 
               style={{ 
                 background: '#f8fafc', 
                 border: '1.5px solid #cbd5e1', 
@@ -1110,32 +1111,38 @@ const ScoreEntry = () => {
                 fontWeight: 600,
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '0.4rem'
+                gap: '0.4rem',
+                opacity: isSavingAny && savingAction !== 'top-draft' ? 0.6 : 1
               }}
               title="Save work offline as Draft without officially submitting"
             >
-              <i className="fas fa-save"></i>
-              <span>Save Draft</span>
+              {savingAction === 'top-draft' ? (
+                <i className="fas fa-spinner fa-spin"></i>
+              ) : (
+                <i className="fas fa-save"></i>
+              )}
+              <span>{savingAction === 'top-draft' ? 'Saving...' : 'Save Draft'}</span>
             </button>
             <button 
               type="button"
               className="btn btn-primary" 
-              onClick={() => handleSave(true)} 
-              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving} 
+              onClick={() => handleSave(true, 'top-submit')} 
+              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny} 
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '0.4rem',
-                fontWeight: 700
+                fontWeight: 700,
+                opacity: isSavingAny && savingAction !== 'top-submit' ? 0.6 : 1
               }}
               title="Save and mark as Submitted"
             >
-              {isSaving ? (
+              {savingAction === 'top-submit' ? (
                 <i className="fas fa-spinner fa-spin"></i>
               ) : (
                 <i className="fas fa-cloud-upload-alt"></i>
               )}
-              <span>{isSaving ? 'Submitting...' : 'Save & Sync (Submit)'}</span>
+              <span>{savingAction === 'top-submit' ? 'Submitting...' : 'Save & Sync (Submit)'}</span>
             </button>
           </div>
         </div>
@@ -1372,8 +1379,8 @@ const ScoreEntry = () => {
               <button 
                 type="button"
                 className="btn" 
-                onClick={() => handleSave(false)} 
-                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving}
+                onClick={() => handleSave(false, 'bottom-draft')} 
+                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny}
                 style={{ 
                   padding: '0.8rem 1.8rem', 
                   fontSize: '0.95rem', 
@@ -1384,18 +1391,23 @@ const ScoreEntry = () => {
                   background: '#f8fafc',
                   border: '1.5px solid #cbd5e1',
                   color: '#334155',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  opacity: isSavingAny && savingAction !== 'bottom-draft' ? 0.6 : 1
                 }}
               >
-                <i className="fas fa-save"></i>
-                <span>Save as Draft</span>
+                {savingAction === 'bottom-draft' ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : (
+                  <i className="fas fa-save"></i>
+                )}
+                <span>{savingAction === 'bottom-draft' ? 'Saving Draft...' : 'Save as Draft'}</span>
               </button>
 
               <button 
                 type="button"
                 className="btn btn-primary" 
-                onClick={() => handleSave(true)} 
-                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSaving}
+                onClick={() => handleSave(true, 'bottom-submit')} 
+                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny}
                 style={{ 
                   padding: '0.8rem 2.5rem', 
                   fontSize: '1rem', 
@@ -1404,15 +1416,16 @@ const ScoreEntry = () => {
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
-                  fontWeight: 800
+                  fontWeight: 800,
+                  opacity: isSavingAny && savingAction !== 'bottom-submit' ? 0.6 : 1
                 }}
               >
-                {isSaving ? (
+                {savingAction === 'bottom-submit' ? (
                   <i className="fas fa-spinner fa-spin"></i>
                 ) : (
                   <i className="fas fa-cloud-upload-alt"></i>
                 )}
-                <span>{isSaving ? 'Submitting Scores...' : 'Save & Sync (Submit)'}</span>
+                <span>{savingAction === 'bottom-submit' ? 'Submitting Scores...' : 'Save & Sync (Submit)'}</span>
               </button>
             </div>
           </div>
