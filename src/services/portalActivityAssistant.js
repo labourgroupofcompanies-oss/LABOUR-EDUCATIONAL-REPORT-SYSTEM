@@ -187,7 +187,7 @@ Parents can immediately log into the **Parent Portal** on their smartphones usin
   },
   {
     id: 'print_reports',
-    roles: ['headteacher', 'teacher'],
+    roles: ['headteacher'],
     keywords: ['print report', 'download report', 'generate report', 'terminal report', 'pdf report', 'print card', 'report card print', 'produce report'],
     title: 'How to Generate and Print Terminal Report Cards',
     route: '/reports',

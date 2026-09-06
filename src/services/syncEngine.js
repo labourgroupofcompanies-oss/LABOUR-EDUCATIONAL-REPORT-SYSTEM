@@ -166,6 +166,12 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
       return;
     }
 
+    if (!authUser && navigator.onLine) {
+      console.log('[SyncEngine] ⏳ Waiting for authenticated Supabase session before draining outbox...');
+      _isSyncing = false;
+      return;
+    }
+
     // Load pending items (skip ones with a future nextAttemptAt)
     const now = new Date().toISOString();
     const pending = (await db.outbox
@@ -379,12 +385,20 @@ async function processSingleItem(item) {
             for (const r of cleanRows) {
               if (item.table === 'report_scores') {
                 try {
-                  await supabase.from(item.table).delete()
+                  const { data: existingScore } = await supabase.from('report_scores')
+                    .select('id')
                     .eq('school_id', r.school_id)
                     .eq('learner_id', r.learner_id)
                     .eq('subject_id', r.subject_id)
                     .eq('academic_year', r.academic_year)
-                    .eq('term', r.term);
+                    .eq('term', r.term)
+                    .maybeSingle();
+
+                  if (existingScore?.id) {
+                    const { error: updErr } = await supabase.from('report_scores').update(r).eq('id', existingScore.id);
+                    if (updErr) hasFailures = true;
+                    continue;
+                  }
                 } catch (_) {}
               }
               const { error: singleErr } = await supabase.from(item.table).upsert(r);
@@ -795,14 +809,18 @@ const healUniqueConflict = async (opError, item, payload) => {
         for (const r of rows) {
           if (r.school_id && r.learner_id && r.subject_id) {
             try {
-              await supabase.from('report_scores').delete()
+              const { data: existingScore } = await supabase.from('report_scores')
+                .select('id')
                 .eq('school_id', r.school_id)
                 .eq('learner_id', r.learner_id)
                 .eq('subject_id', r.subject_id)
                 .eq('academic_year', r.academic_year)
-                .eq('term', r.term);
-              const { error: upErr } = await supabase.from('report_scores').upsert(r);
-              if (upErr) {
+                .eq('term', r.term)
+                .maybeSingle();
+
+              if (existingScore?.id) {
+                await supabase.from('report_scores').update(r).eq('id', existingScore.id);
+              } else {
                 await supabase.from('report_scores').insert(r).catch(() => null);
               }
             } catch (_) {}
@@ -910,23 +928,60 @@ const healForeignKey = async (opError, item, payload) => {
 
         // 3. Filter valid rows whose parents exist
         const validRows = [];
+        let hasPendingLocalLearners = false;
+        let queryEncounteredErrors = false;
+
         for (const row of rows) {
           if (!row.learner_id || !row.subject_id || !row.school_id) continue;
 
-          const [{ data: lData }, { data: sData }, { data: cData }] = await Promise.all([
-            supabase.from('report_learners').select('id').eq('id', row.learner_id).maybeSingle(),
+          let resolvedLearnerId = row.learner_id;
+          const [{ data: lData, error: lErr }, { data: sData, error: sErr }, { data: cData, error: cErr }] = await Promise.all([
+            supabase.from('report_learners').select('id').eq('id', resolvedLearnerId).maybeSingle(),
             supabase.from('report_subjects').select('id').eq('id', row.subject_id).maybeSingle(),
-            row.class_id ? supabase.from('report_classes').select('id').eq('id', row.class_id).maybeSingle() : Promise.resolve({ data: { id: null } })
+            row.class_id ? supabase.from('report_classes').select('id').eq('id', row.class_id).maybeSingle() : Promise.resolve({ data: { id: null }, error: null })
           ]);
 
-          if (lData?.id && sData?.id && (!row.class_id || cData?.id)) {
+          if (lErr || sErr || cErr) {
+            queryEncounteredErrors = true;
+          }
+
+          let finalLearnerId = lData?.id;
+
+          // If learner wasn't found in Supabase by current ID, check local Dexie db.learners!
+          if (!finalLearnerId) {
+            const localLearner = await db.learners.get(resolvedLearnerId).catch(() => null)
+              || await db.learners.get(Number(resolvedLearnerId)).catch(() => null)
+              || await db.learners.where('supabaseId').equals(resolvedLearnerId).first().catch(() => null);
+
+            if (localLearner) {
+              // The learner exists in local database
+              if (localLearner.supabaseId && localLearner.supabaseId !== resolvedLearnerId) {
+                const { data: remoteCheck } = await supabase.from('report_learners').select('id').eq('id', localLearner.supabaseId).maybeSingle();
+                if (remoteCheck?.id) {
+                  finalLearnerId = remoteCheck.id;
+                  row.learner_id = remoteCheck.id;
+                } else {
+                  hasPendingLocalLearners = true;
+                }
+              } else {
+                // Learner is local, waiting for cloud sync
+                hasPendingLocalLearners = true;
+              }
+            }
+          }
+
+          if (finalLearnerId && sData?.id && (!row.class_id || cData?.id)) {
             validRows.push(row);
           } else {
-            console.warn(`[SyncEngine] ⚠️ Skipping orphan score row (Learner:${lData?.id}, Subject:${sData?.id})`);
+            console.warn(`[SyncEngine] ⚠️ Skipping unverified score row (Learner:${finalLearnerId || 'not found in cloud'}, Subject:${sData?.id})`);
           }
         }
 
         if (validRows.length === 0) {
+          if (hasPendingLocalLearners || queryEncounteredErrors) {
+            console.log('[SyncEngine] ⏳ Score rows reference local learners awaiting cloud sync or auth — deferring item to retry.');
+            return opError;
+          }
           console.log('[SyncEngine] All score rows reference missing entities — safely discarding item to unblock sync.');
           return null;
         }

@@ -225,7 +225,7 @@ function App() {
             <Route 
               path="/reports" 
               element={
-                <ProtectedRoute>
+                <ProtectedRoute role="super_admin">
                   <Reports />
                 </ProtectedRoute>
               } 

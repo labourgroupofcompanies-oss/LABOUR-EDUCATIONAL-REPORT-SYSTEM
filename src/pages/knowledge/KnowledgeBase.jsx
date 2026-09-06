@@ -652,7 +652,7 @@ const KnowledgeBase = () => {
 
         {/* WhatsApp Message */}
         <a
-          href="https://wa.me/233541829724?text=Hello%20Labour%20Edu%20Support%2C%20I%20need%20assistance%20with%20the%20report%20system"
+          href="https://wa.me/233245660622?text=Hello%20Labour%20Edu%20Support%2C%20I%20need%20assistance%20with%20the%20report%20system"
           target="_blank"
           rel="noopener noreferrer"
           style={{
@@ -688,7 +688,7 @@ const KnowledgeBase = () => {
             <i className="fab fa-whatsapp"></i>
           </div>
           <div>
-            <div style={{ lineHeight: 1.2 }}>WhatsApp: 0541829724</div>
+            <div style={{ lineHeight: 1.2 }}>WhatsApp: 0245660622</div>
             <span style={{ fontSize: '0.72rem', color: '#DCFCE7', fontWeight: 500 }}>
               Message / Voice Note &rarr;
             </span>
@@ -697,7 +697,7 @@ const KnowledgeBase = () => {
 
         {/* Direct Voice Call */}
         <a
-          href="tel:0541829724"
+          href="tel:0245660622"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -731,7 +731,7 @@ const KnowledgeBase = () => {
             <i className="fas fa-phone-volume"></i>
           </div>
           <div>
-            <div style={{ lineHeight: 1.2 }}>Call: 0541829724</div>
+            <div style={{ lineHeight: 1.2 }}>Call: 0245660622</div>
             <span style={{ fontSize: '0.72rem', color: '#BFDBFE', fontWeight: 500 }}>
               Direct Voice Call &rarr;
             </span>

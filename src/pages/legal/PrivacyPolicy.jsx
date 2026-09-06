@@ -297,7 +297,7 @@ const PrivacyPolicy = () => {
             <div style={{ background: '#18181b', padding: '1.25rem', borderRadius: '12px', border: '1px solid #27272a', marginTop: '0.75rem', fontSize: '0.88rem' }}>
               <div>🏢 <strong>Entity:</strong> Labour Educational Report System (Labour Group of Companies)</div>
               <div style={{ marginTop: '4px' }}>📧 <strong>Official Email:</strong> privacy@labouredu.com / support@labouredu.com</div>
-              <div style={{ marginTop: '4px' }}>📞 <strong>Support Desk &amp; WhatsApp:</strong> +233 54 182 9724 (0541829724)</div>
+              <div style={{ marginTop: '4px' }}>📞 <strong>Support Desk &amp; WhatsApp:</strong> +233 24 566 0622 (0245660622)</div>
               <div style={{ marginTop: '4px' }}>🌐 <strong>Official Website:</strong> <a href="https://labouredu.com" target="_blank" rel="noreferrer" style={{ color: '#60A5FA', textDecoration: 'none' }}>labouredu.com</a></div>
               <div style={{ marginTop: '4px' }}>📍 <strong>Jurisdiction:</strong> Greater Accra / Ashanti Region, Ghana</div>
             </div>
