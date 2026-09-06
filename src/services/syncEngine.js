@@ -208,9 +208,11 @@ const resolveScoresForeignKeys = async (rows, deleteFilter, schoolId) => {
 
   const subMap = new Map();
   const clsMap = new Map();
+  const learnerMap = new Map();
 
   const subIds = [...new Set(rows.map(r => r.subject_id).concat(deleteFilter?.subject_id).filter(Boolean))];
   const clsIds = [...new Set(rows.map(r => r.class_id).concat(deleteFilter?.class_id).filter(Boolean))];
+  const learnerIds = [...new Set(rows.map(r => r.learner_id).filter(Boolean))];
 
   // 1. Resolve Subjects
   for (const sId of subIds) {
@@ -253,6 +255,33 @@ const resolveScoresForeignKeys = async (rows, deleteFilter, schoolId) => {
               await db.subjects.delete(sId);
               await db.subjects.put({ ...localSub, id: newSub.id });
             } catch (_) {}
+          }
+        }
+      } else {
+        // Fallback: localSub was deleted from db.subjects when remote subjects were pulled.
+        // Check if Dexie scores have a reconciled subjectId for this class / year / term:
+        const sampleScore = await db.scores
+          .where('classId').equals(Number(clsIds[0] || rows[0]?.class_id))
+          .filter(s => s.academicYear === (rows[0]?.academic_year) && s.term === (rows[0]?.term))
+          .first().catch(() => null);
+
+        if (sampleScore?.subjectId) {
+          const { data: remoteCheck } = await supabase.from('report_subjects')
+            .select('id')
+            .eq('id', sampleScore.subjectId)
+            .maybeSingle();
+          if (remoteCheck?.id) {
+            subMap.set(sId, remoteCheck.id);
+          }
+        }
+
+        // If still unresolved, check remote subjects for targetSchoolId
+        if (!subMap.has(sId)) {
+          const { data: schoolSubs } = await supabase.from('report_subjects')
+            .select('id, name')
+            .eq('school_id', targetSchoolId);
+          if (schoolSubs && schoolSubs.length === 1) {
+            subMap.set(sId, schoolSubs[0].id);
           }
         }
       }
@@ -310,50 +339,112 @@ const resolveScoresForeignKeys = async (rows, deleteFilter, schoolId) => {
     }
   }
 
-  // 3. Resolve Learners
-  for (const row of rows) {
-    if (!row.learner_id) continue;
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.learner_id);
-    if (!isUuid) {
-      try {
-        const localLearner = await db.learners.get(row.learner_id).catch(() => null)
-          || await db.learners.get(Number(row.learner_id)).catch(() => null);
+  // 3. Resolve Learners (check cloud, local Dexie, or auto-create if missing)
+  for (const lId of learnerIds) {
+    if (learnerMap.has(lId)) continue;
+    try {
+      let cloudLearnerId = null;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(lId);
+      if (isUuid) {
+        const { data: remL } = await supabase.from('report_learners').select('id').eq('id', lId).maybeSingle();
+        if (remL?.id) cloudLearnerId = remL.id;
+      }
 
-        if (localLearner?.supabaseId) {
-          row.learner_id = localLearner.supabaseId;
-        } else if (localLearner?.regNumber) {
-          const { data: remL } = await supabase.from('report_learners')
-            .select('id')
-            .eq('school_id', targetSchoolId)
-            .eq('reg_number', localLearner.regNumber)
-            .maybeSingle();
-          if (remL?.id) {
-            row.learner_id = remL.id;
-            await db.learners.update(localLearner.id, { supabaseId: remL.id, synced: true });
+      if (!cloudLearnerId) {
+        const localLearner = await db.learners.get(lId).catch(() => null)
+          || await db.learners.get(Number(lId)).catch(() => null)
+          || await db.learners.where('supabaseId').equals(lId).first().catch(() => null);
+
+        if (localLearner) {
+          if (localLearner.supabaseId) {
+            const { data: remCheck } = await supabase.from('report_learners').select('id').eq('id', localLearner.supabaseId).maybeSingle();
+            if (remCheck?.id) cloudLearnerId = remCheck.id;
           }
-        } else if (localLearner?.fullName) {
-          const { data: remL } = await supabase.from('report_learners')
-            .select('id')
-            .eq('school_id', targetSchoolId)
-            .ilike('full_name', localLearner.fullName.trim())
-            .maybeSingle();
-          if (remL?.id) {
-            row.learner_id = remL.id;
-            await db.learners.update(localLearner.id, { supabaseId: remL.id, synced: true });
+
+          if (!cloudLearnerId && localLearner.regNumber) {
+            const { data: remByReg } = await supabase.from('report_learners')
+              .select('id')
+              .eq('school_id', targetSchoolId)
+              .eq('reg_number', localLearner.regNumber)
+              .maybeSingle();
+            if (remByReg?.id) {
+              cloudLearnerId = remByReg.id;
+              await db.learners.update(localLearner.id, { supabaseId: remByReg.id, synced: true }).catch(() => null);
+            }
+          }
+
+          if (!cloudLearnerId && (localLearner.fullName || localLearner.name)) {
+            const cleanName = (localLearner.fullName || localLearner.name).trim();
+            const { data: remByName } = await supabase.from('report_learners')
+              .select('id')
+              .eq('school_id', targetSchoolId)
+              .ilike('full_name', cleanName)
+              .maybeSingle();
+            if (remByName?.id) {
+              cloudLearnerId = remByName.id;
+              await db.learners.update(localLearner.id, { supabaseId: remByName.id, synced: true }).catch(() => null);
+            }
+          }
+
+          // If still not in cloud, auto-create learner now so scores can sync cleanly!
+          if (!cloudLearnerId) {
+            try {
+              const { data: newL } = await supabase.from('report_learners').insert([{
+                school_id: targetSchoolId,
+                full_name: localLearner.fullName || localLearner.name || 'Learner',
+                reg_number: localLearner.regNumber || `REG-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+                gender: localLearner.gender || 'Male',
+                ghanaian_language: localLearner.ghanaianLanguage || 'twi',
+                class_id: clsMap.get(localLearner.currentClassId) || localLearner.currentClassId || null,
+                status: localLearner.status || 'Active',
+                photo_url: typeof localLearner.photoUrl === 'string' && localLearner.photoUrl.startsWith('http') ? localLearner.photoUrl : null,
+                guardian_name: localLearner.guardianName || null,
+                guardian_relation: localLearner.guardianRelation || null,
+                guardian_contact_1: localLearner.guardianContact1 || null,
+                guardian_contact_2: localLearner.guardianContact2 || null,
+                guardian_profession: localLearner.guardianProfession || null,
+                guardian_location: localLearner.guardianLocation || null,
+                created_at: localLearner.createdAt || new Date().toISOString()
+              }]).select('id').maybeSingle();
+
+              if (newL?.id) {
+                cloudLearnerId = newL.id;
+                await db.learners.update(localLearner.id, { supabaseId: newL.id, synced: true }).catch(() => null);
+              }
+            } catch (createErr) {
+              console.warn('[SyncEngine] Auto-create learner error in pre-resolve:', createErr);
+            }
           }
         }
-      } catch (lErr) {
-        console.warn(`[SyncEngine] Learner reconciliation error for ${row.learner_id}:`, lErr);
       }
+
+      if (cloudLearnerId) {
+        learnerMap.set(lId, cloudLearnerId);
+      }
+    } catch (lErr) {
+      console.warn(`[SyncEngine] Learner reconciliation error for ${lId}:`, lErr);
     }
   }
 
-  // Remap rows
-  const resolvedRows = rows.map(r => ({
-    ...r,
-    subject_id: subMap.get(r.subject_id) || r.subject_id,
-    class_id: clsMap.get(r.class_id) || r.class_id,
-  }));
+  // Remap rows and only keep valid verified foreign keys
+  const resolvedRows = [];
+  for (const r of rows) {
+    const targetSubId = subMap.get(r.subject_id) || r.subject_id;
+    const targetLearnerId = learnerMap.get(r.learner_id) || r.learner_id;
+    const targetClassId = clsMap.get(r.class_id) || r.class_id;
+
+    const isLearnerUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(targetLearnerId);
+
+    // If learner is valid UUID in cloud and subject is resolved in cloud, retain row
+    if (isLearnerUuid && (learnerMap.has(r.learner_id) || learnerMap.has(targetLearnerId)) && (subMap.has(r.subject_id) || subMap.has(targetSubId))) {
+      resolvedRows.push({
+        ...r,
+        learner_id: targetLearnerId,
+        subject_id: targetSubId,
+        class_id: targetClassId,
+      });
+    }
+  }
 
   // Remap deleteFilter
   const resolvedFilter = deleteFilter ? {
@@ -518,6 +609,12 @@ async function processSingleItem(item) {
         });
         const { error: delErr } = await delQ;
 
+        if (item.table === 'report_scores' && cleanRows.length === 0) {
+          console.log(`[SyncEngine] 🗑️ Outbox item ${item.id} has no valid score rows with confirmed cloud references. Safely completing.`);
+          await db.outbox.delete(item.id);
+          return true;
+        }
+
         if (cleanRows.length > 0) {
           // 2. Pre-delete existing score rows for these learners/subject/term to ensure 100% clean insert
           if (item.table === 'report_scores') {
@@ -543,18 +640,22 @@ async function processSingleItem(item) {
           // 3. Clean upsert (handles conflicts automatically without 409 errors)
           let { error: insErr } = await supabase.from(item.table).upsert(cleanRows);
 
-          // 4. If unique constraint or conflict occurs, heal row-by-row
-          const isConflict = insErr && (
+          // 4. If unique constraint or duplicate occurs, heal row-by-row (exclude foreign key errors 23503)
+          const isFkErr = insErr && (
+            insErr.code === '23503' ||
+            String(insErr.message || '').toLowerCase().includes('foreign key') ||
+            String(insErr.message || '').includes('23503')
+          );
+
+          const isUniqueConflict = !isFkErr && insErr && (
             insErr.code === '23505' ||
-            insErr.status === 409 ||
-            String(insErr.code || '') === '409' ||
             String(insErr.message || '').toLowerCase().includes('duplicate') ||
-            String(insErr.message || '').toLowerCase().includes('conflict') ||
+            String(insErr.message || '').toLowerCase().includes('unique') ||
             String(insErr.message || '').toLowerCase().includes('already exists')
           );
 
-          if (isConflict) {
-            console.log(`[SyncEngine] 🔄 Healing conflict on ${item.table} via targeted update & upsert...`);
+          if (isUniqueConflict) {
+            console.log(`[SyncEngine] 🔄 Healing unique conflict on ${item.table} via targeted update & upsert...`);
             let hasFailures = false;
             for (const r of cleanRows) {
               if (item.table === 'report_scores') {
@@ -1120,10 +1221,9 @@ const healForeignKey = async (opError, item, payload) => {
                 if (remoteCheck?.id) {
                   finalLearnerId = remoteCheck.id;
                   row.learner_id = remoteCheck.id;
-                } else {
-                  hasPendingLocalLearners = true;
                 }
-              } else if (localLearner.regNumber) {
+              }
+              if (!finalLearnerId && localLearner.regNumber) {
                 const { data: remoteByReg } = await supabase.from('report_learners')
                   .select('id')
                   .eq('school_id', targetSchoolId)
@@ -1133,11 +1233,52 @@ const healForeignKey = async (opError, item, payload) => {
                   finalLearnerId = remoteByReg.id;
                   row.learner_id = remoteByReg.id;
                   await db.learners.update(localLearner.id, { supabaseId: remoteByReg.id, synced: true });
-                } else {
+                }
+              }
+              if (!finalLearnerId && (localLearner.fullName || localLearner.name)) {
+                const { data: remoteByName } = await supabase.from('report_learners')
+                  .select('id')
+                  .eq('school_id', targetSchoolId)
+                  .ilike('full_name', (localLearner.fullName || localLearner.name).trim())
+                  .maybeSingle();
+                if (remoteByName?.id) {
+                  finalLearnerId = remoteByName.id;
+                  row.learner_id = remoteByName.id;
+                  await db.learners.update(localLearner.id, { supabaseId: remoteByName.id, synced: true });
+                }
+              }
+              // If still not in Supabase, auto-create learner now!
+              if (!finalLearnerId) {
+                try {
+                  const { data: newLearner } = await supabase.from('report_learners').insert([{
+                    school_id: targetSchoolId,
+                    full_name: localLearner.fullName || localLearner.name || 'Learner',
+                    reg_number: localLearner.regNumber || `REG-${Date.now()}-${Math.floor(Math.random()*1000)}`,
+                    gender: localLearner.gender || 'Male',
+                    ghanaian_language: localLearner.ghanaianLanguage || 'twi',
+                    class_id: row.class_id || localLearner.currentClassId || null,
+                    status: localLearner.status || 'Active',
+                    photo_url: typeof localLearner.photoUrl === 'string' && localLearner.photoUrl.startsWith('http') ? localLearner.photoUrl : null,
+                    guardian_name: localLearner.guardianName || null,
+                    guardian_relation: localLearner.guardianRelation || null,
+                    guardian_contact_1: localLearner.guardianContact1 || null,
+                    guardian_contact_2: localLearner.guardianContact2 || null,
+                    guardian_profession: localLearner.guardianProfession || null,
+                    guardian_location: localLearner.guardianLocation || null,
+                    created_at: localLearner.createdAt || new Date().toISOString()
+                  }]).select('id').maybeSingle();
+
+                  if (newLearner?.id) {
+                    finalLearnerId = newLearner.id;
+                    row.learner_id = newLearner.id;
+                    await db.learners.update(localLearner.id, { supabaseId: newLearner.id, synced: true }).catch(() => null);
+                  } else {
+                    hasPendingLocalLearners = true;
+                  }
+                } catch (cErr) {
+                  console.warn('[SyncEngine] Auto-create learner error in healForeignKey:', cErr);
                   hasPendingLocalLearners = true;
                 }
-              } else {
-                hasPendingLocalLearners = true;
               }
             }
           }
@@ -1161,12 +1302,13 @@ const healForeignKey = async (opError, item, payload) => {
         } catch (_) {}
 
         if (validRows.length === 0) {
-          if (hasPendingLocalLearners || queryEncounteredErrors) {
-            console.log('[SyncEngine] ⏳ Score rows reference local learners awaiting cloud sync or auth — deferring item to retry.');
-            return opError;
+          if ((item.retryCount || 0) >= 2 || (!hasPendingLocalLearners && !queryEncounteredErrors)) {
+            console.log(`[SyncEngine] 🗑️ All score rows reference missing entities or max retries reached for item ${item.id} — safely discarding item to unblock sync.`);
+            await db.outbox.delete(item.id).catch(() => null);
+            return null;
           }
-          console.log('[SyncEngine] All score rows reference missing entities — safely discarding item to unblock sync.');
-          return null;
+          console.log('[SyncEngine] ⏳ Score rows reference local learners awaiting cloud sync or auth — deferring item to retry.');
+          return opError;
         }
 
         if (item.operation === 'delete_insert') {
@@ -1176,10 +1318,18 @@ const healForeignKey = async (opError, item, payload) => {
           });
           await delQ;
           const { error: retryErr } = await supabase.from(item.table).upsert(validRows);
-          return retryErr || null;
+          if (!retryErr) {
+            await db.outbox.delete(item.id).catch(() => null);
+            return null;
+          }
+          return retryErr;
         } else {
           const { error: retryErr } = await supabase.from(item.table).upsert(validRows);
-          return retryErr || null;
+          if (!retryErr) {
+            await db.outbox.delete(item.id).catch(() => null);
+            return null;
+          }
+          return retryErr;
         }
       }
     }
