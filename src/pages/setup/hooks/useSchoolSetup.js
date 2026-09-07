@@ -193,15 +193,45 @@ export const useSchoolSetup = () => {
           .eq('school_id', user.schoolId);
 
         if (!classSubsErr && classSubsData) {
-          await db.classSubjects.clear();
+          const remoteMap = new Set(classSubsData.map(cs => `${Number(cs.class_id)}-${Number(cs.subject_id)}`));
+          const localClassSubs = await db.classSubjects.where('schoolId').equals(user.schoolId).toArray();
+
+          // Delete local records for this school that no longer exist remotely, unless pending in outbox
+          for (const lcs of localClassSubs) {
+            const key = `${Number(lcs.classId)}-${Number(lcs.subjectId)}`;
+            if (!remoteMap.has(key)) {
+              const pendingInsert = await db.outbox
+                .filter(o => o.table === 'report_class_subjects' && o.operation === 'insert' && o.payload.includes(String(lcs.classId)) && o.payload.includes(String(lcs.subjectId)))
+                .first();
+              if (!pendingInsert) {
+                await db.classSubjects.delete(lcs.id);
+              }
+            }
+          }
+
+          // Insert or update remote class-subject assignments
           for (const cs of classSubsData) {
-            await db.classSubjects.put({
-              supabaseId: cs.id,
-              schoolId: cs.school_id,
-              classId: Number(cs.class_id),
-              subjectId: Number(cs.subject_id),
-              synced: true
-            });
+            const cId = Number(cs.class_id);
+            const sId = Number(cs.subject_id);
+            const existing = await db.classSubjects
+              .where('schoolId').equals(cs.school_id)
+              .filter(lcs => Number(lcs.classId) === cId && Number(lcs.subjectId) === sId)
+              .first();
+
+            if (existing) {
+              await db.classSubjects.update(existing.id, {
+                supabaseId: cs.id,
+                synced: true
+              });
+            } else {
+              await db.classSubjects.add({
+                supabaseId: cs.id,
+                schoolId: cs.school_id,
+                classId: cId,
+                subjectId: sId,
+                synced: true
+              });
+            }
           }
         }
       } catch (err) {
@@ -341,20 +371,37 @@ export const useSchoolSetup = () => {
   const deleteClass = async (id) => {
     if (!await window.confirm('Are you sure you want to delete this class? All learners, scores, assignments, and assigned subjects will be permanently deleted.')) return;
     try {
+      const classIdNum = Number(id);
+
       // Queue cloud delete via outbox (works online & offline)
       await enqueueSync('delete', 'report_classes', {
-        filter: { id: id }
+        filter: { id: classIdNum }
+      }, user?.schoolId);
+
+      await enqueueSync('delete', 'report_class_subjects', {
+        filter: { class_id: classIdNum, school_id: user?.schoolId }
+      }, user?.schoolId);
+
+      await enqueueSync('delete', 'report_teacher_assignments', {
+        filter: { class_id: classIdNum, school_id: user?.schoolId }
       }, user?.schoolId);
 
       // Clean up local Dexie storage immediately
       await db.classes.delete(id);
+      await db.classes.delete(classIdNum);
       
-      const relatedAssigns = await db.teacherAssignments.where('classId').equals(id).toArray();
+      const relatedAssigns = await db.teacherAssignments
+        .where('schoolId').equals(user.schoolId)
+        .filter(a => Number(a.classId) === classIdNum || String(a.classId) === String(id))
+        .toArray();
       for (const a of relatedAssigns) {
         await db.teacherAssignments.delete(a.id);
       }
 
-      const relatedClassSubjects = await db.classSubjects.where('classId').equals(id).toArray();
+      const relatedClassSubjects = await db.classSubjects
+        .where('schoolId').equals(user.schoolId)
+        .filter(cs => Number(cs.classId) === classIdNum || String(cs.classId) === String(id))
+        .toArray();
       for (const cs of relatedClassSubjects) {
         await db.classSubjects.delete(cs.id);
       }
@@ -411,20 +458,37 @@ export const useSchoolSetup = () => {
   const deleteSubject = async (id) => {
     if (!await window.confirm('Are you sure you want to delete this subject? All scores, teacher assignments, and class-subject mappings associated with it will be permanently deleted.')) return;
     try {
+      const subjectIdNum = Number(id);
+
       // Queue cloud delete via outbox (works online & offline)
       await enqueueSync('delete', 'report_subjects', {
-        filter: { id: id }
+        filter: { id: subjectIdNum }
+      }, user?.schoolId);
+
+      await enqueueSync('delete', 'report_class_subjects', {
+        filter: { subject_id: subjectIdNum, school_id: user?.schoolId }
+      }, user?.schoolId);
+
+      await enqueueSync('delete', 'report_teacher_assignments', {
+        filter: { subject_id: subjectIdNum, school_id: user?.schoolId }
       }, user?.schoolId);
 
       // Clean up local Dexie storage immediately
       await db.subjects.delete(id);
+      await db.subjects.delete(subjectIdNum);
 
-      const relatedAssigns = await db.teacherAssignments.where('subjectId').equals(id).toArray();
+      const relatedAssigns = await db.teacherAssignments
+        .where('schoolId').equals(user.schoolId)
+        .filter(a => Number(a.subjectId) === subjectIdNum || String(a.subjectId) === String(id))
+        .toArray();
       for (const a of relatedAssigns) {
         await db.teacherAssignments.delete(a.id);
       }
 
-      const relatedClassSubjects = await db.classSubjects.where('subjectId').equals(id).toArray();
+      const relatedClassSubjects = await db.classSubjects
+        .where('schoolId').equals(user.schoolId)
+        .filter(cs => Number(cs.subjectId) === subjectIdNum || String(cs.subjectId) === String(id))
+        .toArray();
       for (const cs of relatedClassSubjects) {
         await db.classSubjects.delete(cs.id);
       }
@@ -434,54 +498,159 @@ export const useSchoolSetup = () => {
     }
   };
 
-  const handleToggleSubject = async (subjectId, isChecked) => {
-    if (!selectedSetupClass || !user?.schoolId) return;
-    const classIdNum = Number(selectedSetupClass);
-    const subjectIdNum = Number(subjectId);
+  const handleToggleSubject = async (arg1, arg2, arg3) => {
+    if (!user?.schoolId) return;
+
+    let targetClassId;
+    let targetSubjectId;
+    let isChecked;
+
+    if (arg3 !== undefined) {
+      // Called as: handleToggleSubject(classId, subjectId, isChecked)
+      targetClassId = Number(arg1);
+      targetSubjectId = Number(arg2);
+      isChecked = Boolean(arg3);
+    } else if (typeof arg2 === 'boolean') {
+      // Called as: handleToggleSubject(subjectId, isChecked) with selectedSetupClass
+      targetClassId = Number(selectedSetupClass);
+      targetSubjectId = Number(arg1);
+      isChecked = arg2;
+    } else {
+      // Called as: handleToggleSubject(classId, subjectId)
+      targetClassId = Number(arg1);
+      targetSubjectId = Number(arg2);
+      // Auto-detect current presence in local DB
+      const currentlyExists = (classSubjects || []).some(
+        cs => (Number(cs.classId) === targetClassId || String(cs.classId) === String(targetClassId)) &&
+              (Number(cs.subjectId) === targetSubjectId || String(cs.subjectId) === String(targetSubjectId))
+      );
+      isChecked = !currentlyExists;
+    }
+
+    if (!targetClassId || !targetSubjectId) {
+      console.warn('[handleToggleSubject] Missing classId or subjectId:', { targetClassId, targetSubjectId });
+      return;
+    }
 
     try {
       if (isChecked) {
+        // 1. ADD SUBJECT TO CLASS
         const alreadyExists = await db.classSubjects
-          .where('classId').equals(classIdNum)
-          .filter(cs => cs.subjectId === subjectIdNum)
+          .where('schoolId').equals(user.schoolId)
+          .filter(cs => 
+            (Number(cs.classId) === targetClassId || String(cs.classId) === String(targetClassId)) &&
+            (Number(cs.subjectId) === targetSubjectId || String(cs.subjectId) === String(targetSubjectId))
+          )
           .first();
+
         if (alreadyExists) return;
 
-        // Instantly write to local database so the checkbox ticks immediately
+        // Instantly write to local database so checkbox ticks immediately
         await db.classSubjects.add({
           schoolId: user.schoolId,
-          classId: classIdNum,
-          subjectId: subjectIdNum,
+          classId: targetClassId,
+          subjectId: targetSubjectId,
           synced: false,
           supabaseId: null
         });
 
-        // Queue cloud insert via outbox (works online & offline)
+        // Queue cloud insert via outbox
         await enqueueSync('insert', 'report_class_subjects', {
           school_id: user.schoolId,
-          class_id: classIdNum,
-          subject_id: subjectIdNum
+          class_id: targetClassId,
+          subject_id: targetSubjectId
         }, user.schoolId);
+
+        // Immediate background cloud insert if online
+        if (navigator.onLine) {
+          try {
+            const { data: inserted, error: insErr } = await supabase
+              .from('report_class_subjects')
+              .insert([{
+                school_id: user.schoolId,
+                class_id: targetClassId,
+                subject_id: targetSubjectId
+              }])
+              .select('id')
+              .maybeSingle();
+
+            if (!insErr && inserted?.id) {
+              const local = await db.classSubjects
+                .where('schoolId').equals(user.schoolId)
+                .filter(cs => Number(cs.classId) === targetClassId && Number(cs.subjectId) === targetSubjectId)
+                .first();
+              if (local) {
+                await db.classSubjects.update(local.id, { supabaseId: inserted.id, synced: true });
+              }
+            }
+          } catch (syncErr) {
+            console.warn('[handleToggleSubject] Immediate cloud insert fallback to outbox:', syncErr);
+          }
+        }
       } else {
+        // 2. REMOVE SUBJECT FROM CLASS
         const existingList = await db.classSubjects
-          .where('classId').equals(classIdNum)
-          .filter(cs => cs.subjectId === subjectIdNum)
+          .where('schoolId').equals(user.schoolId)
+          .filter(cs => 
+            (Number(cs.classId) === targetClassId || String(cs.classId) === String(targetClassId)) &&
+            (Number(cs.subjectId) === targetSubjectId || String(cs.subjectId) === String(targetSubjectId))
+          )
           .toArray();
-        
+
         if (existingList.length > 0) {
-          // Delete all matching local records (clears any duplicates)
           for (const item of existingList) {
             await db.classSubjects.delete(item.id);
           }
-          
-          // Queue cloud delete via outbox (works online & offline)
-          await enqueueSync('delete', 'report_class_subjects', {
-            filter: {
-              school_id: user.schoolId,
-              class_id: classIdNum,
-              subject_id: subjectIdNum
+        }
+
+        // Clean up any teacher assignments linked to this class & subject
+        const relatedAssigns = await db.teacherAssignments
+          .where('schoolId').equals(user.schoolId)
+          .filter(a => 
+            (Number(a.classId) === targetClassId || String(a.classId) === String(targetClassId)) &&
+            (Number(a.subjectId) === targetSubjectId || String(a.subjectId) === String(targetSubjectId))
+          )
+          .toArray();
+
+        for (const a of relatedAssigns) {
+          await db.teacherAssignments.delete(a.id);
+          if (a.supabaseId) {
+            await enqueueSync('delete', 'report_teacher_assignments', {
+              filter: { id: a.supabaseId }
+            }, user.schoolId);
+          }
+        }
+
+        // Queue cloud delete via outbox
+        await enqueueSync('delete', 'report_class_subjects', {
+          filter: {
+            school_id: user.schoolId,
+            class_id: targetClassId,
+            subject_id: targetSubjectId
+          }
+        }, user.schoolId);
+
+        // Immediate background cloud delete if online
+        if (navigator.onLine) {
+          try {
+            await supabase
+              .from('report_class_subjects')
+              .delete()
+              .eq('school_id', user.schoolId)
+              .eq('class_id', targetClassId)
+              .eq('subject_id', targetSubjectId);
+
+            if (relatedAssigns.length > 0) {
+              await supabase
+                .from('report_teacher_assignments')
+                .delete()
+                .eq('school_id', user.schoolId)
+                .eq('class_id', targetClassId)
+                .eq('subject_id', targetSubjectId);
             }
-          }, user.schoolId);
+          } catch (delErr) {
+            console.warn('[handleToggleSubject] Immediate cloud delete fallback to outbox:', delErr);
+          }
         }
       }
     } catch (err) {
@@ -489,25 +658,42 @@ export const useSchoolSetup = () => {
     }
   };
 
-  const handleSelectAllSubjects = async (shouldSelectAll) => {
-    if (!selectedSetupClass || !user?.schoolId || !subjects) return;
-    const classIdNum = Number(selectedSetupClass);
+  const handleSelectAllSubjects = async (arg1, arg2) => {
+    if (!user?.schoolId || !subjects) return;
+
+    let targetClassId;
+    let shouldSelectAll;
+
+    if (arg2 !== undefined) {
+      // Called as: handleSelectAllSubjects(classId, true/false)
+      targetClassId = Number(arg1);
+      shouldSelectAll = Boolean(arg2);
+    } else {
+      // Called as: handleSelectAllSubjects(true/false) using selectedSetupClass
+      targetClassId = Number(selectedSetupClass);
+      shouldSelectAll = Boolean(arg1);
+    }
+
+    if (!targetClassId) {
+      console.warn('[handleSelectAllSubjects] Missing targetClassId');
+      return;
+    }
 
     try {
       if (shouldSelectAll) {
         const currentAssigned = new Set(
           classSubjects
-            ?.filter(cs => cs.classId === classIdNum)
-            ?.map(cs => cs.subjectId)
+            ?.filter(cs => Number(cs.classId) === targetClassId)
+            ?.map(cs => Number(cs.subjectId))
         );
         const unassigned = subjects.filter(s => !currentAssigned.has(Number(s.id)));
         for (const s of unassigned) {
-          await handleToggleSubject(s.id, true);
+          await handleToggleSubject(targetClassId, Number(s.id), true);
         }
       } else {
-        const assigned = classSubjects?.filter(cs => cs.classId === classIdNum) || [];
+        const assigned = classSubjects?.filter(cs => Number(cs.classId) === targetClassId) || [];
         for (const cs of assigned) {
-          await handleToggleSubject(cs.subjectId, false);
+          await handleToggleSubject(targetClassId, Number(cs.subjectId), false);
         }
       }
     } catch (err) {
@@ -678,29 +864,52 @@ export const useSchoolSetup = () => {
 
     try {
       // 1. Copy Class Subjects
-      const sourceClassSubs = await db.classSubjects.where('classId').equals(srcIdNum).toArray();
-      const targetClassSubs = await db.classSubjects.where('classId').equals(tgtIdNum).toArray();
-      const targetSubIds = new Set(targetClassSubs.map(cs => cs.subjectId));
+      const sourceClassSubs = await db.classSubjects
+        .where('schoolId').equals(user.schoolId)
+        .filter(cs => Number(cs.classId) === srcIdNum)
+        .toArray();
+
+      const targetClassSubs = await db.classSubjects
+        .where('schoolId').equals(user.schoolId)
+        .filter(cs => Number(cs.classId) === tgtIdNum)
+        .toArray();
+
+      const targetSubIds = new Set(targetClassSubs.map(cs => Number(cs.subjectId)));
 
       for (const cs of sourceClassSubs) {
-        if (!targetSubIds.has(cs.subjectId)) {
+        const subIdNum = Number(cs.subjectId);
+        if (!targetSubIds.has(subIdNum)) {
           await db.classSubjects.add({
             schoolId: user.schoolId,
             classId: tgtIdNum,
-            subjectId: cs.subjectId,
+            subjectId: subIdNum,
             synced: false,
             supabaseId: null
           });
           await enqueueSync('insert', 'report_class_subjects', {
             school_id: user.schoolId,
             class_id: tgtIdNum,
-            subject_id: cs.subjectId
+            subject_id: subIdNum
           }, user.schoolId);
+
+          if (navigator.onLine) {
+            try {
+              await supabase.from('report_class_subjects').insert([{
+                school_id: user.schoolId,
+                class_id: tgtIdNum,
+                subject_id: subIdNum
+              }]);
+            } catch (_) {}
+          }
         }
       }
 
       // 2. Copy Teacher Assignments
-      const sourceAssigns = await db.teacherAssignments.where('classId').equals(srcIdNum).toArray();
+      const sourceAssigns = await db.teacherAssignments
+        .where('schoolId').equals(user.schoolId)
+        .filter(a => Number(a.classId) === srcIdNum)
+        .toArray();
+
       for (const a of sourceAssigns) {
         await handleAssignTeacher(tgtIdNum, a.subjectId, a.teacherId);
       }

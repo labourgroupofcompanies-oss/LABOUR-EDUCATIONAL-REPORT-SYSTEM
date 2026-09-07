@@ -405,7 +405,7 @@ const ClassSubjectAssigner = ({
               </span>
               <button 
                 type="button" 
-                onClick={() => handleSelectAllSubjects(true)}
+                onClick={() => handleSelectAllSubjects(selectedSetupClass, true)}
                 style={{
                   padding: '0.45rem 0.9rem',
                   background: '#EFF6FF',
@@ -421,7 +421,7 @@ const ClassSubjectAssigner = ({
               </button>
               <button 
                 type="button" 
-                onClick={() => handleSelectAllSubjects(false)}
+                onClick={() => handleSelectAllSubjects(selectedSetupClass, false)}
                 style={{
                   padding: '0.45rem 0.9rem',
                   background: '#FEF2F2',
@@ -496,7 +496,7 @@ const ClassSubjectAssigner = ({
                         type="checkbox" 
                         style={{ width: '18px', height: '18px', accentColor: '#2563eb', cursor: 'pointer' }}
                         checked={isAssigned}
-                        onChange={(e) => handleToggleSubject(s.id, e.target.checked)}
+                        onChange={(e) => handleToggleSubject(selectedSetupClass, s.id, e.target.checked)}
                       />
                       <span style={{ 
                         fontSize: '0.92rem', 

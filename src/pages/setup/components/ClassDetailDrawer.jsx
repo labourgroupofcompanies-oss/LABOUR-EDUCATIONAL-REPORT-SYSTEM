@@ -443,7 +443,7 @@ const ClassDetailDrawer = ({
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              onChange={() => handleToggleSubject(classId, Number(sub.id))}
+                              onChange={(e) => handleToggleSubject(classId, Number(sub.id), e.target.checked)}
                               style={{ width: '16px', height: '16px', accentColor: '#2563EB', cursor: 'pointer' }}
                             />
                             <span style={{ fontWeight: 700, fontSize: '0.86rem', color: isChecked ? '#09090B' : '#71717A' }}>

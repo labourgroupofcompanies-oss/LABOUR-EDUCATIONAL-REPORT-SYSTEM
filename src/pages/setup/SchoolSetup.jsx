@@ -67,7 +67,9 @@ const SchoolSetup = () => {
     handleAssignTeacher,
     handleApplySubjectPreset,
     handleApplyClassPreset,
-    handleCopyClassConfig
+    handleCopyClassConfig,
+    selectedSetupClass,
+    setSelectedSetupClass
   } = useSchoolSetup();
 
   // Readiness Metrics
@@ -81,6 +83,9 @@ const SchoolSetup = () => {
 
   const handleOpenDrawer = (cls) => {
     setSelectedDrawerClass(cls);
+    if (cls?.id && setSelectedSetupClass) {
+      setSelectedSetupClass(cls.id);
+    }
   };
 
   const handleCloseDrawer = () => {
@@ -91,6 +96,9 @@ const SchoolSetup = () => {
     const found = classes.find(c => Number(c.id) === Number(newClassId));
     if (found) {
       setSelectedDrawerClass(found);
+      if (setSelectedSetupClass) {
+        setSelectedSetupClass(found.id);
+      }
     }
   };
 

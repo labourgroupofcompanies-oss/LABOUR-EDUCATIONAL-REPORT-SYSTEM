@@ -193,15 +193,45 @@ const TeacherList = () => {
           .select('*')
           .eq('school_id', user.schoolId);
         if (!classSubsErr && classSubsData) {
-          await db.classSubjects.clear();
+          const remoteMap = new Set(classSubsData.map(cs => `${Number(cs.class_id)}-${Number(cs.subject_id)}`));
+          const localClassSubs = await db.classSubjects.where('schoolId').equals(user.schoolId).toArray();
+
+          // Delete local records for this school that no longer exist remotely, unless pending in outbox
+          for (const lcs of localClassSubs) {
+            const key = `${Number(lcs.classId)}-${Number(lcs.subjectId)}`;
+            if (!remoteMap.has(key)) {
+              const pendingInsert = await db.outbox
+                .filter(o => o.table === 'report_class_subjects' && o.operation === 'insert' && o.payload.includes(String(lcs.classId)) && o.payload.includes(String(lcs.subjectId)))
+                .first();
+              if (!pendingInsert) {
+                await db.classSubjects.delete(lcs.id);
+              }
+            }
+          }
+
+          // Insert or update remote records
           for (const cs of classSubsData) {
-            await db.classSubjects.put({
-              supabaseId: cs.id,
-              schoolId: cs.school_id,
-              classId: Number(cs.class_id),
-              subjectId: Number(cs.subject_id),
-              synced: true
-            });
+            const cId = Number(cs.class_id);
+            const sId = Number(cs.subject_id);
+            const existing = await db.classSubjects
+              .where('schoolId').equals(cs.school_id)
+              .filter(lcs => Number(lcs.classId) === cId && Number(lcs.subjectId) === sId)
+              .first();
+
+            if (existing) {
+              await db.classSubjects.update(existing.id, {
+                supabaseId: cs.id,
+                synced: true
+              });
+            } else {
+              await db.classSubjects.add({
+                supabaseId: cs.id,
+                schoolId: cs.school_id,
+                classId: cId,
+                subjectId: sId,
+                synced: true
+              });
+            }
           }
         }
       } catch (err) {
