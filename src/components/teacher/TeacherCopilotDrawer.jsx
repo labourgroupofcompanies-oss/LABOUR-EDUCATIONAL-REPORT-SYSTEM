@@ -208,8 +208,16 @@ const TeacherCopilotDrawer = () => {
     [user?.schoolId]
   );
 
+  const [hasViewedBadge, setHasViewedBadge] = useState(() => {
+    try {
+      return sessionStorage.getItem('teacher_badge_cleared') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Live query for teacher's draft scores
-  const draftScoresCount = useLiveQuery(
+  const rawDraftScoresCount = useLiveQuery(
     async () => {
       if (!user?.id || !user?.schoolId) return 0;
       try {
@@ -238,6 +246,9 @@ const TeacherCopilotDrawer = () => {
     },
     [user?.id, user?.schoolId]
   );
+
+  // Clear badge once the teacher opens the assistant
+  const draftScoresCount = hasViewedBadge ? 0 : (rawDraftScoresCount || 0);
 
   const initialWelcomeText = `### 👋 Welcome Teacher ${user?.fullName || ''}!
 Ask me anything you want from your portal and I will help you do it! Whether you need to enter student marks, submit scores to the Headteacher, check missing grades, or need step-by-step guidance on your teaching activities in **${schoolInfo?.name || 'Your School'}**, I am here to assist you anytime.`;
@@ -384,6 +395,10 @@ Ask me anything you want from your portal and I will help you do it! Whether you
           onClick={(e) => {
             if (preventClickIfDragged(e)) return;
             setIsOpen(true);
+            setHasViewedBadge(true);
+            try {
+              sessionStorage.setItem('teacher_badge_cleared', 'true');
+            } catch (_) {}
           }}
           style={{
             position: 'relative',

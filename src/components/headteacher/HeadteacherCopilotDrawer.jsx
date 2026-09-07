@@ -244,8 +244,16 @@ const HeadteacherCopilotDrawer = () => {
     [user?.schoolId]
   );
 
+  const [hasViewedBadge, setHasViewedBadge] = useState(() => {
+    try {
+      return sessionStorage.getItem('ht_badge_cleared') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
   // Unreleased reports badge count
-  const unreleasedReports = useLiveQuery(
+  const rawUnreleasedReports = useLiveQuery(
     async () => {
       if (!user?.schoolId) return 0;
       try {
@@ -259,6 +267,9 @@ const HeadteacherCopilotDrawer = () => {
     },
     [user?.schoolId]
   );
+
+  // Clear badge as soon as the user opens the assistant
+  const unreleasedReports = hasViewedBadge ? 0 : (rawUnreleasedReports || 0);
 
   const initialWelcomeText = `### 👋 Welcome Headteacher!
 Ask me anything you want from your portal and I will help you do it! Whether you need to check teacher score submissions, release report cards to parents, register students, top up your wallet, or need step-by-step guidance on any activity in **${schoolInfo?.name || 'Your School'}**, I am here to assist you anytime with instant answers.`;
@@ -403,7 +414,14 @@ Ask me anything you want from your portal and I will help you do it! Whether you
           type="button"
           onClick={(e) => {
             if (preventClickIfDragged(e)) return;
-            setIsOpen(!isOpen);
+            const willOpen = !isOpen;
+            setIsOpen(willOpen);
+            if (willOpen) {
+              setHasViewedBadge(true);
+              try {
+                sessionStorage.setItem('ht_badge_cleared', 'true');
+              } catch (_) {}
+            }
           }}
           style={{
             width: '54px',

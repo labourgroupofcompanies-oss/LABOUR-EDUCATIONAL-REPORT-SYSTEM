@@ -220,7 +220,14 @@ const OperationsCopilotDrawer = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
-  const [unresolvedCount, setUnresolvedCount] = useState(() => systemErrorTracker.getUnresolvedErrors().length);
+  const [hasViewedBadge, setHasViewedBadge] = useState(() => {
+    try {
+      return sessionStorage.getItem('ops_badge_cleared') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [rawUnresolvedCount, setRawUnresolvedCount] = useState(() => systemErrorTracker.getUnresolvedErrors().length);
 
   // Smooth dragging for the floating launcher button
   const {
@@ -233,12 +240,15 @@ const OperationsCopilotDrawer = () => {
   } = useDraggableButton('ops_copilot_icon_pos');
 
   useEffect(() => {
-    setUnresolvedCount(systemErrorTracker.getUnresolvedErrors().length);
+    setRawUnresolvedCount(systemErrorTracker.getUnresolvedErrors().length);
     const unsub = systemErrorTracker.subscribe((state) => {
-      setUnresolvedCount(state.unresolved);
+      setRawUnresolvedCount(state.unresolved);
     });
     return () => unsub();
   }, []);
+
+  // Clear badge when viewed
+  const unresolvedCount = hasViewedBadge ? 0 : rawUnresolvedCount;
 
   const [messages, setMessages] = useState([
     {
@@ -353,7 +363,14 @@ I am your internal operations intelligence assistant. You can ask me questions a
           type="button"
           onClick={(e) => {
             if (preventClickIfDragged(e)) return;
-            setIsOpen(!isOpen);
+            const willOpen = !isOpen;
+            setIsOpen(willOpen);
+            if (willOpen) {
+              setHasViewedBadge(true);
+              try {
+                sessionStorage.setItem('ops_badge_cleared', 'true');
+              } catch (_) {}
+            }
           }}
           style={{
             width: '54px',
