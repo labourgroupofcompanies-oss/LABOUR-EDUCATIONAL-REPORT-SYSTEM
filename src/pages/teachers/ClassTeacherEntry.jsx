@@ -7,6 +7,7 @@ import { useAuth } from '../../store/AuthContext';
 import { enqueueSync } from '../../services/syncEngine';
 import LearnerPhoto from '../../components/common/LearnerPhoto';
 import { getNextClassForPromotion } from '../../utils/promotionUtils';
+import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../../utils/teacherUtils';
 
 const ClassTeacherEntry = () => {
   const { user } = useAuth();
@@ -36,6 +37,12 @@ const ClassTeacherEntry = () => {
   const learners = useLiveQuery(() => user?.schoolId ? db.learners.filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
   const reportSummaries = useLiveQuery(() => user?.schoolId ? db.reportSummaries.filter(r => String(r.schoolId) === String(user.schoolId) || String(r.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
   const teacherAssignments = useLiveQuery(() => user?.schoolId ? db.teacherAssignments.filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).toArray() : [], [user?.schoolId]);
+  const teacherIdTokens = useLiveQuery(
+    async () => {
+      return await getTeacherIdentifierSet(user, db);
+    },
+    [user]
+  );
   const schoolInfo = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
@@ -120,17 +127,21 @@ const ClassTeacherEntry = () => {
     })();
   }, [user]);
 
-  // Filter classes where user is class teacher (subjectId is null)
+  // Filter classes where user is class teacher (subjectId is null or undefined)
   const classTeacherClasses = useMemo(() => {
     if (!classes || !teacherAssignments || !user) return [];
-    if (user.role === 'super_admin') return classes; // fallback for admin testing
+    if (['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role)) return classes;
     const assignedIds = new Set(
       teacherAssignments
-        .filter(a => a.teacherId === user.id && a.subjectId === null)
-        .map(a => Number(a.classId))
+        .filter(a => isAssignmentForTeacher(a, teacherIdTokens, user) && (a.subjectId === null || a.subjectId === undefined))
+        .map(a => String(a.classId))
     );
-    return classes.filter(c => assignedIds.has(Number(c.id)));
-  }, [classes, teacherAssignments, user]);
+    return classes.filter(c => 
+      assignedIds.has(String(c.id)) || 
+      (c.supabaseId && assignedIds.has(String(c.supabaseId))) ||
+      (!isNaN(Number(c.id)) && assignedIds.has(String(Number(c.id))))
+    );
+  }, [classes, teacherAssignments, user, teacherIdTokens]);
 
   const classLearners = useMemo(() => {
     if (!selectedClass || !learners) return [];

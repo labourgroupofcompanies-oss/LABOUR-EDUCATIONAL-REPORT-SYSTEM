@@ -62,12 +62,76 @@ const MasterScoreViewer = () => {
       let allScores = localScores || [];
       if (navigator.onLine && schoolId) {
         try {
-          const { data: cloudScores, error } = await supabase
-            .from('report_scores')
-            .select('*')
-            .eq('school_id', schoolId);
+          const [
+            { data: cloudScores, error: scoreErr },
+            { data: cloudLearners },
+            { data: cloudClasses },
+            { data: cloudSubjects }
+          ] = await Promise.all([
+            supabase.from('report_scores').select('*').eq('school_id', schoolId),
+            supabase.from('report_learners').select('*').eq('school_id', schoolId),
+            supabase.from('report_classes').select('*').eq('school_id', schoolId),
+            supabase.from('report_subjects').select('*').eq('school_id', schoolId),
+          ]);
 
-          if (!error && cloudScores && cloudScores.length > 0) {
+          // 1. Merge cloud learners with local learners
+          if (cloudLearners && cloudLearners.length > 0) {
+            const mappedCloudLearners = cloudLearners.map(cl => ({
+              id: cl.id,
+              supabaseId: cl.id,
+              schoolId: cl.school_id,
+              fullName: cl.full_name,
+              regNumber: cl.reg_number,
+              gender: cl.gender,
+              currentClassId: cl.class_id,
+              status: cl.status || 'Active',
+            }));
+
+            const lMap = new Map();
+            (localLearners || []).forEach(l => {
+              lMap.set(String(l.id), l);
+              if (l.supabaseId) lMap.set(String(l.supabaseId), l);
+            });
+            mappedCloudLearners.forEach(cl => {
+              if (!lMap.has(String(cl.id)) && !lMap.has(String(cl.supabaseId))) {
+                lMap.set(String(cl.id), cl);
+              }
+            });
+            setLearners(Array.from(new Set(lMap.values())));
+          }
+
+          // 2. Merge cloud classes
+          if (cloudClasses && cloudClasses.length > 0) {
+            const cMap = new Map();
+            (localClasses || []).forEach(c => {
+              cMap.set(String(c.id), c);
+              if (c.supabaseId) cMap.set(String(c.supabaseId), c);
+            });
+            cloudClasses.forEach(cc => {
+              if (!cMap.has(String(cc.id))) {
+                cMap.set(String(cc.id), { id: cc.id, supabaseId: cc.id, name: cc.name });
+              }
+            });
+            setClasses(Array.from(new Set(cMap.values())));
+          }
+
+          // 3. Merge cloud subjects
+          if (cloudSubjects && cloudSubjects.length > 0) {
+            const sMap = new Map();
+            (Array.from(uniqueSubjMap.values()) || []).forEach(s => {
+              sMap.set(String(s.id), s);
+              if (s.supabaseId) sMap.set(String(s.supabaseId), s);
+            });
+            cloudSubjects.forEach(cs => {
+              if (!sMap.has(String(cs.id))) {
+                sMap.set(String(cs.id), { id: cs.id, supabaseId: cs.id, name: cs.name });
+              }
+            });
+            setSubjects(Array.from(new Set(sMap.values())));
+          }
+
+          // 4. Merge cloud scores
+          if (!scoreErr && cloudScores && cloudScores.length > 0) {
             const mappedCloud = cloudScores.map(cs => ({
               id: cs.id,
               learnerId: cs.learner_id,
@@ -92,7 +156,7 @@ const MasterScoreViewer = () => {
             allScores = Array.from(combinedMap.values());
           }
         } catch (cloudErr) {
-          console.warn('[MasterScoreViewer] Could not fetch cloud scores, reading Dexie:', cloudErr);
+          console.warn('[MasterScoreViewer] Could not fetch cloud data, reading Dexie:', cloudErr);
         }
       }
 
@@ -112,19 +176,54 @@ const MasterScoreViewer = () => {
   // Fast ID maps
   const classMap = useMemo(() => {
     const map = {};
-    classes.forEach(c => { map[c.id] = c.name; });
+    classes.forEach(c => {
+      if (c.id !== undefined && c.id !== null) {
+        map[c.id] = c.name;
+        map[String(c.id)] = c.name;
+      }
+      if (c.supabaseId) {
+        map[c.supabaseId] = c.name;
+        map[String(c.supabaseId)] = c.name;
+      }
+    });
     return map;
   }, [classes]);
 
   const subjectMap = useMemo(() => {
     const map = {};
-    subjects.forEach(s => { map[s.id] = s.name; });
+    subjects.forEach(s => {
+      if (s.id !== undefined && s.id !== null) {
+        map[s.id] = s.name;
+        map[String(s.id)] = s.name;
+      }
+      if (s.supabaseId) {
+        map[s.supabaseId] = s.name;
+        map[String(s.supabaseId)] = s.name;
+      }
+    });
     return map;
   }, [subjects]);
 
   const learnerMap = useMemo(() => {
     const map = {};
-    learners.forEach(l => { map[l.id] = l; });
+    learners.forEach(l => {
+      if (l.id !== undefined && l.id !== null) {
+        map[l.id] = l;
+        map[String(l.id)] = l;
+      }
+      if (l.supabaseId) {
+        map[l.supabaseId] = l;
+        map[String(l.supabaseId)] = l;
+      }
+      if (l.regNumber) {
+        map[l.regNumber] = l;
+        map[String(l.regNumber).trim()] = l;
+      }
+      if (l.reg_number) {
+        map[l.reg_number] = l;
+        map[String(l.reg_number).trim()] = l;
+      }
+    });
     return map;
   }, [learners]);
 
@@ -147,9 +246,18 @@ const MasterScoreViewer = () => {
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
-        const learner = learnerMap[sc.learnerId];
-        const learnerName = learner?.fullName || `${learner?.firstName || ''} ${learner?.lastName || ''}`;
-        const reg = learner?.regNumber || '';
+        const learner = learnerMap[sc.learnerId] || 
+                        learnerMap[String(sc.learnerId)] || 
+                        learners.find(l => 
+                          (l.supabaseId && l.supabaseId === sc.learnerId) || 
+                          String(l.id) === String(sc.learnerId) ||
+                          (l.regNumber && String(l.regNumber).trim() === String(sc.learnerId).trim()) ||
+                          (l.reg_number && String(l.reg_number).trim() === String(sc.learnerId).trim())
+                        );
+        const learnerName = learner 
+          ? (learner.fullName || learner.full_name || `${learner.firstName || ''} ${learner.lastName || ''}`.trim() || learner.name || '')
+          : '';
+        const reg = learner?.regNumber || learner?.reg_number || learner?.enrollmentCode || '';
         const subj = subjectMap[sc.subjectId] || '';
         const cls = classMap[sc.classId] || '';
 
@@ -192,9 +300,18 @@ const MasterScoreViewer = () => {
     const headers = ['Learner Code', 'Learner Name', 'Class', 'Subject', 'Academic Year', 'Term', 'Class Score (50%)', 'Exam Score (50%)', 'Total Score (100%)', 'Grade', 'Remark', 'Status'];
 
     const rows = filteredScores.map(sc => {
-      const learner = learnerMap[sc.learnerId];
-      const name = learner ? `"${learner.fullName || `${learner.firstName || ''} ${learner.lastName || ''}`}"` : '"Unknown"';
-      const code = learner?.regNumber || learner?.enrollmentCode || sc.learnerId || '';
+      const learner = learnerMap[sc.learnerId] || 
+                      learnerMap[String(sc.learnerId)] || 
+                      learners.find(l => 
+                        (l.supabaseId && l.supabaseId === sc.learnerId) || 
+                        String(l.id) === String(sc.learnerId) ||
+                        (l.regNumber && String(l.regNumber).trim() === String(sc.learnerId).trim()) ||
+                        (l.reg_number && String(l.reg_number).trim() === String(sc.learnerId).trim())
+                      );
+      const name = learner 
+        ? `"${learner.fullName || learner.full_name || `${learner.firstName || ''} ${learner.lastName || ''}`.trim() || learner.name || 'Unknown'}"` 
+        : '"Unknown"';
+      const code = learner?.regNumber || learner?.reg_number || learner?.enrollmentCode || sc.learnerId || '';
       const className = `"${classMap[sc.classId] || 'Unassigned'}"`;
       const subjectName = `"${subjectMap[sc.subjectId] || 'Unassigned'}"`;
 
@@ -484,9 +601,18 @@ const MasterScoreViewer = () => {
                   </thead>
                   <tbody>
                     {filteredScores.map(sc => {
-                      const learner = learnerMap[sc.learnerId];
-                      const fullName = learner ? (learner.fullName || `${learner.firstName || ''} ${learner.lastName || ''}`) : 'Unknown Learner';
-                      const regNo = learner?.regNumber || learner?.enrollmentCode || '—';
+                      const learner = learnerMap[sc.learnerId] || 
+                                      learnerMap[String(sc.learnerId)] || 
+                                      learners.find(l => 
+                                        (l.supabaseId && l.supabaseId === sc.learnerId) || 
+                                        String(l.id) === String(sc.learnerId) ||
+                                        (l.regNumber && String(l.regNumber).trim() === String(sc.learnerId).trim()) ||
+                                        (l.reg_number && String(l.reg_number).trim() === String(sc.learnerId).trim())
+                                      );
+                      const fullName = learner 
+                        ? (learner.fullName || learner.full_name || `${learner.firstName || ''} ${learner.lastName || ''}`.trim() || learner.name || 'Unknown Learner') 
+                        : 'Unknown Learner';
+                      const regNo = learner?.regNumber || learner?.reg_number || learner?.enrollmentCode || '—';
                       const className = classMap[sc.classId] || 'Unassigned';
                       const subjectName = subjectMap[sc.subjectId] || 'Unassigned';
                       const gBadge = getGradeBadge(sc.grade);
@@ -533,9 +659,18 @@ const MasterScoreViewer = () => {
               {/* Mobile Native Score Cards Container */}
               <div className="mobile-score-cards-container">
                 {filteredScores.map(sc => {
-                  const learner = learnerMap[sc.learnerId];
-                  const fullName = learner ? (learner.fullName || `${learner.firstName || ''} ${learner.lastName || ''}`) : 'Unknown Learner';
-                  const regNo = learner?.regNumber || learner?.enrollmentCode || '—';
+                  const learner = learnerMap[sc.learnerId] || 
+                                  learnerMap[String(sc.learnerId)] || 
+                                  learners.find(l => 
+                                    (l.supabaseId && l.supabaseId === sc.learnerId) || 
+                                    String(l.id) === String(sc.learnerId) ||
+                                    (l.regNumber && String(l.regNumber).trim() === String(sc.learnerId).trim()) ||
+                                    (l.reg_number && String(l.reg_number).trim() === String(sc.learnerId).trim())
+                                  );
+                  const fullName = learner 
+                    ? (learner.fullName || learner.full_name || `${learner.firstName || ''} ${learner.lastName || ''}`.trim() || learner.name || 'Unknown Learner') 
+                    : 'Unknown Learner';
+                  const regNo = learner?.regNumber || learner?.reg_number || learner?.enrollmentCode || '—';
                   const className = classMap[sc.classId] || 'Unassigned';
                   const subjectName = subjectMap[sc.subjectId] || 'Unassigned';
                   const gBadge = getGradeBadge(sc.grade);

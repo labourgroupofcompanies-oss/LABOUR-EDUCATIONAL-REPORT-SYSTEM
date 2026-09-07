@@ -87,10 +87,14 @@ const TeacherList = () => {
     if (!subjects || !assignClassId) return [];
     const assignedIds = new Set(
       classSubjects
-        ?.filter(cs => cs.classId === Number(assignClassId))
-        ?.map(cs => cs.subjectId)
+        ?.filter(cs => Number(cs.classId) === Number(assignClassId) || String(cs.classId) === String(assignClassId))
+        ?.map(cs => String(cs.subjectId))
     );
-    return subjects.filter(s => assignedIds.has(Number(s.id)));
+    if (assignedIds.size > 0) {
+      const offered = subjects.filter(s => assignedIds.has(String(s.id)) || (s.supabaseId && assignedIds.has(String(s.supabaseId))));
+      if (offered.length > 0) return offered;
+    }
+    return subjects;
   }, [subjects, assignClassId, classSubjects]);
 
   // Auto-increment Staff ID when modal opens
@@ -341,20 +345,18 @@ const TeacherList = () => {
     e.preventDefault();
     if (!selectedTeacher || !assignClassId || !user?.schoolId) return;
 
-    const classObj = classes.find(c => c.id === Number(assignClassId));
-    const mode = classObj?.teachingMode || 'class_teacher';
-    
     let subjectIdVal = null;
-    if (mode === 'class_teacher' || assignSubjectId === 'advisor') {
+    if (assignSubjectId === 'advisor' || !assignSubjectId) {
       subjectIdVal = null;
     } else {
       subjectIdVal = Number(assignSubjectId);
     }
 
     // 1. Prevent duplicate assignments for the SAME teacher
-    const teacherAssignments = allAssignments?.filter(a => a.teacherId === selectedTeacher.id) || [];
+    const teacherAssignments = allAssignments?.filter(a => String(a.teacherId) === String(selectedTeacher.id)) || [];
     const isDuplicate = teacherAssignments.some(
-      a => a.classId === Number(assignClassId) && a.subjectId === subjectIdVal
+      a => (Number(a.classId) === Number(assignClassId) || String(a.classId) === String(assignClassId)) &&
+           (a.subjectId === subjectIdVal || (subjectIdVal !== null && Number(a.subjectId) === Number(subjectIdVal)))
     );
 
     if (isDuplicate) {
@@ -365,9 +367,10 @@ const TeacherList = () => {
     // 2. Enforce that only ONE teacher can be assigned as the Class Advisor / Class Teacher
     if (subjectIdVal === null) {
       const existingClassTeacher = allAssignments?.find(
-        a => a.classId === Number(assignClassId) && a.subjectId === null
+        a => (Number(a.classId) === Number(assignClassId) || String(a.classId) === String(assignClassId)) && 
+             (a.subjectId === null || a.subjectId === undefined)
       );
-      if (existingClassTeacher) {
+      if (existingClassTeacher && String(existingClassTeacher.teacherId) !== String(selectedTeacher.id)) {
         const otherTeacher = await db.profiles.get(existingClassTeacher.teacherId);
         alert(`This class already has a Class Advisor/Teacher assigned: ${otherTeacher?.fullName || 'Another teacher'}. You must remove their assignment first.`);
         return;
@@ -391,6 +394,26 @@ const TeacherList = () => {
       class_id: Number(assignClassId),
       subject_id: subjectIdVal
     }, user.schoolId);
+
+    // Auto-link subject to class in classSubjects if not already present
+    if (subjectIdVal !== null) {
+      const existsInClass = (classSubjects || []).some(
+        cs => (Number(cs.classId) === Number(assignClassId) || String(cs.classId) === String(assignClassId)) &&
+              (Number(cs.subjectId) === Number(subjectIdVal) || String(cs.subjectId) === String(subjectIdVal))
+      );
+      if (!existsInClass) {
+        await db.classSubjects.add({
+          classId: Number(assignClassId),
+          subjectId: Number(subjectIdVal),
+          schoolId: user.schoolId
+        });
+        await enqueueSync('insert', 'report_class_subjects', {
+          school_id: user.schoolId,
+          class_id: Number(assignClassId),
+          subject_id: Number(subjectIdVal)
+        }, user.schoolId);
+      }
+    }
 
     setAssignClassId('');
     setAssignSubjectId('');
@@ -686,8 +709,8 @@ const TeacherList = () => {
                       </select>
                     </div>
 
-                    {!isSelectedClassTeacherMode && assignClassId && (
-                      <div style={{ flex: '1 1 200px' }}>
+                    {assignClassId && (
+                      <div style={{ flex: '1 1 220px' }}>
                         <select 
                           className="form-input" 
                           required 
@@ -695,18 +718,19 @@ const TeacherList = () => {
                           onChange={(e) => setAssignSubjectId(e.target.value)}
                         >
                           <option value="">-- Select Subject or Role --</option>
-                          <option value="advisor" style={{ fontWeight: 'bold', color: 'var(--primary)' }}>★ Class Advisor (Compile Reports)</option>
-                          {allowedSubjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          <option value="advisor" style={{ fontWeight: 'bold', color: '#D97706' }}>
+                            ★ {isSelectedClassTeacherMode ? 'Class Teacher (Teaches All Subjects & Remarks)' : 'Form Master / Class Advisor (Compiles Reports)'}
+                          </option>
+                          <optgroup label="Subjects">
+                            {(allowedSubjects.length > 0 ? allowedSubjects : (subjects || [])).map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </optgroup>
                         </select>
-                        {allowedSubjects.length === 0 && (
-                          <div style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '4px', paddingLeft: '4px' }}>
-                            <i className="fas fa-info-circle"></i> No subjects linked yet. You can only assign a Class Advisor.
-                          </div>
-                        )}
                       </div>
                     )}
 
-                    <button type="submit" className="btn btn-primary" style={{ flex: '0 0 auto' }} disabled={!assignClassId || (!isSelectedClassTeacherMode && !assignSubjectId)}>
+                    <button type="submit" className="btn btn-primary" style={{ flex: '0 0 auto' }} disabled={!assignClassId || !assignSubjectId}>
                       <i className="fas fa-plus"></i> Assign
                     </button>
                   </div>

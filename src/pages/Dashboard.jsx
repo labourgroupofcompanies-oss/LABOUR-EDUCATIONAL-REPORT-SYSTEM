@@ -10,6 +10,7 @@ import TeacherAnalytics from '../components/analytics/TeacherAnalytics';
 import TeacherReferralCard from '../components/referrals/TeacherReferralCard';
 import learnerRepository from '../repositories/learnerRepository';
 import subscriptionService from '../services/subscriptionService';
+import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../utils/teacherUtils';
 
 // Premium Green-Themed Stat Card with Micro-Animations
 const StatCard = ({ icon, iconColor, value, label, badge, badgeColor, onClick, isFeatured }) => (
@@ -252,9 +253,23 @@ const Dashboard = () => {
     () => schoolId ? db.scores.where('schoolId').equals(schoolId).toArray() : Promise.resolve([]),
     [schoolId]
   );
-  const assignments = useLiveQuery(
-    () => user && user.role === 'teacher' ? db.teacherAssignments.where('teacherId').equals(user.id).toArray() : Promise.resolve([]),
+  const teacherIdTokens = useLiveQuery(
+    async () => {
+      return await getTeacherIdentifierSet(user, db);
+    },
     [user]
+  );
+
+  const assignments = useLiveQuery(
+    async () => {
+      if (!user || user.role !== 'teacher') return [];
+      const idTokens = teacherIdTokens || await getTeacherIdentifierSet(user, db);
+      const allSchoolAssigns = await db.teacherAssignments
+        .filter(a => isAssignmentForTeacher(a, idTokens, user))
+        .toArray();
+      return allSchoolAssigns;
+    },
+    [user, teacherIdTokens]
   );
   // Settings needed for analytics (grading scale thresholds)
   const settings = useLiveQuery(() => db.settings.get('global'), []);
@@ -262,52 +277,60 @@ const Dashboard = () => {
 
   // Background pull sync is managed globally by SyncEngineProvider for all routes.
 
-  // â”€â”€ Computing Teacher Portal Dashboard Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Computing Teacher Portal Dashboard Data ────────────────────────
   
   // 1. My Classes
   const teacherClasses = React.useMemo(() => {
     if (!assignments || !allClasses) return [];
-    const assignedClassIds = new Set(assignments.map(a => Number(a.classId)));
-    return allClasses.filter(c => assignedClassIds.has(Number(c.id)));
+    const assignedClassIds = new Set(assignments.map(a => String(a.classId)));
+    return allClasses.filter(c => 
+      assignedClassIds.has(String(c.id)) || 
+      (c.supabaseId && assignedClassIds.has(String(c.supabaseId))) ||
+      (!isNaN(Number(c.id)) && assignments.some(a => Number(a.classId) === Number(c.id)))
+    );
   }, [allClasses, assignments]);
 
   // 2. My Class-Subject combinations (handles Class Teacher Mode as well)
   const teacherClassSubjects = React.useMemo(() => {
-    if (!assignments || !allClasses || !classSubjects) return [];
+    if (!assignments || !allClasses) return [];
     
     const list = [];
     const seen = new Set();
     
     assignments.forEach(assign => {
-      const classId = Number(assign.classId);
-      const classObj = allClasses.find(c => Number(c.id) === classId);
+      const classIdStr = String(assign.classId);
+      const classObj = allClasses.find(c => String(c.id) === classIdStr || (c.supabaseId && String(c.supabaseId) === classIdStr) || (!isNaN(Number(c.id)) && Number(c.id) === Number(assign.classId)));
       if (!classObj) return;
+      const targetClassId = classObj.id;
       
-      const isClassTeacher = assign.subjectId === null;
+      const isClassTeacher = assign.subjectId === null || assign.subjectId === undefined;
       const mode = classObj.teachingMode || 'class_teacher';
       
-      if (isClassTeacher && mode === 'class_teacher') {
-        // Class Teacher Mode: teaches all subjects assigned to this class
-        const subjectsForClass = classSubjects.filter(cs => Number(cs.classId) === classId);
+      if (isClassTeacher) {
+        // Class Teacher Mode or Form Master: gets all subjects for this class
+        let subjectsForClass = (classSubjects || []).filter(cs => String(cs.classId) === classIdStr || Number(cs.classId) === Number(targetClassId));
+        if (subjectsForClass.length === 0 && allSubjects && allSubjects.length > 0) {
+          subjectsForClass = allSubjects.map(s => ({ subjectId: s.id }));
+        }
         subjectsForClass.forEach(cs => {
-          const key = `${classId}-${cs.subjectId}`;
+          const key = `${targetClassId}-${cs.subjectId}`;
           if (!seen.has(key)) {
             seen.add(key);
-            list.push({ classId, subjectId: Number(cs.subjectId) });
+            list.push({ classId: targetClassId, subjectId: Number(cs.subjectId) });
           }
         });
-      } else if (assign.subjectId !== null) {
-        // Subject Teacher Mode: teaches a specific assigned subject
-        const key = `${classId}-${assign.subjectId}`;
+      } else {
+        // Specific assigned subject
+        const key = `${targetClassId}-${assign.subjectId}`;
         if (!seen.has(key)) {
           seen.add(key);
-          list.push({ classId, subjectId: Number(assign.subjectId) });
+          list.push({ classId: targetClassId, subjectId: Number(assign.subjectId) });
         }
       }
     });
     
     return list;
-  }, [assignments, allClasses, classSubjects]);
+  }, [assignments, allClasses, classSubjects, allSubjects]);
 
   // 3. My Students (unique learners in classes assigned to me)
   const teacherStudentsCount = React.useMemo(() => {

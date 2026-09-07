@@ -8,6 +8,7 @@ import { useAuth } from '../../store/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import { enqueueSync } from '../../services/syncEngine';
 import { filterLearnersForSubject, getLanguageLabel } from '../../utils/languageUtils';
+import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../../utils/teacherUtils';
 import LogoPreloader from '../../components/common/LogoPreloader';
 
 const ScoreEntry = () => {
@@ -78,9 +79,23 @@ const ScoreEntry = () => {
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
   
-  const assignments = useLiveQuery(
-    () => user && user.role === 'teacher' ? db.teacherAssignments.where('teacherId').equals(user.id).toArray() : [],
+  const teacherIdTokens = useLiveQuery(
+    async () => {
+      return await getTeacherIdentifierSet(user, db);
+    },
     [user]
+  );
+
+  const assignments = useLiveQuery(
+    async () => {
+      if (!user || user.role !== 'teacher') return [];
+      const idTokens = teacherIdTokens || await getTeacherIdentifierSet(user, db);
+      const allSchoolAssigns = await db.teacherAssignments
+        .filter(a => isAssignmentForTeacher(a, idTokens, user))
+        .toArray();
+      return allSchoolAssigns;
+    },
+    [user, teacherIdTokens]
   );
 
   // Sync current school settings for term/year defaults
@@ -202,24 +217,21 @@ const ScoreEntry = () => {
 
       // 3. Pull Teacher Assignments
       try {
-        let query = supabase.from('report_teacher_assignments').select('*').eq('school_id', user.schoolId);
-        if (user.role === 'teacher') {
-          query = query.eq('teacher_id', user.id);
-        }
-        const { data: assignData, error: assignErr } = await query;
+        const { data: assignData, error: assignErr } = await supabase
+          .from('report_teacher_assignments')
+          .select('*')
+          .eq('school_id', user.schoolId);
         
         if (!assignErr && assignData) {
-          if (user.role === 'teacher') {
-            const myLocalAssigns = await db.teacherAssignments.where('teacherId').equals(user.id).toArray();
-            for (const la of myLocalAssigns) {
-              await db.teacherAssignments.delete(la.id);
-            }
-          } else {
-            await db.teacherAssignments.clear();
-          }
-
           for (const a of assignData) {
-            await db.teacherAssignments.put({
+            const existing = await db.teacherAssignments
+              .filter(la => (la.supabaseId && la.supabaseId === a.id) || 
+                            (String(la.teacherId) === String(a.teacher_id) && 
+                             Number(la.classId) === Number(a.class_id) && 
+                             (a.subject_id ? Number(la.subjectId) === Number(a.subject_id) : (la.subjectId === null || la.subjectId === undefined))))
+              .first();
+
+            const mapped = {
               supabaseId: a.id,
               schoolId: a.school_id,
               teacherId: a.teacher_id,
@@ -227,7 +239,13 @@ const ScoreEntry = () => {
               subjectId: a.subject_id ? Number(a.subject_id) : null,
               termId: a.term_id ? Number(a.term_id) : null,
               synced: true
-            });
+            };
+
+            if (existing) {
+              await db.teacherAssignments.update(existing.id, mapped);
+            } else {
+              await db.teacherAssignments.put(mapped);
+            }
           }
         }
       } catch (err) {
@@ -290,8 +308,14 @@ const ScoreEntry = () => {
     if (isHeadteacherOrAdmin) return allClasses;
     
     // Teacher: Only classes where they have at least one assignment
-    const assignedClassIds = new Set(assignments?.map(a => Number(a.classId)));
-    return allClasses.filter(c => assignedClassIds.has(Number(c.id)));
+    const assignedClassIds = new Set(
+      (assignments || []).map(a => String(a.classId))
+    );
+    return allClasses.filter(c => 
+      assignedClassIds.has(String(c.id)) || 
+      (c.supabaseId && assignedClassIds.has(String(c.supabaseId))) ||
+      (!isNaN(Number(c.id)) && (assignments || []).some(a => Number(a.classId) === Number(c.id)))
+    );
   }, [allClasses, assignments, user]);
 
   // Filtered subjects offered by the selected class (Headteachers/Admins see all subjects)
@@ -299,39 +323,77 @@ const ScoreEntry = () => {
     if (!allSubjects) return [];
     if (!selectedClass) return [];
 
-    // Get the subjects actually offered by this class
+    const selectedClassStr = String(selectedClass);
+    const selectedClassNum = Number(selectedClass);
+
+    // Get the subjects actually offered by this class according to classSubjects mapping
     const classSubIds = new Set(
-      classSubjects
-        ?.filter(cs => Number(cs.classId) === Number(selectedClass))
-        ?.map(cs => Number(cs.subjectId))
+      (classSubjects || [])
+        .filter(cs => String(cs.classId) === selectedClassStr || (!isNaN(selectedClassNum) && Number(cs.classId) === selectedClassNum))
+        .map(cs => String(cs.subjectId))
     );
-    const classOfferedSubjects = allSubjects.filter(s => classSubIds.has(Number(s.id)));
+    let classOfferedSubjects = allSubjects.filter(s => 
+      classSubIds.has(String(s.id)) || 
+      (s.supabaseId && classSubIds.has(String(s.supabaseId))) || 
+      (!isNaN(Number(s.id)) && classSubIds.has(String(Number(s.id))))
+    );
+
+    // If no class-subject mapping was configured yet for this class, fallback to allSubjects
+    if (classOfferedSubjects.length === 0 && (!classSubjects || classSubjects.length === 0 || classSubIds.size === 0)) {
+      classOfferedSubjects = allSubjects;
+    }
 
     // Headteachers / Admins / Super Admins can enter scores for ALL subjects offered in any class
     const isHeadteacherOrAdmin = !user || ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user.role);
-    if (isHeadteacherOrAdmin) return classOfferedSubjects;
+    if (isHeadteacherOrAdmin) return classOfferedSubjects.length > 0 ? classOfferedSubjects : allSubjects;
 
     // Get selected class details to check teaching mode
-    const classObj = allClasses?.find(c => Number(c.id) === Number(selectedClass));
+    const classObj = allClasses?.find(c => String(c.id) === selectedClassStr || (!isNaN(selectedClassNum) && Number(c.id) === selectedClassNum));
     const mode = classObj?.teachingMode || 'class_teacher';
 
-    if (mode === 'class_teacher') {
-      // If class is in Class Teacher Mode and they are assigned as its Class Teacher (subjectId is null)
-      const isClassTeacher = assignments?.some(
-        a => Number(a.classId) === Number(selectedClass) && a.subjectId === null
-      );
-      if (isClassTeacher) {
-        return classOfferedSubjects; // Can teach all subjects offered by this class
-      }
+    // Check if user is assigned as Class Teacher / Form Master (subjectId is null or undefined)
+    const isClassTeacher = (assignments || []).some(
+      a => (String(a.classId) === selectedClassStr || (!isNaN(selectedClassNum) && Number(a.classId) === selectedClassNum)) && 
+           (a.subjectId === null || a.subjectId === undefined)
+    );
+
+    // Any subjects explicitly assigned to this teacher for this class
+    const explicitlyAssignedSubjectIds = new Set(
+      (assignments || [])
+        .filter(a => (String(a.classId) === selectedClassStr || (!isNaN(selectedClassNum) && Number(a.classId) === selectedClassNum)) && 
+                     a.subjectId !== null && a.subjectId !== undefined)
+        .map(a => String(a.subjectId))
+    );
+
+    // If teacher is Class Teacher:
+    // In class_teacher mode, they can teach ALL subjects offered by this class (or all subjects if none mapped)
+    if (isClassTeacher && mode === 'class_teacher') {
+      return classOfferedSubjects.length > 0 ? classOfferedSubjects : allSubjects;
     }
 
-    // Subject Teacher Mode: only show assigned subjects in this class (restricted to class-offered ones)
-    const allowedSubjectIds = new Set(
-      assignments
-        ?.filter(a => Number(a.classId) === Number(selectedClass) && a.subjectId !== null)
-        ?.map(a => Number(a.subjectId))
-    );
-    return classOfferedSubjects.filter(s => allowedSubjectIds.has(Number(s.id)));
+    // If teacher is Class Advisor / Form Master in subject_teacher mode, and has no specific subjects assigned,
+    // they get access to all class offered subjects
+    if (isClassTeacher && explicitlyAssignedSubjectIds.size === 0) {
+      return classOfferedSubjects.length > 0 ? classOfferedSubjects : allSubjects;
+    }
+
+    // Otherwise, collect all subjects that are explicitly assigned to this teacher for this class,
+    // PLUS if they are also the class teacher, all class-offered subjects
+    const allowedList = allSubjects.filter(s => {
+      const sIdStr = String(s.id);
+      const sSupabaseIdStr = s.supabaseId ? String(s.supabaseId) : null;
+      const isExplicit = explicitlyAssignedSubjectIds.has(sIdStr) || 
+                         (sSupabaseIdStr && explicitlyAssignedSubjectIds.has(sSupabaseIdStr)) ||
+                         (assignments || []).some(a => 
+                           (String(a.classId) === selectedClassStr || (!isNaN(selectedClassNum) && Number(a.classId) === selectedClassNum)) &&
+                           (String(a.subjectId) === sIdStr || (sSupabaseIdStr && String(a.subjectId) === sSupabaseIdStr) || (!isNaN(Number(s.id)) && Number(a.subjectId) === Number(s.id)))
+                         );
+      if (isExplicit) return true;
+      if (isClassTeacher && (classSubIds.has(sIdStr) || (sSupabaseIdStr && classSubIds.has(sSupabaseIdStr)))) return true;
+      return false;
+    });
+
+    return allowedList.length > 0 ? allowedList : (isClassTeacher ? classOfferedSubjects : []);
   }, [allSubjects, selectedClass, allClasses, assignments, user, classSubjects]);
 
   // Get learners for the selected class (including historical ones for past terms/years)

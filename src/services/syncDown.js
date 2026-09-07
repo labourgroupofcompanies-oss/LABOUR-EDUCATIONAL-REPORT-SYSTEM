@@ -345,26 +345,31 @@ async function runAdminSync(user) {
 
   // ── 4b. Teacher Assignments ──────────────────────────────────────────────────
   try {
-    let query = supabase.from('report_teacher_assignments').select('*').eq('school_id', schoolId);
-    if (user.role === 'teacher') query = query.eq('teacher_id', user.id);
-    const { data: assignData, error } = await query;
+    const { data: assignData, error } = await supabase
+      .from('report_teacher_assignments')
+      .select('*')
+      .eq('school_id', schoolId);
 
     if (!error && assignData) {
       const remoteIds = new Set(assignData.map(a => a.id));
-      const localAssigns = user.role === 'teacher'
-        ? await db.teacherAssignments.where('teacherId').equals(user.id).toArray()
-        : await db.teacherAssignments.toArray();
+      const localAssigns = await db.teacherAssignments
+        .filter(a => String(a.schoolId || a.school_id || '') === String(schoolId))
+        .toArray();
 
-      // Remove stale local assignments
+      // Remove stale local assignments that exist locally with a supabaseId no longer in remote
       for (const la of localAssigns) {
-        if (la.supabaseId && !remoteIds.has(la.supabaseId)) await db.teacherAssignments.delete(la.id);
+        if (la.supabaseId && !remoteIds.has(la.supabaseId)) {
+          await db.teacherAssignments.delete(la.id);
+        }
       }
 
       // Add/update with smart diff
       for (const a of assignData) {
         const local = localAssigns.find(la => la.supabaseId === a.id);
         const mapped = {
-          supabaseId: a.id, schoolId: a.school_id, teacherId: a.teacher_id,
+          supabaseId: a.id,
+          schoolId: a.school_id,
+          teacherId: a.teacher_id,
           classId: Number(a.class_id),
           subjectId: a.subject_id ? Number(a.subject_id) : null,
           termId: a.term_id ? Number(a.term_id) : null,

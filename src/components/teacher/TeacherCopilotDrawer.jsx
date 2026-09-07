@@ -5,6 +5,7 @@ import { askTeacherAgent } from '../../services/teacherAgentService';
 import { useLiveQuery } from 'dexie-react-hooks';
 import db from '../../lib/db';
 import useDraggableButton from '../../hooks/useDraggableButton';
+import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../../utils/teacherUtils';
 
 /**
  * Lightweight safe Markdown renderer for Teacher Copilot
@@ -213,9 +214,10 @@ const TeacherCopilotDrawer = () => {
       if (!user?.id || !user?.schoolId) return 0;
       try {
         const sId = String(user.schoolId);
+        const idTokens = await getTeacherIdentifierSet(user, db);
         // Get teacher's assigned classes
         const assigns = await db.teacherAssignments
-          .filter(a => String(a.schoolId || a.school_id) === sId && String(a.teacherId) === String(user.id))
+          .filter(a => isAssignmentForTeacher(a, idTokens, user))
           .toArray();
 
         const classIds = new Set(assigns.map(a => Number(a.classId)));
