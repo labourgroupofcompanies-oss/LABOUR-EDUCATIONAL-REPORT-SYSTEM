@@ -13,6 +13,7 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
   const [attachMessage, setAttachMessage] = useState(null);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedRevokedItem, setSelectedRevokedItem] = useState(null);
 
   const loadStats = async () => {
     if (!schoolId) return;
@@ -269,6 +270,107 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
         )}
       </div>
 
+      {/* ── Redesigned Revoked Referral Notice Card (Appears only when clicking a revoked referral) ── */}
+      {selectedRevokedItem && (
+        <div style={{
+          background: 'linear-gradient(135deg, #18181b 0%, #27272a 100%)',
+          border: '1px solid #3f3f46',
+          borderLeft: '4px solid #ef4444',
+          borderRadius: '14px',
+          padding: '1.15rem 1.35rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: '14px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          animation: 'fadeIn 0.2s ease-in-out'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', flex: 1 }}>
+            <div style={{
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: 'rgba(239, 68, 68, 0.15)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ef4444',
+              fontSize: '1.15rem',
+              flexShrink: 0
+            }}>
+              <i className="fas fa-shield-halved" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <strong style={{ color: '#ffffff', fontSize: '0.92rem' }}>
+                  Labour Edu
+                </strong>
+                <span style={{
+                  background: 'rgba(239, 68, 68, 0.2)',
+                  color: '#f87171',
+                  border: '1px solid rgba(239, 68, 68, 0.4)',
+                  borderRadius: '6px',
+                  padding: '0.15rem 0.5rem',
+                  fontSize: '0.7rem',
+                  fontWeight: 800
+                }}>
+                  REVOKED REFERRAL
+                </span>
+              </div>
+              <p style={{ color: '#e4e4e7', fontSize: '0.82rem', margin: '0.35rem 0 0 0', lineHeight: 1.45 }}>
+                {selectedRevokedItem.rejectionReason || 'Referral reward deducted by administration.'}
+              </p>
+              
+              <div style={{
+                marginTop: '0.65rem',
+                padding: '0.55rem 0.85rem',
+                borderRadius: '8px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                fontSize: '0.76rem',
+                color: '#d4d4d8',
+                display: 'flex',
+                gap: '1rem',
+                flexWrap: 'wrap',
+                alignItems: 'center'
+              }}>
+                <div><span style={{ color: '#a1a1aa' }}>Institution:</span> <strong style={{ color: '#ffffff' }}>{selectedRevokedItem.schoolName}</strong></div>
+                {selectedRevokedItem.location && <div><span style={{ color: '#a1a1aa' }}>Location:</span> {selectedRevokedItem.location}</div>}
+                <div><span style={{ color: '#a1a1aa' }}>Status:</span> <span style={{ color: '#f87171', fontWeight: 700 }}>Reward Revoked / Deducted</span></div>
+                {selectedRevokedItem.deductedAmount && (
+                  <div><span style={{ color: '#a1a1aa' }}>Deducted Amount:</span> <span style={{ color: '#f87171', fontWeight: 700 }}>-GH₵ {Number(selectedRevokedItem.deductedAmount).toFixed(2)}</span></div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setSelectedRevokedItem(null)}
+            title="Dismiss notice"
+            style={{
+              background: 'rgba(255,255,255,0.06)',
+              border: 'none',
+              borderRadius: '8px',
+              color: '#a1a1aa',
+              width: '28px',
+              height: '28px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              fontSize: '1.15rem',
+              flexShrink: 0,
+              transition: 'all 0.15s ease'
+            }}
+            onMouseOver={(e) => { e.currentTarget.style.color = '#ffffff'; e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; }}
+            onMouseOut={(e) => { e.currentTarget.style.color = '#a1a1aa'; e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; }}
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* ── 6. Referral Activity Pipeline Table ─────────────────────────── */}
       <div style={{ 
         background: 'var(--surface)', 
@@ -392,12 +494,32 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
                     subtext = 'Not eligible for referral';
                   }
 
+                  const isRevoked = item.status === 'REVOKED' || item.status === 'DEDUCTED';
+                  const isSelected = selectedRevokedItem?.id === item.id;
+
                   return (
                     <tr 
                       key={item.id} 
-                      style={{ borderBottom: '1px solid var(--border)', transition: 'var(--transition)' }}
-                      onMouseOver={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.015)'}
-                      onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                      onClick={() => {
+                        if (isRevoked) {
+                          setSelectedRevokedItem(isSelected ? null : item);
+                        }
+                      }}
+                      style={{ 
+                        borderBottom: '1px solid var(--border)', 
+                        transition: 'var(--transition)',
+                        cursor: isRevoked ? 'pointer' : 'default',
+                        backgroundColor: isSelected ? 'rgba(239, 68, 68, 0.08)' : 'transparent'
+                      }}
+                      onMouseOver={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.backgroundColor = isRevoked ? 'rgba(239, 68, 68, 0.04)' : 'rgba(0,0,0,0.015)';
+                        }
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.backgroundColor = isSelected ? 'rgba(239, 68, 68, 0.08)' : 'transparent';
+                      }}
+                      title={isRevoked ? (isSelected ? "Click to hide super admin notice" : "Click to view super admin details") : undefined}
                     >
                       <td style={{ padding: '1rem 1.25rem' }}>
                         <div style={{ fontWeight: '700', color: 'var(--text)', fontSize: '0.92rem' }}>{item.schoolName}</div>
@@ -407,25 +529,40 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
                         {item.createdAt ? new Date(item.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—'}
                       </td>
                       <td style={{ padding: '1rem' }}>
-                        <span style={{ 
-                          background: badgeBg, 
-                          color: badgeColor, 
-                          border: `1px solid ${badgeBorder}`,
-                          padding: '0.25rem 0.7rem', 
-                          borderRadius: '999px', 
-                          fontSize: '0.75rem', 
-                          fontWeight: '700',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '5px'
-                        }}>
-                          {item.status === 'REWARDED' && <i className="fa-solid fa-circle-check"></i>}
-                          {item.status === 'VERIFIED' && <i className="fa-solid fa-shield-check"></i>}
-                          {(item.status === 'UNDER_VERIFICATION' || item.status === 'PENDING') && <i className="fa-solid fa-clock"></i>}
-                          {item.status === 'UNDER_REVIEW' && <i className="fa-solid fa-triangle-exclamation"></i>}
-                          {item.status === 'REJECTED' && <i className="fa-solid fa-circle-xmark"></i>}
-                          {label}
-                        </span>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ 
+                            background: badgeBg, 
+                            color: badgeColor, 
+                            border: `1px solid ${badgeBorder}`,
+                            padding: '0.25rem 0.7rem', 
+                            borderRadius: '999px', 
+                            fontSize: '0.75rem', 
+                            fontWeight: '700',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '5px'
+                          }}>
+                            {item.status === 'REWARDED' && <i className="fa-solid fa-circle-check"></i>}
+                            {item.status === 'VERIFIED' && <i className="fa-solid fa-shield-check"></i>}
+                            {(item.status === 'UNDER_VERIFICATION' || item.status === 'PENDING') && <i className="fa-solid fa-clock"></i>}
+                            {item.status === 'UNDER_REVIEW' && <i className="fa-solid fa-triangle-exclamation"></i>}
+                            {(item.status === 'REVOKED' || item.status === 'DEDUCTED') && <i className="fa-solid fa-circle-exclamation"></i>}
+                            {item.status === 'REJECTED' && <i className="fa-solid fa-circle-xmark"></i>}
+                            {label}
+                          </span>
+                          {isRevoked && (
+                            <span style={{
+                              fontSize: '0.7rem',
+                              color: isSelected ? '#b91c1c' : '#dc2626',
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px'
+                            }}>
+                              <i className="fa-solid fa-hand-pointer" style={{ fontSize: '0.65rem' }}></i> {isSelected ? 'Viewing notice' : 'Click to inspect'}
+                            </span>
+                          )}
+                        </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>{subtext}</div>
                       </td>
                       <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: '800', color: item.status === 'REWARDED' ? 'var(--success)' : 'var(--text-muted)', fontSize: '0.95rem' }}>

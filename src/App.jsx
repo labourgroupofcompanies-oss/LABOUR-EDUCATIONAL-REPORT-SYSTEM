@@ -21,6 +21,7 @@ import NotFound from './pages/NotFound';
 import ReloadPrompt from './components/common/ReloadPrompt';
 import SyncEngineProvider from './store/SyncEngineProvider';
 import ReferralPage from './pages/referrals/ReferralPage';
+import referralService from './services/referralService';
 import HeadteacherSupport from './pages/support/HeadteacherSupport';
 import RecycleBin from './pages/recycle-bin/RecycleBin';
 
@@ -96,6 +97,19 @@ const AuthListener = () => {
 
 
 function App() {
+  useEffect(() => {
+    // One-time self-healing reset for DODI-PAPASE RC JHS test referral and notifications
+    const KEY = 'dodi_papase_test_referral_cleared_v1';
+    if (!localStorage.getItem(KEY)) {
+      referralService.clearSchoolReferralsAndHistory('SCH-DRJ3984')
+        .then(() => {
+          localStorage.setItem(KEY, 'true');
+          console.info('[App] Cleaned DODI-PAPASE RC JHS test referral and messages.');
+        })
+        .catch(err => console.warn('[App] Auto-clear DODI notice:', err));
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <SyncEngineProvider>

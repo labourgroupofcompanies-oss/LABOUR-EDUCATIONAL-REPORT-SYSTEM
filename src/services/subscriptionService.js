@@ -929,7 +929,10 @@ const subscriptionService = {
 
       const walletData = (rawWalletData || []).filter(tx => {
         if (resetAt && new Date(tx.created_at) <= new Date(resetAt)) return false;
-        const isReferral = tx.description?.toLowerCase().includes('referral') || tx.reference?.startsWith('REF-') || tx.description?.toLowerCase().includes('welcome');
+        const isReferral = tx.description?.toLowerCase().includes('referral') || 
+                           tx.reference?.startsWith('REF-') || 
+                           tx.reference?.startsWith('DED-REF-') || 
+                           tx.description?.toLowerCase().includes('welcome');
         if (isReferral) {
           const suffix = String(tx.reference || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase();
           if (!rewardedRefSuffixes.has(suffix)) return false; // Exclude unverified / cleared referrals
@@ -1477,11 +1480,28 @@ const subscriptionService = {
       for (const entry of localLedger) {
         if (entry.id) await db.walletLedger.delete(entry.id);
       }
+
+      // Delete referral notifications in Dexie
+      if (db.notifications) {
+        const notifs = await db.notifications
+          .filter(n => String(n.schoolId).trim() === cleanId && (
+            (n.title && (n.title.toLowerCase().includes('referral') || n.title.toLowerCase().includes('welcome'))) ||
+            (n.content && (n.content.toLowerCase().includes('referral') || n.content.toLowerCase().includes('welcome')))
+          ))
+          .toArray();
+        for (const n of notifs) {
+          if (n.id) await db.notifications.delete(n.id);
+        }
+      }
+
+      try {
+        localStorage.setItem('wallet_reset_at_' + cleanId, new Date().toISOString());
+      } catch (_) {}
     } catch (localErr) {
       console.warn('[subscriptionService] Local Dexie reset notice:', localErr);
     }
 
-    return { success: true, message: 'Wallet balance, transactions, and referral records reset to 0.' };
+    return { success: true, message: 'Wallet balance, transactions, notifications, and referral records reset to 0.' };
   },
 };
 

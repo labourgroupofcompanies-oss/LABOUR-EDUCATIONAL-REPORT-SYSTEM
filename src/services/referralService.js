@@ -387,6 +387,204 @@ export const referralService = {
 
     await eventBus.publish('ReferralRejected', { id: referralId, status: 'REJECTED' });
     return { success: true };
+  },
+
+  /**
+   * Completely clear all referral records, bonus messages, notifications,
+   * ledger transactions, and referral locks for a school so they can start afresh.
+   * @param {string} schoolId
+   */
+  async clearSchoolReferralsAndHistory(schoolId) {
+    if (!schoolId) return { success: false, message: 'Missing school ID' };
+    const targetSchoolId = String(schoolId).trim();
+
+    try {
+      // 1. Remove from Supabase Cloud (report_referrals)
+      if (navigator.onLine) {
+        try {
+          await supabase
+            .from('report_referrals')
+            .delete()
+            .or(`referrer_school_id.eq.${targetSchoolId},referred_school_id.eq.${targetSchoolId}`);
+
+          // Reset referral stats on report_schools
+          await supabase
+            .from('report_schools')
+            .update({
+              referral_code: null,
+              wallet_balance: 0.00
+            })
+            .eq('id', targetSchoolId);
+        } catch (cloudErr) {
+          console.warn('[referralService] Cloud referral purge notice:', cloudErr);
+        }
+      }
+
+      // 2. Remove all related referral records from Dexie IndexedDB
+      const allLocalRefs = await db.referrals
+        .filter(r => String(r.referrerSchoolId).trim() === targetSchoolId || String(r.referredSchoolId).trim() === targetSchoolId)
+        .toArray();
+
+      const deletedRefIds = new Set(allLocalRefs.map(r => r.id));
+
+      for (const ref of allLocalRefs) {
+        if (ref.id) await db.referrals.delete(ref.id);
+      }
+
+      // 3. Remove from fraudAnalysis & referralAuditLogs in Dexie
+      if (db.fraudAnalysis) {
+        const frauds = await db.fraudAnalysis
+          .filter(f => deletedRefIds.has(f.referralId))
+          .toArray();
+        for (const f of frauds) {
+          if (f.id) await db.fraudAnalysis.delete(f.id);
+        }
+      }
+
+      if (db.referralAuditLogs) {
+        const auditLogs = await db.referralAuditLogs
+          .filter(a => deletedRefIds.has(a.referralId) || (a.details && a.details.includes(targetSchoolId)))
+          .toArray();
+        for (const a of auditLogs) {
+          if (a.id) await db.referralAuditLogs.delete(a.id);
+        }
+      }
+
+      // 4. Remove all referral bonus received & deducted notifications from db.notifications
+      if (db.notifications) {
+        const notifs = await db.notifications
+          .filter(n => 
+            String(n.schoolId).trim() === targetSchoolId &&
+            (
+              (n.title && (n.title.toLowerCase().includes('referral') || n.title.toLowerCase().includes('welcome bonus'))) ||
+              (n.content && (n.content.toLowerCase().includes('referral') || n.content.toLowerCase().includes('welcome bonus')))
+            )
+          )
+          .toArray();
+        for (const n of notifs) {
+          if (n.id) await db.notifications.delete(n.id);
+        }
+      }
+
+      // 5. Remove referral ledger transactions from db.walletLedger
+      if (db.walletLedger) {
+        const ledgerEntries = await db.walletLedger
+          .filter(l => 
+            String(l.schoolId).trim() === targetSchoolId && 
+            (
+              l.type === 'REFERRAL_REWARD' || 
+              l.type === 'REFERRAL_DEDUCTION' || 
+              l.type === 'WELCOME_BONUS' ||
+              (l.reference && (l.reference.startsWith('REF-') || l.reference.startsWith('DED-REF-') || l.reference.startsWith('WELCOME-')))
+            )
+          )
+          .toArray();
+        for (const entry of ledgerEntries) {
+          if (entry.id) await db.walletLedger.delete(entry.id);
+        }
+      }
+
+      // 6. Reset School entity in Dexie
+      const localSchool = await db.schools.get(targetSchoolId);
+      if (localSchool) {
+        await db.schools.update(targetSchoolId, {
+          referralCode: null,
+          referredBySchoolId: null,
+          referralLocked: false,
+          totalSuccessfulReferrals: 0,
+          totalReferralEarnings: 0,
+          wallet_balance: 0,
+          walletBalance: 0
+        });
+      }
+
+      // 7. Store local timestamp to invalidate any historical test wallet transactions
+      try {
+        localStorage.setItem('wallet_reset_at_' + targetSchoolId, new Date().toISOString());
+      } catch (_) {}
+
+      // 8. Trigger sync/event
+      await eventBus.publish('ReferralHistoryCleared', { schoolId: targetSchoolId });
+
+      return {
+        success: true,
+        message: `All referral records, bonus messages, and transactions for this school have been completely cleared. They can now start afresh!`
+      };
+    } catch (err) {
+      console.error('[referralService] clearSchoolReferralsAndHistory error:', err);
+      return { success: false, message: err.message || 'Failed to clear school referrals.' };
+    }
+  },
+
+  /**
+   * Permanently purge a single referral record from Supabase and Dexie
+   */
+  async purgeSingleReferral(referralId, referrerSchoolId = null, referredSchoolId = null) {
+    if (!referralId) return { success: false, message: 'Missing referral ID' };
+    const refIdStr = String(referralId).trim();
+
+    try {
+      // 1. Supabase Cloud deletion
+      if (navigator.onLine) {
+        try {
+          let q = supabase.from('report_referrals').delete();
+          if (refIdStr.includes('-') && !refIdStr.startsWith('REF_')) {
+            q = q.eq('id', refIdStr);
+          } else if (referredSchoolId) {
+            q = q.eq('referred_school_id', referredSchoolId);
+          }
+          await q;
+        } catch (cErr) {
+          console.warn('[referralService] Cloud purge notice:', cErr);
+        }
+      }
+
+      // 2. Dexie deletion
+      await db.referrals.delete(refIdStr).catch(() => null);
+      const matchingLocal = await db.referrals
+        .filter(r => r.id === refIdStr || (referredSchoolId && r.referredSchoolId === referredSchoolId))
+        .toArray();
+      for (const m of matchingLocal) {
+        if (m.id) await db.referrals.delete(m.id);
+      }
+
+      // 3. Clear audit logs for this referral
+      if (db.referralAuditLogs) {
+        const logs = await db.referralAuditLogs.filter(l => l.referralId === refIdStr).toArray();
+        for (const log of logs) {
+          if (log.id) await db.referralAuditLogs.delete(log.id);
+        }
+      }
+
+      // 4. Remove matching notifications
+      if (db.notifications) {
+        const notifs = await db.notifications
+          .filter(n => 
+            (referrerSchoolId && String(n.schoolId) === String(referrerSchoolId)) &&
+            (
+              (n.title && n.title.includes('Referral')) ||
+              (n.content && n.content.includes('Referral'))
+            )
+          )
+          .toArray();
+        for (const notif of notifs) {
+          if (notif.id) await db.notifications.delete(notif.id);
+        }
+      }
+
+      // 5. If referrer school is known, invalidate cache
+      if (referrerSchoolId) {
+        try {
+          localStorage.setItem('wallet_reset_at_' + referrerSchoolId, new Date().toISOString());
+        } catch (_) {}
+      }
+
+      await eventBus.publish('ReferralPurged', { referralId: refIdStr });
+      return { success: true, message: 'Referral record successfully purged.' };
+    } catch (err) {
+      console.error('[referralService] purgeSingleReferral error:', err);
+      return { success: false, message: err.message || 'Failed to purge referral.' };
+    }
   }
 };
 

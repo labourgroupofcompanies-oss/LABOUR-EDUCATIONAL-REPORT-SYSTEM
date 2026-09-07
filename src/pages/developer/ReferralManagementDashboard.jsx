@@ -37,6 +37,15 @@ const ReferralManagementDashboard = () => {
     error: ''
   });
 
+  // Clear / Reset School Referrals Modal State
+  const [clearModal, setClearModal] = useState({
+    isOpen: false,
+    schoolId: '',
+    schoolName: '',
+    loading: false,
+    error: ''
+  });
+
   const rawReferrals = useLiveQuery(() => db.referrals.toArray(), []);
   const allSchools = useLiveQuery(() => db.schools.toArray(), []);
 
@@ -155,6 +164,79 @@ const ReferralManagementDashboard = () => {
       await loadData();
     } catch (err) {
       setDeductModal(prev => ({ ...prev, loading: false, error: err.message || 'Deduction failed.' }));
+    }
+  };
+
+  // Clear School Referrals & Messages Handlers
+  const handleOpenClearModal = (defaultSchoolId = null) => {
+    const target = defaultSchoolId 
+      ? availableSchools?.find(s => String(s.id).trim() === String(defaultSchoolId).trim())
+      : availableSchools?.[0];
+    setClearModal({
+      isOpen: true,
+      schoolId: target ? String(target.id) : (defaultSchoolId || ''),
+      schoolName: target?.name || '',
+      loading: false,
+      error: ''
+    });
+  };
+
+  const handleExecuteClearSchool = async (e) => {
+    e.preventDefault();
+    if (!clearModal.schoolId) {
+      setClearModal(prev => ({ ...prev, error: 'Please select a school to clear.' }));
+      return;
+    }
+
+    setClearModal(prev => ({ ...prev, loading: true, error: '' }));
+    try {
+      const res = await referralService.clearSchoolReferralsAndHistory(clearModal.schoolId);
+      const schoolLabel = clearModal.schoolName || `School #${clearModal.schoolId}`;
+
+      if (res.success) {
+        setActionNotice({
+          type: 'success',
+          text: `✅ ${schoolLabel}: All referrals, bonus messages, deductions, and test ledger records have been completely cleared! School can now start afresh.`
+        });
+        setTimeout(() => setActionNotice(null), 6000);
+
+        setClearModal({
+          isOpen: false,
+          schoolId: '',
+          schoolName: '',
+          loading: false,
+          error: ''
+        });
+
+        await loadData();
+      } else {
+        setClearModal(prev => ({ ...prev, loading: false, error: res.message || 'Failed to clear referrals.' }));
+      }
+    } catch (err) {
+      setClearModal(prev => ({ ...prev, loading: false, error: err.message || 'Failed to clear referrals.' }));
+    }
+  };
+
+  const handlePurgeRow = async (referral) => {
+    const codeLabel = referral.referralCodeUsed || referral.id;
+    if (!window.confirm(`Permanently remove referral record "${codeLabel}"? This will delete the record completely from your list and database.`)) {
+      return;
+    }
+    const rowKey = referral.id || referral.referredSchoolId;
+    setRowActions(prev => ({ ...prev, [rowKey]: { loading: 'purge' } }));
+    try {
+      const res = await referralService.purgeSingleReferral(referral.id, referral.referrerSchoolId, referral.referredSchoolId);
+      if (res.success) {
+        setActionNotice({ type: 'success', text: `🗑️ Referral "${codeLabel}" permanently removed.` });
+        setTimeout(() => setActionNotice(null), 4000);
+        await loadData();
+      } else {
+        setActionNotice({ type: 'error', text: `❌ ${res.message}` });
+      }
+    } catch (err) {
+      setActionNotice({ type: 'error', text: `❌ ${err.message}` });
+    } finally {
+      setRowActions(prev => ({ ...prev, [rowKey]: { loading: null } }));
     }
   };
 
@@ -315,6 +397,28 @@ const ReferralManagementDashboard = () => {
           >
             <i className="fas fa-minus-circle" />
             <span>Deduct School Reward</span>
+          </button>
+
+          <button
+            onClick={() => handleOpenClearModal()}
+            style={{
+              padding: '0.55rem 1.15rem',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)',
+              border: 'none',
+              color: '#ffffff',
+              fontWeight: 800,
+              fontSize: '0.83rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              boxShadow: '0 4px 14px rgba(79, 70, 229, 0.35)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <i className="fas fa-broom" />
+            <span>Clear School Referrals &amp; Start Afresh</span>
           </button>
 
           <button
@@ -680,7 +784,7 @@ const ReferralManagementDashboard = () => {
 
                           if (isRevoked) {
                             return (
-                              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
                                 <span style={{
                                   padding: '0.35rem 0.85rem',
                                   borderRadius: '8px',
@@ -696,6 +800,37 @@ const ReferralManagementDashboard = () => {
                                   <i className="fas fa-rotate-left" style={{ color: '#f87171' }} />
                                   <span>Deducted (-GH₵ {rewardAmt})</span>
                                 </span>
+
+                                <button
+                                  onClick={() => handlePurgeRow(r)}
+                                  title="Permanently remove this referral record from the list"
+                                  disabled={rowState.loading === 'purge'}
+                                  style={{
+                                    padding: '0.35rem 0.75rem',
+                                    borderRadius: '8px',
+                                    background: 'rgba(244, 63, 94, 0.14)',
+                                    border: '1px solid rgba(244, 63, 94, 0.35)',
+                                    color: '#fda4af',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(244, 63, 94, 0.28)'}
+                                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(244, 63, 94, 0.14)'}
+                                >
+                                  {rowState.loading === 'purge' ? (
+                                    <i className="fas fa-spinner fa-spin" />
+                                  ) : (
+                                    <>
+                                      <i className="fas fa-trash-alt" />
+                                      <span>Clear</span>
+                                    </>
+                                  )}
+                                </button>
                               </div>
                             );
                           }
@@ -740,6 +875,25 @@ const ReferralManagementDashboard = () => {
                                   onMouseOut={(e) => e.currentTarget.style.background = 'rgba(239, 68, 68, 0.14)'}
                                 >
                                   <i className="fas fa-minus-circle" /> Deduct
+                                </button>
+
+                                <button
+                                  onClick={() => handlePurgeRow(r)}
+                                  title="Permanently remove this referral record"
+                                  disabled={rowState.loading === 'purge'}
+                                  style={{
+                                    padding: '0.35rem 0.65rem',
+                                    borderRadius: '8px',
+                                    background: 'rgba(113, 113, 122, 0.2)',
+                                    border: '1px solid rgba(113, 113, 122, 0.35)',
+                                    color: '#a1a1aa',
+                                    fontSize: '0.75rem',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center'
+                                  }}
+                                >
+                                  <i className="fas fa-trash-alt" />
                                 </button>
                               </div>
                             );
@@ -979,14 +1133,14 @@ const ReferralManagementDashboard = () => {
                 </div>
               </div>
 
-              {/* Reason Input & Quick Presets */}
+              {/* Reason / Notice Message Input & Quick Presets */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.78rem', color: '#d6d3d1', fontWeight: 700, marginBottom: '0.4rem' }}>
-                  Reason for Deduction
+                  Deduction Notice Message (Displayed to School under "Labour Edu")
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Duplicate account, self-referral, disqualified school"
+                <textarea
+                  rows={3}
+                  placeholder="Type the message to display to the school (e.g. Referral reward deducted due to duplicate school registration. Please contact support if you need clarification.)"
                   value={deductModal.reason}
                   onChange={(e) => setDeductModal(prev => ({ ...prev, reason: e.target.value }))}
                   style={{
@@ -997,7 +1151,10 @@ const ReferralManagementDashboard = () => {
                     border: '1px solid #3d3834',
                     color: '#f5f5f4',
                     fontSize: '0.82rem',
-                    outline: 'none'
+                    outline: 'none',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    lineHeight: 1.45
                   }}
                 />
                 <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '0.5rem' }}>
@@ -1086,6 +1243,208 @@ const ReferralManagementDashboard = () => {
                     <>
                       <i className="fas fa-check" />
                       <span>Confirm &amp; Deduct Reward</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Clear / Reset School Referrals & Messages Modal ──────────────── */}
+      {clearModal.isOpen && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: '1.25rem'
+        }}>
+          <div style={{
+            background: '#1c1917',
+            border: '1px solid #3d3834',
+            borderRadius: '20px',
+            width: '100%',
+            maxWidth: '520px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)',
+            overflow: 'hidden'
+          }}>
+            {/* Modal Header */}
+            <div style={{
+              padding: '1.25rem 1.5rem',
+              background: '#24201d',
+              borderBottom: '1px solid #38332e',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '10px',
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: '#818cf8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1rem'
+                }}>
+                  <i className="fas fa-broom" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 800, color: '#f5f5f4' }}>
+                    Clear Referrals &amp; Start Afresh
+                  </h3>
+                  <p style={{ margin: 0, fontSize: '0.74rem', color: '#a8a29e' }}>
+                    Wipe referral records, bonus messages &amp; test ledger entries
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setClearModal(prev => ({ ...prev, isOpen: false }))}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#78716c',
+                  fontSize: '1.2rem',
+                  cursor: 'pointer',
+                  padding: '4px'
+                }}
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Modal Form */}
+            <form onSubmit={handleExecuteClearSchool} style={{ padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+              
+              {clearModal.error && (
+                <div style={{
+                  padding: '0.75rem 1rem',
+                  borderRadius: '10px',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  color: '#fca5a5',
+                  fontSize: '0.8rem',
+                  fontWeight: 700
+                }}>
+                  {clearModal.error}
+                </div>
+              )}
+
+              {/* School Selector */}
+              <div>
+                <label style={{ display: 'block', fontSize: '0.78rem', color: '#d6d3d1', fontWeight: 700, marginBottom: '0.4rem' }}>
+                  Target Institution / School
+                </label>
+                <select
+                  value={clearModal.schoolId}
+                  onChange={(e) => {
+                    const selectedId = e.target.value;
+                    const sch = availableSchools?.find(s => String(s.id).trim() === String(selectedId).trim());
+                    setClearModal(prev => ({
+                      ...prev,
+                      schoolId: selectedId,
+                      schoolName: sch?.name || ''
+                    }));
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.65rem 0.85rem',
+                    borderRadius: '10px',
+                    background: '#292524',
+                    border: '1px solid #3d3834',
+                    color: '#f5f5f4',
+                    fontSize: '0.88rem',
+                    outline: 'none'
+                  }}
+                >
+                  <option value="">-- Select a School --</option>
+                  {availableSchools?.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Information / Scope Breakdown */}
+              <div style={{
+                background: 'rgba(99, 102, 241, 0.08)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                borderRadius: '12px',
+                padding: '0.9rem 1.1rem',
+                fontSize: '0.76rem',
+                color: '#c7d2fe',
+                lineHeight: 1.5
+              }}>
+                <div style={{ fontWeight: 800, color: '#e0e7ff', marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <i className="fas fa-info-circle" style={{ color: '#818cf8' }} /> What will happen when you clear this school:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: '1.2rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <li>All referral tie-ins &amp; pipelines for this school will be permanently purged.</li>
+                  <li><strong>🎉 Referral Bonus Received</strong> &amp; <strong>⚠️ Referral Reward Deducted</strong> messages will be removed from the in-app notification center.</li>
+                  <li>Historical test wallet reward &amp; deduction transactions will be wiped.</li>
+                  <li>Referral stats, earnings, and relationship locks will reset to 0 so they start completely afresh.</li>
+                </ul>
+              </div>
+
+              {/* Modal Actions */}
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setClearModal(prev => ({ ...prev, isOpen: false }))}
+                  style={{
+                    padding: '0.65rem 1.15rem',
+                    borderRadius: '10px',
+                    background: '#292524',
+                    border: '1px solid #3d3834',
+                    color: '#a8a29e',
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={clearModal.loading || !clearModal.schoolId}
+                  style={{
+                    padding: '0.65rem 1.35rem',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)',
+                    border: 'none',
+                    color: '#ffffff',
+                    fontSize: '0.82rem',
+                    fontWeight: 800,
+                    cursor: (clearModal.loading || !clearModal.schoolId) ? 'not-allowed' : 'pointer',
+                    boxShadow: '0 4px 15px rgba(79, 70, 229, 0.4)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {clearModal.loading ? (
+                    <>
+                      <i className="fas fa-spinner fa-spin" />
+                      <span>Clearing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <i className="fas fa-broom" />
+                      <span>Clear &amp; Start Afresh</span>
                     </>
                   )}
                 </button>

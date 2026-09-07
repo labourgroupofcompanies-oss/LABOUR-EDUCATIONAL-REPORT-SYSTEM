@@ -329,10 +329,11 @@ export const rewardService = {
 
     // 3. If referral record exists, update its status to 'REVOKED'
     if (referral) {
+      const deductionMessage = reason?.trim() || 'Referral reward deducted by administration';
       const updatedRef = {
         ...referral,
         status: 'REVOKED',
-        rejectionReason: `Reward deducted: ${reason}`,
+        rejectionReason: deductionMessage,
         deductedAt: nowIso,
         deductedBy,
         deductedAmount: deductAmount,
@@ -347,7 +348,7 @@ export const rewardService = {
             .from('report_referrals')
             .update({
               status: 'REVOKED',
-              rejection_reason: `Reward deducted: ${reason}`,
+              rejection_reason: deductionMessage,
               updated_at: nowIso
             });
 
