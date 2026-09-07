@@ -12,6 +12,11 @@ const HeadteacherSupport = () => {
   const { user } = useAuth();
   const schoolId = user?.schoolId;
   const schoolName = user?.schoolName || 'School';
+  const isTeacher = user?.role === 'teacher';
+  const portal = isTeacher ? 'teacher' : 'headteacher';
+  const currentUserId = user?.id;
+  const currentStaffId = user?.staffId;
+  const currentEmail = user?.email;
   const messagesEndRef = useRef(null);
 
   // Data states
@@ -34,21 +39,54 @@ const HeadteacherSupport = () => {
   const [newMessage, setNewMessage] = useState('');
   const [creating, setCreating] = useState(false);
 
+  // Instantly purge active ticket and list on portal/school/user switch to prevent cross-portal leaks
+  useEffect(() => {
+    setTickets([]);
+    setSelectedTicket(null);
+    setMobileShowChat(false);
+  }, [schoolId, currentUserId, portal]);
+
   const loadTickets = useCallback(async () => {
     if (!schoolId) return;
     setLoading(true);
     try {
-      const data = await getSchoolSupportTickets(schoolId);
-      setTickets(data || []);
-      if (data && data.length > 0 && !selectedTicket) {
-        setSelectedTicket(data[0]);
+      const data = await getSchoolSupportTickets(schoolId, { portal });
+      let list = data || [];
+      if (isTeacher) {
+        // Strict teacher isolation: a teacher can ONLY see tickets they filed
+        list = list.filter(t => {
+          if (t.description) {
+            try {
+              const meta = JSON.parse(t.description);
+              if (meta.portal && meta.portal !== 'teacher') return false;
+              if (meta.creatorId && currentUserId && String(meta.creatorId) === String(currentUserId)) return true;
+              if (meta.creatorStaffId && currentStaffId && String(meta.creatorStaffId) === String(currentStaffId)) return true;
+              if (meta.creatorEmail && currentEmail && meta.creatorEmail.toLowerCase() === currentEmail.toLowerCase()) return true;
+            } catch (e) {
+              // Not JSON description, proceed to fallback checks
+            }
+          }
+          if (t.sender_staff_id && (String(t.sender_staff_id) === String(currentUserId) || String(t.sender_staff_id) === String(currentStaffId))) {
+            return true;
+          }
+          if (user?.fullName && t.sender_name && t.sender_name.toLowerCase().includes(user.fullName.toLowerCase())) {
+            return true;
+          }
+          return false;
+        });
       }
+      setTickets(list);
+      setSelectedTicket(prev => {
+        if (!prev) return list[0] || null;
+        const stillThere = list.find(item => item.id === prev.id);
+        return stillThere || list[0] || null;
+      });
     } catch (err) {
       console.error('[HeadteacherSupport] Error loading tickets:', err);
     } finally {
       setLoading(false);
     }
-  }, [schoolId]);
+  }, [schoolId, portal, isTeacher, currentUserId, currentStaffId, currentEmail, user?.fullName]);
 
   useEffect(() => {
     loadTickets();
@@ -57,8 +95,9 @@ const HeadteacherSupport = () => {
   // Subscribe to real-time updates on support tickets for this school
   useEffect(() => {
     if (!schoolId) return;
+    const channelName = `school_tickets_${schoolId}_${currentUserId || 'guest'}`;
     const channel = supabase
-      .channel('public:platform_support_tickets')
+      .channel(channelName)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'platform_support_tickets', filter: `school_id=eq.${schoolId}` },
@@ -71,7 +110,7 @@ const HeadteacherSupport = () => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [schoolId, loadTickets]);
+  }, [schoolId, currentUserId, loadTickets]);
 
   // Auto-scroll conversation thread
   useEffect(() => {
@@ -86,7 +125,7 @@ const HeadteacherSupport = () => {
 
     setSending(true);
     try {
-      const roleLabel = user?.role === 'teacher' ? 'Teacher' : user?.role === 'super_admin' ? 'Super Admin' : 'Headteacher';
+      const roleLabel = isTeacher ? 'Teacher' : user?.role === 'super_admin' ? 'Super Admin' : 'Headteacher';
       const senderName = user?.fullName ? `${user.fullName} (${roleLabel})` : roleLabel;
       const updated = await addTicketMessage(selectedTicket.id, selectedTicket.messages, senderName, replyText);
       const newTickets = tickets.map(t => t.id === updated.id ? updated : t);
@@ -107,9 +146,12 @@ const HeadteacherSupport = () => {
     setCreating(true);
     try {
       const senderInfo = {
-        name: user?.fullName || 'User',
-        role: user?.role || 'headteacher',
-        staffId: user?.staffId || null
+        name: user?.fullName || (isTeacher ? 'Teacher' : 'Headteacher'),
+        role: user?.role || (isTeacher ? 'teacher' : 'headteacher'),
+        portal: portal,
+        userId: currentUserId || null,
+        email: currentEmail || null,
+        staffId: currentStaffId || null
       };
       const ticket = await createSupportTicket(
         schoolId,
@@ -152,7 +194,7 @@ const HeadteacherSupport = () => {
   const resolvedCount = tickets.filter(t => t.status === 'Resolved' || t.status === 'Closed').length;
 
   return (
-    <Layout title="Help & Support">
+    <Layout title={isTeacher ? "Teacher Support & Help" : "Help & Support"}>
       <style>{`
         .support-container {
           max-width: 1280px;
@@ -181,11 +223,28 @@ const HeadteacherSupport = () => {
         {/* Minimalist Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.75rem' }}>
           <div>
-            <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.6rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
-              Help &amp; Support
-            </h1>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h1 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.6rem', fontWeight: 800, color: '#09090b', margin: 0 }}>
+                {isTeacher ? 'Teacher Support & Help' : 'Help & Support'}
+              </h1>
+              <span style={{
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                padding: '2px 8px',
+                borderRadius: '6px',
+                background: isTeacher ? '#ECFDF5' : '#EFF6FF',
+                color: isTeacher ? '#059669' : '#2563EB',
+                border: `1px solid ${isTeacher ? '#A7F3D0' : '#BFDBFE'}`
+              }}>
+                {isTeacher ? 'Teacher Portal' : 'Admin Portal'}
+              </span>
+            </div>
             <p style={{ color: '#71717a', fontSize: '0.88rem', margin: '3px 0 0' }}>
-              Direct line to Platform Operations for assistance and inquiries.
+              {isTeacher
+                ? 'Private line to Platform Support for teacher assistance and inquiries.'
+                : 'Direct line to Platform Operations for school administration assistance and inquiries.'}
             </p>
           </div>
 
@@ -371,8 +430,8 @@ const HeadteacherSupport = () => {
                 {/* Messages Body */}
                 <div style={{ flex: 1, padding: '1.25rem', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem', background: '#ffffff' }}>
                   
-                  {/* Initial Description */}
-                  {selectedTicket.description && (
+                  {/* Initial Description (Legacy/text only, ignore metadata JSON) */}
+                  {selectedTicket.description && !selectedTicket.description.trim().startsWith('{') && (
                     <div style={{ alignSelf: 'flex-start', maxWidth: '85%', background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '12px', padding: '0.85rem 1rem', fontSize: '0.88rem', color: '#18181b' }}>
                       <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#2563eb', marginBottom: '4px' }}>Original Request</div>
                       <div>{selectedTicket.description}</div>

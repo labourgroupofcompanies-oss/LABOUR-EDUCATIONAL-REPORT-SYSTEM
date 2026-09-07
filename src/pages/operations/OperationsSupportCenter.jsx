@@ -187,7 +187,20 @@ const OperationsSupportCenter = () => {
                     <span style={{ fontSize: '0.65rem', color: t.priority === 'High' || t.priority === 'Urgent' ? '#EF4444' : '#F59E0B', fontWeight: 800 }}>{t.priority}</span>
                   </div>
                   <div style={{ fontWeight: 800, color: '#09090b', fontSize: '0.85rem', lineHeight: 1.3 }}>{t.title}</div>
-                  <div style={{ fontSize: '0.72rem', color: '#71717a', marginTop: '3px' }}>{t.school_name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '3px' }}>
+                    <span style={{ fontSize: '0.72rem', color: '#71717a' }}>{t.school_name}</span>
+                    <span style={{
+                      fontSize: '0.62rem',
+                      fontWeight: 700,
+                      padding: '1px 6px',
+                      borderRadius: '4px',
+                      background: t.sender_role === 'teacher' ? '#ECFDF5' : '#EFF6FF',
+                      color: t.sender_role === 'teacher' ? '#059669' : '#2563EB',
+                      border: `1px solid ${t.sender_role === 'teacher' ? '#A7F3D0' : '#BFDBFE'}`
+                    }}>
+                      {t.sender_role === 'teacher' ? 'Teacher' : 'Headteacher'}
+                    </span>
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
                     <span style={{ fontSize: '0.68rem', color: t.status === 'Resolved' ? '#10B981' : t.status === 'In Progress' ? '#2563eb' : '#F59E0B', fontWeight: 800 }}>
                       ● {t.status}

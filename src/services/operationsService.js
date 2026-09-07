@@ -712,13 +712,20 @@ export const getSupportTickets = async () => {
   return [];
 };
 
-export const getSchoolSupportTickets = async (schoolId) => {
+export const getSchoolSupportTickets = async (schoolId, options = {}) => {
   if (!schoolId) return [];
-  const { data, error } = await supabase
+  let query = supabase
     .from('platform_support_tickets')
     .select('*')
-    .eq('school_id', String(schoolId))
-    .order('created_at', { ascending: false });
+    .eq('school_id', String(schoolId));
+
+  if (options.portal === 'teacher') {
+    query = query.eq('sender_role', 'teacher');
+  } else if (options.portal === 'headteacher') {
+    query = query.or('sender_role.eq.headteacher,sender_role.eq.super_admin,sender_role.eq.admin,sender_role.is.null');
+  }
+
+  const { data, error } = await query.order('created_at', { ascending: false });
 
   if (!error && data) return data;
   return [];
@@ -726,9 +733,18 @@ export const getSchoolSupportTickets = async (schoolId) => {
 
 export const createSupportTicket = async (schoolId, schoolName, title, category, priority, initialMessage, senderInfo = {}) => {
   const ticketCode = `TCK-${Math.floor(1000 + Math.random() * 9000)}`;
+  const portalTag = senderInfo.portal || (senderInfo.role === 'teacher' ? 'teacher' : 'headteacher');
   const senderLabel = senderInfo.name
-    ? `${senderInfo.name} (${senderInfo.role === 'teacher' ? 'Teacher' : 'Headteacher'})`
-    : 'User';
+    ? `${senderInfo.name} (${portalTag === 'teacher' ? 'Teacher' : 'Headteacher'})`
+    : (portalTag === 'teacher' ? 'Teacher' : 'Headteacher');
+
+  const metadata = JSON.stringify({
+    portal: portalTag,
+    creatorId: senderInfo.userId || senderInfo.id || senderInfo.staffId || null,
+    creatorEmail: senderInfo.email || null,
+    creatorStaffId: senderInfo.staffId || null,
+    creatorName: senderInfo.name || null
+  });
 
   const { data, error } = await supabase
     .from('platform_support_tickets')
@@ -740,9 +756,10 @@ export const createSupportTicket = async (schoolId, schoolName, title, category,
       category,
       priority,
       status: 'Open',
+      description: metadata,
       sender_name: senderInfo.name || 'User',
-      sender_role: senderInfo.role || 'headteacher',
-      sender_staff_id: senderInfo.staffId || null,
+      sender_role: portalTag,
+      sender_staff_id: senderInfo.userId || senderInfo.staffId || null,
       messages: initialMessage ? [{ sender: senderLabel, text: initialMessage, time: new Date().toISOString() }] : [],
     }])
     .select()
