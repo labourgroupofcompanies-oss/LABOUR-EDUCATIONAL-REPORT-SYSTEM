@@ -172,12 +172,28 @@ export const drainOutbox = async (ignoreOnlineCheck = false) => {
       return;
     }
 
-    // Load pending items (skip ones with a future nextAttemptAt)
+    // Read current school context from local session to prevent cross-school outbox execution
+    let currentSchoolId = null;
+    try {
+      const sessionStr = localStorage.getItem('labour_edu_session');
+      if (sessionStr) {
+        const session = JSON.parse(sessionStr);
+        currentSchoolId = session?.schoolId ? String(session.schoolId) : null;
+      }
+    } catch (_) {}
+
+    // Load pending items (skip ones with a future nextAttemptAt, or items from a different school)
     const now = new Date().toISOString();
     const pending = (await db.outbox
       .where('status').equals('pending')
       .toArray())
-      .filter(item => !item.nextAttemptAt || item.nextAttemptAt <= now);
+      .filter(item => {
+        if (item.nextAttemptAt && item.nextAttemptAt > now) return false;
+        if (currentSchoolId && item.schoolId && String(item.schoolId) !== currentSchoolId) {
+          return false;
+        }
+        return true;
+      });
 
     if (pending.length === 0) {
       _isSyncing = false;
@@ -356,6 +372,12 @@ const resolveScoresForeignKeys = async (rows, deleteFilter, schoolId) => {
           || await db.learners.where('supabaseId').equals(lId).first().catch(() => null);
 
         if (localLearner) {
+          const belongsToTarget = (String(localLearner.schoolId) === String(targetSchoolId) || String(localLearner.school_id || '') === String(targetSchoolId));
+          if (!belongsToTarget) {
+            console.warn(`[SyncEngine] ⛔ Refusing to resolve or auto-create learner ${lId} under school ${targetSchoolId} — learner belongs to school ${localLearner.schoolId}.`);
+            continue;
+          }
+
           if (localLearner.supabaseId) {
             const { data: remCheck } = await supabase.from('report_learners').select('id').eq('id', localLearner.supabaseId).maybeSingle();
             if (remCheck?.id) cloudLearnerId = remCheck.id;
@@ -745,6 +767,18 @@ async function processSingleItem(item) {
       String(opError.message || opError).toLowerCase().includes('could not find the')
     )) {
       console.warn(`[SyncEngine] ⚠️ Schema cache / unknown column in ${item.table} — discarding.`);
+      opError = null;
+    }
+
+    // ── Auto-discard: 403 Forbidden / Row Level Security Violation ───────────
+    if (opError && (
+      opError.code === '42501' ||
+      opError.status === 403 ||
+      String(opError.message || opError).toLowerCase().includes('row-level security') ||
+      String(opError.message || opError).toLowerCase().includes('forbidden') ||
+      String(opError.message || opError).includes('403')
+    )) {
+      console.warn(`[SyncEngine] ⛔ Discarding outbox item ${item.id} (${item.operation}→${item.table}): Tenant boundary or RLS permission error (403 Forbidden).`, opError?.message || opError);
       opError = null;
     }
 
@@ -1216,6 +1250,12 @@ const healForeignKey = async (opError, item, payload) => {
               || await db.learners.where('supabaseId').equals(resolvedLearnerId).first().catch(() => null);
 
             if (localLearner) {
+              const belongsToTarget = (String(localLearner.schoolId) === String(targetSchoolId) || String(localLearner.school_id || '') === String(targetSchoolId));
+              if (!belongsToTarget) {
+                console.warn(`[SyncEngine] ⛔ Refusing to resolve/auto-create learner ${resolvedLearnerId} under school ${targetSchoolId} — belongs to different school ${localLearner.schoolId}.`);
+                continue;
+              }
+
               if (localLearner.supabaseId && localLearner.supabaseId !== resolvedLearnerId) {
                 const { data: remoteCheck } = await supabase.from('report_learners').select('id').eq('id', localLearner.supabaseId).maybeSingle();
                 if (remoteCheck?.id) {

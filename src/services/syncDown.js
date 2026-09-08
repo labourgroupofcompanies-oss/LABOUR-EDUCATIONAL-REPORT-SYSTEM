@@ -164,13 +164,22 @@ async function runAdminSync(user) {
           const newId = rc.id;
           console.log(`[SyncDown] Reconciling class "${rc.name}" (${oldId} → ${newId})`);
 
-          const relLearners = await db.learners.where('currentClassId').equals(oldId).toArray();
+          const relLearners = await db.learners
+            .where('currentClassId').equals(oldId)
+            .filter(l => String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId))
+            .toArray();
           for (const l of relLearners) await db.learners.update(l.id, { currentClassId: newId, synced: false });
 
-          const relScores = await db.scores.where('classId').equals(oldId).toArray();
+          const relScores = await db.scores
+            .where('classId').equals(oldId)
+            .filter(s => String(s.schoolId) === String(schoolId) || String(s.school_id || '') === String(schoolId))
+            .toArray();
           for (const s of relScores) await db.scores.update(s.id, { classId: newId });
 
-          const relAssigns = await db.teacherAssignments.where('classId').equals(oldId).toArray();
+          const relAssigns = await db.teacherAssignments
+            .where('classId').equals(oldId)
+            .filter(a => String(a.schoolId) === String(schoolId) || String(a.school_id || '') === String(schoolId))
+            .toArray();
           for (const a of relAssigns) await db.teacherAssignments.update(a.id, { classId: newId });
 
           await db.classes.delete(oldId);

@@ -111,7 +111,7 @@ const ParentReportView = () => {
         schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [],
         db.scores.where('learnerId').anyOf(siblingKeys).toArray(),
         db.reportSummaries.where('learnerId').anyOf(siblingKeys).toArray(),
-        currentClassId ? db.learners.where('currentClassId').equals(currentClassId).toArray() : []
+        currentClassId ? db.learners.filter(l => (String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId)) && Number(l.currentClassId) === Number(currentClassId)).toArray() : []
       ]);
 
       return {

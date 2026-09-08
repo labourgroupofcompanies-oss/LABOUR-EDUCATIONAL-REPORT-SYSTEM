@@ -70,6 +70,22 @@ export const SyncEngineProvider = ({ children }) => {
             .modify({ status: 'pending' });
         }
 
+        // Auto-purge stuck outbox items that previously failed with 403 Forbidden / RLS violation
+        const forbiddenItems = await db.outbox
+          .filter(o => 
+            o.status === 'failed' && 
+            (String(o.errorMessage || '').includes('403') || 
+             String(o.errorMessage || '').toLowerCase().includes('forbidden') ||
+             String(o.errorMessage || '').toLowerCase().includes('row-level security'))
+          )
+          .toArray();
+        if (forbiddenItems.length > 0) {
+          console.log(`[SyncEngineProvider] Purging ${forbiddenItems.length} outbox item(s) that failed with 403 Forbidden / RLS boundary violation...`);
+          for (const item of forbiddenItems) {
+            await db.outbox.delete(item.id);
+          }
+        }
+
         // Reconcile local learners that already have a cloud supabaseId AND no pending local photo blob
         const unsyncedWithCloudId = await db.learners
           .filter(l => l.synced === false && !!l.supabaseId && !(l.photo instanceof Blob && !l.photoUrl))

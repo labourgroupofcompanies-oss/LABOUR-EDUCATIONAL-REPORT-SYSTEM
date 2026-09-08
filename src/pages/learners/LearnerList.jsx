@@ -792,20 +792,29 @@ const LearnerList = () => {
             const newId = rc.id;
             console.log(`Reconciling Class ID: ${lc.name} (Local: ${oldId} -> Supabase: ${newId})`);
 
-            // Update all local learners referencing this class
-            const relatedLearners = await db.learners.where('currentClassId').equals(oldId).toArray();
+            // Update all local learners referencing this class strictly for THIS school
+            const relatedLearners = await db.learners
+              .where('currentClassId').equals(oldId)
+              .filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId))
+              .toArray();
             for (const l of relatedLearners) {
               await db.learners.update(l.id, { currentClassId: newId, synced: false });
             }
 
-            // Update all local scores referencing this class
-            const relatedScores = await db.scores.where('classId').equals(oldId).toArray();
+            // Update all local scores referencing this class strictly for THIS school
+            const relatedScores = await db.scores
+              .where('classId').equals(oldId)
+              .filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId))
+              .toArray();
             for (const s of relatedScores) {
               await db.scores.update(s.id, { classId: newId });
             }
 
-            // Update all local teacher assignments referencing this class
-            const relatedAssigns = await db.teacherAssignments.where('classId').equals(oldId).toArray();
+            // Update all local teacher assignments referencing this class strictly for THIS school
+            const relatedAssigns = await db.teacherAssignments
+              .where('classId').equals(oldId)
+              .filter(a => String(a.schoolId) === String(user.schoolId) || String(a.school_id || '') === String(user.schoolId))
+              .toArray();
             for (const a of relatedAssigns) {
               await db.teacherAssignments.update(a.id, { classId: newId });
             }

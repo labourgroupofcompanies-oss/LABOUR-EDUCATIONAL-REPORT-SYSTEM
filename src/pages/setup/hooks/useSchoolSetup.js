@@ -45,18 +45,27 @@ export const useSchoolSetup = () => {
                 const newId = rc.id;
                 console.log(`[Setup Sync] Reconciling duplicate Class name: "${rc.name}" (Old ID: ${oldId} -> New ID: ${newId})`);
                 
-                // Update related local records referencing the old class ID
-                const relatedLearners = await db.learners.where('currentClassId').equals(oldId).toArray();
+                // Update related local records referencing the old class ID strictly for THIS school
+                const relatedLearners = await db.learners
+                  .where('currentClassId').equals(oldId)
+                  .filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId))
+                  .toArray();
                 for (const l of relatedLearners) {
                   await db.learners.update(l.id, { currentClassId: newId, synced: false });
                 }
 
-                const relatedScores = await db.scores.where('classId').equals(oldId).toArray();
+                const relatedScores = await db.scores
+                  .where('classId').equals(oldId)
+                  .filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId))
+                  .toArray();
                 for (const s of relatedScores) {
                   await db.scores.update(s.id, { classId: newId });
                 }
 
-                const relatedAssigns = await db.teacherAssignments.where('classId').equals(oldId).toArray();
+                const relatedAssigns = await db.teacherAssignments
+                  .where('classId').equals(oldId)
+                  .filter(a => String(a.schoolId) === String(user.schoolId) || String(a.school_id || '') === String(user.schoolId))
+                  .toArray();
                 for (const a of relatedAssigns) {
                   await db.teacherAssignments.update(a.id, { classId: newId });
                 }

@@ -137,10 +137,10 @@ const ScoreEntry = () => {
               const oldId = localByName.id;
               const newId = rc.id;
               console.log(`[ScoreEntry Sync] Reconciling class "${rc.name}" (${oldId} → ${newId})`);
-              await db.scores.where('classId').equals(oldId).modify({ classId: newId });
-              await db.learners.where('currentClassId').equals(oldId).modify({ currentClassId: newId });
-              await db.teacherAssignments.where('classId').equals(oldId).modify({ classId: newId });
-              await db.classSubjects.where('classId').equals(oldId).modify({ classId: newId });
+              await db.scores.where('classId').equals(oldId).filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).modify({ classId: newId });
+              await db.learners.where('currentClassId').equals(oldId).filter(l => String(l.schoolId) === String(user.schoolId) || String(l.school_id || '') === String(user.schoolId)).modify({ currentClassId: newId });
+              await db.teacherAssignments.where('classId').equals(oldId).filter(a => String(a.schoolId) === String(user.schoolId) || String(a.school_id || '') === String(user.schoolId)).modify({ classId: newId });
+              await db.classSubjects.where('classId').equals(oldId).filter(cs => String(cs.schoolId) === String(user.schoolId) || String(cs.school_id || '') === String(user.schoolId)).modify({ classId: newId });
               await db.classes.delete(oldId);
               await db.classes.put({
                 id: newId,
@@ -399,29 +399,40 @@ const ScoreEntry = () => {
   // Get learners for the selected class (including historical ones for past terms/years)
   const learners = useLiveQuery(
     async () => {
-      if (!selectedClass) return [];
+      if (!selectedClass || !schoolId) return [];
       const targetClassId = Number(selectedClass);
       
-      // 1. Fetch currently active learners in this class (excluding alumni/graduated)
+      // 1. Fetch currently active learners in this class (strictly for THIS school)
       const activeLearners = await db.learners
-        .where('currentClassId').equals(targetClassId)
+        .filter(l => 
+          (String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId)) &&
+          Number(l.currentClassId) === targetClassId
+        )
         .toArray();
       
-      // 2. Fetch report summaries to identify historical students
+      // 2. Fetch report summaries to identify historical students (strictly for THIS school)
       let historicalLearnerIds = new Set();
       if (selectedAcademicYear && selectedTerm) {
         const summaries = await db.reportSummaries
-          .where('classId').equals(targetClassId)
-          .filter(s => s.academicYear === selectedAcademicYear && s.term === selectedTerm)
+          .filter(s => 
+            (String(s.schoolId) === String(schoolId) || String(s.school_id || '') === String(schoolId)) &&
+            Number(s.classId) === targetClassId &&
+            s.academicYear === selectedAcademicYear &&
+            s.term === selectedTerm
+          )
           .toArray();
         summaries.forEach(s => historicalLearnerIds.add(String(s.learnerId)));
       }
       
-      // 3. Fetch scores to identify historical students
+      // 3. Fetch scores to identify historical students (strictly for THIS school)
       if (selectedAcademicYear && selectedTerm) {
         const classScores = await db.scores
-          .where('classId').equals(targetClassId)
-          .filter(s => s.academicYear === selectedAcademicYear && s.term === selectedTerm)
+          .filter(s => 
+            (String(s.schoolId) === String(schoolId) || String(s.school_id || '') === String(schoolId)) &&
+            Number(s.classId) === targetClassId &&
+            s.academicYear === selectedAcademicYear &&
+            s.term === selectedTerm
+          )
           .toArray();
         classScores.forEach(s => historicalLearnerIds.add(String(s.learnerId)));
       }
@@ -431,8 +442,10 @@ const ScoreEntry = () => {
         return activeLearners.filter(l => l.status !== 'Alumni' && l.status !== 'Graduated');
       }
       
-      // 4. Fetch all learners to resolve historical learner records
-      const allLearners = await db.learners.toArray();
+      // 4. Fetch learners of THIS school to resolve historical learner records
+      const allLearners = await db.learners
+        .filter(l => String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId))
+        .toArray();
       
       // Combine active and historical students, avoiding duplicates
       const seen = new Set();
@@ -460,9 +473,9 @@ const ScoreEntry = () => {
         }
       });
       
-      return combined.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      return combined.sort((a, b) => (a.fullName || '').localeCompare(b.fullName || ''));
     },
-    [selectedClass, selectedAcademicYear, selectedTerm]
+    [selectedClass, selectedAcademicYear, selectedTerm, schoolId]
   );
 
   const activeSubjectObj = useMemo(() => {
@@ -541,9 +554,9 @@ const ScoreEntry = () => {
         }
 
         // 2. Load from Dexie to display (always the source of truth for the UI)
+        const currentSid = user?.schoolId;
         const existing = await db.scores
-          .where('classId').equals(Number(selectedClass))
-          .filter(s => s.subjectId === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
+          .filter(s => (String(s.schoolId) === String(currentSid) || String(s.school_id || '') === String(currentSid)) && Number(s.classId) === Number(selectedClass) && Number(s.subjectId) === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
           .toArray();
 
         if (existing.length > 0) {
@@ -553,8 +566,10 @@ const ScoreEntry = () => {
           setIsBatchSubmitted(false);
         }
 
-        // Fetch all learners to resolve local ID → supabaseId (UUID) mappings
-        const localLearners = await db.learners.toArray();
+        // Fetch learners of THIS school to resolve local ID → supabaseId (UUID) mappings
+        const localLearners = await db.learners
+          .filter(l => String(l.schoolId) === String(currentSid) || String(l.school_id || '') === String(currentSid))
+          .toArray();
 
         const scoreMap = {};
         for (const s of existing) {
@@ -592,7 +607,7 @@ const ScoreEntry = () => {
     if (!navigator.onLine || !user?.schoolId) return;
     try {
       // 1. Find groups that have unsynced scores — these need to be uploaded
-      const unsynced = await db.scores.filter(s => !s.synced).toArray();
+      const unsynced = await db.scores.filter(s => !s.synced && (String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId))).toArray();
       if (unsynced.length === 0) return;
 
       console.log(`[Score Sync] Found ${unsynced.length} unsynced score(s). Resolving mappings...`);
@@ -604,6 +619,10 @@ const ScoreEntry = () => {
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
         if (!isUuid) {
           const matchedLearner = await db.learners.get(Number(s.learnerId));
+          if (!matchedLearner || (String(matchedLearner.schoolId) !== String(user.schoolId) && String(matchedLearner.school_id || '') !== String(user.schoolId))) {
+            console.warn(`[Score Sync] Skipping score for learner ${s.learnerId} — does not belong to school ${user.schoolId}.`);
+            continue;
+          }
           if (matchedLearner && matchedLearner.supabaseId) {
             // Learner now has a UUID — heal the score's learnerId so subsequent syncs work
             await db.scores.update(s.id, { learnerId: matchedLearner.supabaseId });
@@ -644,7 +663,7 @@ const ScoreEntry = () => {
                 .maybeSingle();
               if (subByName?.id) {
                 const newSubId = subByName.id;
-                await db.scores.where('subjectId').equals(subjectId).modify({ subjectId: newSubId });
+                await db.scores.where('subjectId').equals(subjectId).filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).modify({ subjectId: newSubId });
                 await db.subjects.delete(subjectId);
                 await db.subjects.put({ ...localSub, id: newSubId });
                 subjectId = newSubId;
@@ -655,7 +674,7 @@ const ScoreEntry = () => {
                   .single();
                 if (newSub?.id) {
                   const newSubId = newSub.id;
-                  await db.scores.where('subjectId').equals(subjectId).modify({ subjectId: newSubId });
+                  await db.scores.where('subjectId').equals(subjectId).filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).modify({ subjectId: newSubId });
                   await db.subjects.delete(subjectId);
                   await db.subjects.put({ ...localSub, id: newSubId });
                   subjectId = newSubId;
@@ -678,7 +697,7 @@ const ScoreEntry = () => {
                 .maybeSingle();
               if (clsByName?.id) {
                 const newClsId = clsByName.id;
-                await db.scores.where('classId').equals(classId).modify({ classId: newClsId });
+                await db.scores.where('classId').equals(classId).filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).modify({ classId: newClsId });
                 await db.classes.delete(classId);
                 await db.classes.put({ ...localCls, id: newClsId });
                 classId = newClsId;
@@ -689,7 +708,7 @@ const ScoreEntry = () => {
                   .single();
                 if (newCls?.id) {
                   const newClsId = newCls.id;
-                  await db.scores.where('classId').equals(classId).modify({ classId: newClsId });
+                  await db.scores.where('classId').equals(classId).filter(s => String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)).modify({ classId: newClsId });
                   await db.classes.delete(classId);
                   await db.classes.put({ ...localCls, id: newClsId });
                   classId = newClsId;
@@ -699,10 +718,9 @@ const ScoreEntry = () => {
           }
         } catch (_) {}
 
-        // Get ALL scores for this group (both synced and unsynced)
+        // Get ALL scores for this group (both synced and unsynced) strictly for THIS school
         const allGroupScores = await db.scores
-          .where('classId').equals(classId)
-          .filter(s => s.subjectId === subjectId && s.term === term && s.academicYear === academicYear)
+          .filter(s => (String(s.schoolId) === String(user.schoolId) || String(s.school_id || '') === String(user.schoolId)) && Number(s.classId) === classId && Number(s.subjectId) === subjectId && s.term === term && s.academicYear === academicYear)
           .toArray();
 
         if (allGroupScores.length === 0) continue;
@@ -715,6 +733,10 @@ const ScoreEntry = () => {
           const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s.learnerId);
           if (!isUuid) {
             const matchedLearner = await db.learners.get(Number(s.learnerId));
+            if (!matchedLearner || (String(matchedLearner.schoolId) !== String(user.schoolId) && String(matchedLearner.school_id || '') !== String(user.schoolId))) {
+              console.warn(`[Score Sync] Skipping foreign score row — learner Dexie id=${s.learnerId} does not belong to school ${user.schoolId}.`);
+              continue;
+            }
             if (!matchedLearner?.supabaseId) {
               // Learner hasn't been synced to cloud yet — skip this row from the insert payload.
               // syncEngine's reconcileInsertedRow will trigger syncUnsyncedScores once learner is reconciled.
@@ -874,6 +896,7 @@ const ScoreEntry = () => {
 
       scoreEntries.push({
         learnerId,
+        schoolId: user.schoolId,
         classId: Number(selectedClass),
         subjectId: Number(selectedSubject),
         caScores: caScoresArray,
@@ -895,7 +918,7 @@ const ScoreEntry = () => {
     for (const entry of scoreEntries) {
       const existing = await db.scores
         .where('learnerId').equals(entry.learnerId)
-        .filter(s => s.classId === entry.classId && s.subjectId === entry.subjectId && s.term === entry.term && s.academicYear === entry.academicYear)
+        .filter(s => (String(s.schoolId) === String(user.schoolId) || !s.schoolId) && s.classId === entry.classId && s.subjectId === entry.subjectId && s.term === entry.term && s.academicYear === entry.academicYear)
         .first();
       
       if (existing) {
