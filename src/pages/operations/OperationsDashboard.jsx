@@ -66,7 +66,14 @@ const OperationsDashboard = () => {
             Real-time school health scoring, automated sync telemetry, remote interventions, and support administration across all registered schools.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => navigate('/platform/operations/runbook')}
+            style={{ padding: '0.65rem 1.2rem', borderRadius: '10px', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.4)', color: '#60a5fa', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s ease' }}
+          >
+            <i className="fas fa-book-bookmark" style={{ color: '#60a5fa' }}></i>
+            Runbook & Docs
+          </button>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
