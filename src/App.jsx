@@ -66,6 +66,7 @@ import PrivacyPolicy from './pages/legal/PrivacyPolicy';
 import BroadcastManager from './pages/operations/BroadcastManager';
 import OperationsAgentView from './pages/operations/OperationsAgentView';
 import GesNewsWatcher from './pages/operations/GesNewsWatcher';
+import OperationsRunbook from './pages/operations/OperationsRunbook';
 
 
 const ParentProtectedRoute = ({ children }) => {
@@ -322,6 +323,7 @@ function App() {
               {/* Platform Operations Center Sub-Routes */}
               <Route path="operations" element={<OperationsLayout />}>
                 <Route index element={<OperationsDashboard />} />
+                <Route path="runbook" element={<OperationsRunbook />} />
                 <Route path="copilot" element={<OperationsAgentView />} />
                 <Route path="ges-radar" element={<GesNewsWatcher />} />
                 <Route path="broadcasts" element={<BroadcastManager />} />

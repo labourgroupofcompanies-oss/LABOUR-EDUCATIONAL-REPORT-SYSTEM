@@ -18,6 +18,7 @@ const OperationsLayout = () => {
       title: 'CORE',
       items: [
         { to: '/platform/operations', icon: 'fa-gauge-high', label: 'Dashboard', iconColor: '#F59E0B', end: true, badge: categoryCounts?.dashboard, badgeColor: '#F59E0B' },
+        { to: '/platform/operations/runbook', icon: 'fa-book-bookmark', label: 'Runbook & Docs', iconColor: '#3B82F6', badge: 'Docs', badgeColor: '#3B82F6' },
         { to: '/platform/operations/copilot', icon: 'fa-headset', label: 'Operations Assistant', iconColor: '#10B981', badge: 'Assistant', badgeColor: '#10B981' },
         { to: '/platform/operations/analytics', icon: 'fa-chart-pie', label: 'Analytics', iconColor: '#8B5CF6' },
       ]
