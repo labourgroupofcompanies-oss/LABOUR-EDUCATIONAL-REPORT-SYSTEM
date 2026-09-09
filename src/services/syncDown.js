@@ -566,8 +566,12 @@ async function runAdminSync(user) {
 
         const cleanRemoteReg = rl.reg_number ? String(rl.reg_number).trim().toUpperCase() : '';
 
-        // Find local record: first by supabaseId, then by exact reg_number, then by normalized full_name + class_id
-        let local = await db.learners.where('supabaseId').equals(rl.id).first();
+        // Find local record: strictly within the current school to avoid cross-tenant mutation!
+        let local = await db.learners.filter(l => 
+          l.supabaseId === rl.id &&
+          (String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId))
+        ).first();
+
         if (!local && cleanRemoteReg) {
           const byReg = await db.learners.filter(l => 
             l.regNumber && String(l.regNumber).trim().toUpperCase() === cleanRemoteReg &&
@@ -583,7 +587,7 @@ async function runAdminSync(user) {
         if (!local && rl.full_name) {
           const byName = await db.learners.filter(l =>
             l.fullName?.trim().toLowerCase() === rl.full_name?.trim().toLowerCase() &&
-            (String(l.schoolId) === String(schoolId) || !l.schoolId)
+            (String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId))
           ).toArray();
           if (byName.length > 0) {
             local = byName.find(l => !l.supabaseId) || byName[0];

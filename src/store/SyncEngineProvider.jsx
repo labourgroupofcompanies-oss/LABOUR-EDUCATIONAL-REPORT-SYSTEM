@@ -100,6 +100,49 @@ export const SyncEngineProvider = ({ children }) => {
             }
           }
         }
+
+        // Self-heal: Check for any learners whose regNumber belongs to SCH-KGM3630 (starts with MRR- or KGM) but had their schoolId changed to SCH-G3798
+        const contaminatedLearners = await db.learners
+          .filter(l => {
+            const sid = String(l.schoolId || l.school_id || '');
+            if (sid !== 'SCH-G3798') return false;
+            const reg = String(l.regNumber || '').toUpperCase();
+            return reg.startsWith('MRR') || reg.includes('KGM') || reg.startsWith('SCH-KGM');
+          })
+          .toArray();
+
+        if (contaminatedLearners.length > 0) {
+          console.log(`[SyncEngineProvider] 🩹 Checking ${contaminatedLearners.length} contaminated learner(s) (MRR/KGM) under SCH-G3798...`);
+          for (const cl of contaminatedLearners) {
+            const cleanReg = String(cl.regNumber || '').trim().toUpperCase();
+            
+            // Check if the original student ALREADY EXISTS under SCH-KGM3630
+            const existingOriginal = await db.learners
+              .filter(orig => 
+                (String(orig.schoolId) === 'SCH-KGM3630' || String(orig.school_id || '') === 'SCH-KGM3630') &&
+                ((orig.supabaseId && cl.supabaseId && orig.supabaseId === cl.supabaseId) ||
+                 (cleanReg && String(orig.regNumber || '').trim().toUpperCase() === cleanReg))
+              )
+              .first();
+
+            if (existingOriginal && existingOriginal.id !== cl.id) {
+              // CASE 1: It WAS duplicated! 
+              // The real learner is already safe in SCH-KGM3630.
+              // We only delete the duplicate clone from SCH-G3798.
+              console.log(`[SyncEngineProvider] ✂️ Removing duplicate clone "${cl.fullName}" (${cleanReg}) from SCH-G3798 — original (id=${existingOriginal.id}) is intact.`);
+              await db.learners.delete(cl.id);
+            } else {
+              // CASE 2: It was NOT duplicated (it was just hijacked/reassigned).
+              // Restore its schoolId back to SCH-KGM3630 so it's not lost.
+              console.log(`[SyncEngineProvider] ↩️ Restoring hijacked learner "${cl.fullName}" (${cleanReg}) back to SCH-KGM3630.`);
+              await db.learners.update(cl.id, { 
+                schoolId: 'SCH-KGM3630', 
+                school_id: 'SCH-KGM3630',
+                synced: true 
+              });
+            }
+          }
+        }
       } catch (err) {
         console.warn('[SyncEngineProvider] Failed to reset stuck items:', err);
       }
