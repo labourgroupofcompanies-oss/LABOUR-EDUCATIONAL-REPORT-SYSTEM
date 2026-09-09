@@ -73,6 +73,10 @@ const TeacherList = () => {
     () => schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [], 
     [schoolId]
   );
+  const currentSchool = useLiveQuery(
+    () => schoolId ? db.schools.get(schoolId) : null,
+    [schoolId]
+  );
   const allAssignments = useLiveQuery(
     () => schoolId ? db.teacherAssignments.where('schoolId').equals(schoolId).toArray() : [], 
     [schoolId]
@@ -645,16 +649,42 @@ const TeacherList = () => {
               {/* Action Buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {/* 1. Direct WhatsApp Share */}
-                <a
-                  href={`https://api.whatsapp.com/send?text=${encodeURIComponent(`Hello ${newlyRegisteredTeacher.fullName},\n\nYou have been registered as a teacher on the Labour Edu school portal.\n\n📧 *Registered Email:* ${newlyRegisteredTeacher.email}\n👤 *Staff ID:* ${newlyRegisteredTeacher.staffId || '—'}\n🔗 *Portal Link:* ${window.location.origin}/login\n\nPlease tap the link, click "Claim / Activate Teacher Account", enter your email (${newlyRegisteredTeacher.email}) to set your password and access your classes.`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn"
-                  style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', fontSize: '0.88rem', fontWeight: 800, background: '#16A34A', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', border: 'none' }}
-                >
-                  <i className="fab fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
-                  <span>Send Invite on WhatsApp</span>
-                </a>
+                {(() => {
+                  const teacherName = newlyRegisteredTeacher.fullName || 'Teacher';
+                  const schoolTitle = currentSchool?.name || 'our school';
+                  const portalUrl = `${window.location.origin}/login`;
+                  
+                  const humanMessage = 
+`Hello ${teacherName},
+
+You have been successfully added to the teaching staff portal for *${schoolTitle}*.
+
+Here are your portal details:
+• Staff ID: *${newlyRegisteredTeacher.staffId || '—'}*
+• Registered Email: *${newlyRegisteredTeacher.email}*
+
+To get started and set up your account:
+1. Open the portal: ${portalUrl}
+2. Tap *"Claim / Activate Teacher Account"*
+3. Enter your email (*${newlyRegisteredTeacher.email}*) to create your password
+
+Once signed in, you will be able to view your assigned classes and record continuous assessment and exam scores.
+
+If you encounter any difficulty signing in, please let school administration know. Welcome on board!`;
+
+                  return (
+                    <a
+                      href={`https://api.whatsapp.com/send?text=${encodeURIComponent(humanMessage)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn"
+                      style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', fontSize: '0.88rem', fontWeight: 800, background: '#16A34A', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', border: 'none' }}
+                    >
+                      <i className="fab fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                      <span>Send Invite on WhatsApp</span>
+                    </a>
+                  );
+                })()}
 
                 {/* 2. Copy Full Message */}
                 <button
@@ -662,7 +692,28 @@ const TeacherList = () => {
                   className="btn"
                   style={{ width: '100%', padding: '0.7rem', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 700, background: '#EFF6FF', color: '#2563eb', border: '1px solid #DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}
                   onClick={() => {
-                    const inviteText = `Hello ${newlyRegisteredTeacher.fullName},\n\nYou have been registered as a teacher on the Labour Edu school portal.\n\n📧 Registered Email: ${newlyRegisteredTeacher.email}\n👤 Staff ID: ${newlyRegisteredTeacher.staffId || '—'}\n🔗 Portal Link: ${window.location.origin}/login\n\nPlease visit the link, click "Claim / Activate Teacher Account", enter your email (${newlyRegisteredTeacher.email}) to set your password and access your classes.`;
+                    const teacherName = newlyRegisteredTeacher.fullName || 'Teacher';
+                    const schoolTitle = currentSchool?.name || 'our school';
+                    const portalUrl = `${window.location.origin}/login`;
+                    
+                    const inviteText = 
+`Hello ${teacherName},
+
+You have been successfully added to the teaching staff portal for *${schoolTitle}*.
+
+Here are your portal details:
+• Staff ID: *${newlyRegisteredTeacher.staffId || '—'}*
+• Registered Email: *${newlyRegisteredTeacher.email}*
+
+To get started and set up your account:
+1. Open the portal: ${portalUrl}
+2. Tap "Claim / Activate Teacher Account"
+3. Enter your email (${newlyRegisteredTeacher.email}) to create your password
+
+Once signed in, you will be able to view your assigned classes and record continuous assessment and exam scores.
+
+If you encounter any difficulty signing in, please let school administration know. Welcome on board!`;
+
                     navigator.clipboard.writeText(inviteText);
                     setCopiedInvite('full');
                     setTimeout(() => setCopiedInvite(false), 2500);
