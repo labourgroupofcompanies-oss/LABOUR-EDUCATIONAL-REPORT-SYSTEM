@@ -5,3 +5,8 @@ pages_build_output_dir = "dist"
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
+
+[vars]
+VITE_SUPABASE_URL = "https://qyavwtumduldesrajvzm.supabase.co"
+VITE_SUPABASE_ANON_KEY = "sb_publishable_etvCCbykjKm4I7qRFF8hIw_OJ_fk70d"
+VITE_PAYSTACK_PUBLIC_KEY = "pk_live_268bda36ac82a08f2180c82fc5ab2f782dbc5601"
