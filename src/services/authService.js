@@ -2,6 +2,7 @@ import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { downloadImageAsBlob } from '../utils/imageUtils';
 import { sha256, generateRandomSalt } from '../utils/cryptoUtils';
+import loginRateLimitService from './loginRateLimitService';
 
 // ─── Auth Service ────────────────────────────────────────────────────────────
 // ─── Universal SHA-256 Hashing Helpers with Safe Fallback ───────────────────
@@ -53,6 +54,12 @@ export const authService = {
     const cleanedEmail = (email || '').trim().toLowerCase();
     if (!cleanedEmail || !password) {
       throw new Error('Please enter both email and password.');
+    }
+
+    // ── Progressive Lockout Guard (5 attempts, 1m -> 5m -> 6h) ───────────────
+    const lockout = loginRateLimitService.checkLockout(cleanedEmail);
+    if (lockout.isLocked) {
+      throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${lockout.remainingFormatted}. Refreshing will not bypass this restriction.`);
     }
 
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -173,6 +180,9 @@ export const authService = {
           cacheSchoolStaffProfiles(profileToSave.schoolId);
         }
 
+        // Clear rate limit lock & strikes on successful authentication
+        loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
+
         return { profile: profileToSave };
 
       } catch (profileFetchErr) {
@@ -203,13 +213,19 @@ export const authService = {
         if (fallbackProfile.schoolId) {
           cacheSchoolStaffProfiles(fallbackProfile.schoolId);
         }
+
+        loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
         return { profile: fallbackProfile };
       }
     }
 
     // ── Step 3: Explicit Credentials Failure when Online ────────────────────
     if (attemptedOnline && authError && authError.message?.toLowerCase().includes('invalid login credentials')) {
-      throw new Error('Incorrect email or password. Please try again.');
+      const failRec = loginRateLimitService.recordFailedAttempt(cleanedEmail);
+      if (failRec.isLocked) {
+        throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
+      }
+      throw new Error(`Incorrect email or password. You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`);
     }
 
     // ── Step 4: Offline / Network Error Failover — Verify against Local Hash ────
@@ -221,13 +237,19 @@ export const authService = {
       if (cached.passwordHash) {
         const inputHash = await hashUserPassword(password, cached.passwordSalt || 'labour_edu_salt_2026');
         if (inputHash === cached.passwordHash) {
+          loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
           return { profile: cached, isOffline: true };
         } else {
-          throw new Error('Incorrect password (offline mode).');
+          const failRec = loginRateLimitService.recordFailedAttempt(cleanedEmail);
+          if (failRec.isLocked) {
+            throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
+          }
+          throw new Error(`Incorrect password (offline mode). You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`);
         }
       } else {
         // Cached user before password hash feature was introduced
         console.warn('[Auth] Offline login using legacy cached profile (no password hash recorded yet).');
+        loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
         return { profile: cached, isOffline: true };
       }
     }
@@ -251,14 +273,20 @@ export const authService = {
         lastLogin: new Date().toISOString()
       };
       await db.profiles.put(superAdminProfile);
+      loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
       return { profile: superAdminProfile };
     }
 
-    // ── Step 6: Account Not Found Locally ──────────────────────────────────
+    // ── Step 6: Account Not Found Locally / Failed Authentication ───────────
+    const failRec = loginRateLimitService.recordFailedAttempt(cleanedEmail);
+    if (failRec.isLocked) {
+      throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
+    }
+
     throw new Error(
       attemptedOnline
-        ? (authError?.message || 'Login failed. Please check your network connection and try again.')
-        : 'No cached account found on this device. Please connect to the internet to log in for the first time.'
+        ? (authError?.message || `Login failed. You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`)
+        : `No cached account found on this device. You have ${failRec.remainingAttempts} attempt(s) remaining.`
     );
   },
 
@@ -475,6 +503,13 @@ export const authService = {
 
   async loginParent(phoneNumber, password) {
     const cleanInput = phoneNumber.replace(/[\s\-\+\(\)]/g, '').slice(-9);
+
+    // Enforce anti-refresh lockout check
+    const lockout = loginRateLimitService.checkLockout(cleanInput);
+    if (lockout.isLocked) {
+      throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${lockout.remainingFormatted}. Refreshing will not bypass this restriction.`);
+    }
+
     const inputHash = await hashPassword(password);
 
     // 1. If online, fetch from remote to ensure latest credential sync
@@ -501,13 +536,18 @@ export const authService = {
             };
             
             this.saveParentSession(parentProfile);
+            loginRateLimitService.recordSuccessfulLogin(cleanInput);
             return { parent: parentProfile };
           } else {
-            throw new Error('Incorrect password. Please try again.');
+            const failRec = loginRateLimitService.recordFailedAttempt(cleanInput);
+            if (failRec.isLocked) {
+              throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
+            }
+            throw new Error(`Incorrect password. You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`);
           }
         }
       } catch (err) {
-        if (err.message && err.message.includes('Incorrect password')) throw err;
+        if (err.message && (err.message.includes('Incorrect password') || err.message.includes('Account temporarily restricted'))) throw err;
         console.warn('Supabase remote login fallback:', err);
       }
     }
@@ -523,13 +563,22 @@ export const authService = {
         };
         
         this.saveParentSession(parentProfile);
+        loginRateLimitService.recordSuccessfulLogin(cleanInput);
         return { parent: parentProfile };
       } else {
-        throw new Error('Incorrect password. Please try again.');
+        const failRec = loginRateLimitService.recordFailedAttempt(cleanInput);
+        if (failRec.isLocked) {
+          throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
+        }
+        throw new Error(`Incorrect password. You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`);
       }
     }
 
-    throw new Error('Authentication failed. Phone number or password not recognized.');
+    const failRec = loginRateLimitService.recordFailedAttempt(cleanInput);
+    if (failRec.isLocked) {
+      throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
+    }
+    throw new Error(`Authentication failed. Phone number or password not recognized. You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`);
   },
 
   async resetParentPassword(phoneNumber) {

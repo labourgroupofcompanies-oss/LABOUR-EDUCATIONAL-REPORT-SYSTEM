@@ -43,6 +43,12 @@ const WATCHER_FEEDS = [
     sourceName: 'GhanaEducationNews.org',
     feedUrl: 'https://ghanaeducationnews.org/feed/',
     baseUrl: 'https://ghanaeducationnews.org'
+  },
+  {
+    sourceId: 'pulseghana',
+    sourceName: 'Pulse Ghana News',
+    feedUrl: 'https://www.pulse.com.gh/rss-articles.xml',
+    baseUrl: 'https://www.pulse.com.gh'
   }
 ];
 

@@ -451,46 +451,20 @@ Ask me anything you want from your portal and I will help you do it! Whether you
         >
           <i className="fas fa-headset" />
 
-          {/* Unreleased report indicator badge */}
-          {unreleasedReports > 0 ? (
-            <span
-              style={{
-                position: 'absolute',
-                top: '-3px',
-                right: '-3px',
-                minWidth: '18px',
-                height: '18px',
-                borderRadius: '999px',
-                background: '#F59E0B',
-                color: '#ffffff',
-                fontSize: '0.65rem',
-                fontWeight: 900,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '0 4px',
-                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.25)',
-                border: '1.5px solid #ffffff'
-              }}
-              title={`${unreleasedReports} report card(s) ready for release`}
-            >
-              {unreleasedReports > 9 ? '9+' : unreleasedReports}
-            </span>
-          ) : (
-            <span
-              style={{
-                position: 'absolute',
-                top: '2px',
-                right: '2px',
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: '#10B981',
-                boxShadow: '0 0 0 2px #ffffff'
-              }}
-              title="Local School Intelligence Online"
-            />
-          )}
+          {/* Online status indicator */}
+          <span
+            style={{
+              position: 'absolute',
+              top: '2px',
+              right: '2px',
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: '#10B981',
+              boxShadow: '0 0 0 2px #ffffff'
+            }}
+            title="Local School Intelligence Online"
+          />
         </button>
       </div>
 

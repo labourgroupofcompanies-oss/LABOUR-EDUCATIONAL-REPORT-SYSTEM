@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSchoolNotifications } from '../../context/SchoolNotificationContext';
 
 const PortalToastContainer = () => {
-  const { toasts, dismissToast, removeNotification } = useSchoolNotifications();
+  const { toasts, dismissToast, markAsRead } = useSchoolNotifications();
   const navigate = useNavigate();
 
   if (!toasts || toasts.length === 0) return null;
@@ -91,7 +91,7 @@ const PortalToastContainer = () => {
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
                 <button
                   onClick={() => {
-                    removeNotification(toast.id);
+                    markAsRead(toast.id);
                     dismissToast(toast.id);
                     navigate(toast.actionUrl);
                   }}

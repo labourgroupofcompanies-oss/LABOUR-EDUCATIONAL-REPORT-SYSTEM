@@ -10,33 +10,20 @@ const DISMISSED_BROADCASTS_KEY = 'labour_edu_dismissed_broadcasts';
 class BroadcastService {
   constructor() {
     this.broadcasts = this.loadLocalBroadcasts();
+    this.saveLocalBroadcasts();
   }
 
   loadLocalBroadcasts() {
     try {
       const stored = localStorage.getItem(BROADCASTS_LOCAL_KEY);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {}
-
-    // Default seed templates
-    return [
-      {
-        id: 'b_ges_standard_1',
-        title: '🇬🇭 GES Academic Term 3 Score Entry Directive',
-        content: 'All Basic Schools are reminded that terminal broadsheet submission and continuous assessment computation must follow the standard 30% CA and 70% Exam marks weighting.',
-        targetAudience: 'all', // 'all' | 'headteacher' | 'teacher' | 'parent'
-        severity: 'warning', // 'info' | 'warning' | 'urgent' | 'success'
-        bannerEnabled: true,
-        modalEnabled: false,
-        blogUrl: '/blog/ges-continuous-assessment-policy-guide',
-        blogTitle: 'GES Continuous Assessment & Grading Guide',
-        actionUrl: '/scores',
-        actionLabel: 'Check Scores Status',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        author: 'Platform Super Admin'
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(b => b && b.id !== 'b_ges_standard_1');
+        }
       }
-    ];
+    } catch (e) {}
+    return [];
   }
 
   saveLocalBroadcasts() {
@@ -45,8 +32,19 @@ class BroadcastService {
     } catch (e) {}
   }
 
+  normalizeRole(role) {
+    if (!role || role === 'all') return 'all';
+    const r = String(role).toLowerCase().trim();
+    if (['headteacher', 'super_admin', 'admin', 'school_admin', 'proprietor'].includes(r)) {
+      return 'headteacher';
+    }
+    if (['teacher'].includes(r)) return 'teacher';
+    if (['parent'].includes(r)) return 'parent';
+    return r;
+  }
+
   async getAllBroadcasts() {
-    // Attempt to pull remote broadcasts from Supabase if online
+    // 1. Attempt to pull remote broadcasts from Supabase if online
     if (navigator.onLine) {
       try {
         const { data, error } = await supabase
@@ -54,26 +52,30 @@ class BroadcastService {
           .select('*')
           .order('created_at', { ascending: false });
 
-        if (!error && Array.isArray(data) && data.length > 0) {
-          const formatted = data.map(item => ({
-            id: item.id,
-            title: item.title,
-            content: item.content,
-            targetAudience: item.target_audience || 'all',
-            severity: item.severity || 'info',
-            bannerEnabled: item.banner_enabled ?? true,
-            modalEnabled: item.modal_enabled ?? false,
-            blogUrl: item.blog_url || item.blogUrl || null,
-            blogTitle: item.blog_title || item.blogTitle || null,
-            actionUrl: item.action_url || null,
-            actionLabel: item.action_label || 'View Details',
-            isActive: item.is_active ?? true,
-            expiresAt: item.expires_at || null,
-            createdAt: item.created_at,
-            author: item.author || 'Platform Super Admin'
-          }));
+        if (!error && Array.isArray(data)) {
+          const formatted = data
+            .filter(item => item && item.id !== 'b_ges_standard_1')
+            .map(item => ({
+              id: item.id,
+              title: item.title,
+              content: item.content,
+              targetAudience: item.target_audience || 'all',
+              severity: item.severity || 'info',
+              bannerEnabled: item.banner_enabled ?? true,
+              modalEnabled: item.modal_enabled ?? false,
+              blogUrl: item.blog_url || item.blogUrl || null,
+              blogTitle: item.blog_title || item.blogTitle || null,
+              actionUrl: item.action_url || null,
+              actionLabel: item.action_label || 'View Details',
+              isActive: item.is_active ?? true,
+              expiresAt: item.expires_at || null,
+              createdAt: item.created_at,
+              author: item.author || 'Platform Super Admin'
+            }));
 
-          this.broadcasts = formatted;
+          // Merge local broadcasts with remote
+          const localOnly = this.broadcasts.filter(l => !formatted.some(r => r.id === l.id));
+          this.broadcasts = [...formatted, ...localOnly];
           this.saveLocalBroadcasts();
           return this.broadcasts;
         }
@@ -104,7 +106,7 @@ class BroadcastService {
       author: payload.author || 'Platform Super Admin'
     };
 
-    this.broadcasts = [newBroadcast, ...this.broadcasts];
+    this.broadcasts = [newBroadcast, ...this.broadcasts.filter(b => b.id !== id)];
     this.saveLocalBroadcasts();
 
     // Push to Supabase if table exists
@@ -128,7 +130,7 @@ class BroadcastService {
             author: newBroadcast.author
           });
 
-        // Also broadcast as school notification in report_notifications
+        // Also broadcast as notification in report_notifications
         await supabase
           .from('report_notifications')
           .insert({
@@ -143,12 +145,14 @@ class BroadcastService {
 
     // Trigger local Dexie notification update
     try {
-      await db.notifications.add({
-        title: newBroadcast.title,
-        content: newBroadcast.content,
-        created_at: newBroadcast.createdAt,
-        isRead: false
-      });
+      if (db.notifications) {
+        await db.notifications.add({
+          title: newBroadcast.title,
+          content: newBroadcast.content,
+          created_at: newBroadcast.createdAt,
+          isRead: false
+        });
+      }
     } catch (e) {}
 
     // Dispatch global custom event for instant banner display
@@ -190,35 +194,44 @@ class BroadcastService {
     return true;
   }
 
-  getActiveBroadcastsForRole(role) {
-    const userRole = role === 'super_admin' ? 'headteacher' : (role || 'all');
-    const dismissed = this.getDismissedBroadcastIds();
-
-    return this.broadcasts.filter(b => {
-      if (!b.isActive) return false;
-      if (dismissed.includes(b.id)) return false;
-      if (b.targetAudience === 'all') return true;
-      if (b.targetAudience === userRole) return true;
-      return false;
-    });
+  getDismissedKey(role = null, userId = null) {
+    if (userId) return `${DISMISSED_BROADCASTS_KEY}_${userId}`;
+    if (role) return `${DISMISSED_BROADCASTS_KEY}_${this.normalizeRole(role)}`;
+    return DISMISSED_BROADCASTS_KEY;
   }
 
-  getDismissedBroadcastIds() {
+  getDismissedBroadcastIds(role = null, userId = null) {
     try {
-      const stored = localStorage.getItem(DISMISSED_BROADCASTS_KEY);
+      const stored = localStorage.getItem(this.getDismissedKey(role, userId));
       return stored ? JSON.parse(stored) : [];
     } catch (e) {
       return [];
     }
   }
 
-  dismissBroadcast(id) {
-    const dismissed = this.getDismissedBroadcastIds();
+  dismissBroadcast(id, role = null, userId = null) {
+    const dismissed = this.getDismissedBroadcastIds(role, userId);
     if (!dismissed.includes(id)) {
       dismissed.push(id);
-      localStorage.setItem(DISMISSED_BROADCASTS_KEY, JSON.stringify(dismissed));
+      try {
+        localStorage.setItem(this.getDismissedKey(role, userId), JSON.stringify(dismissed));
+      } catch (e) {}
     }
     window.dispatchEvent(new CustomEvent('platform-broadcast-updated'));
+  }
+
+  getActiveBroadcastsForRole(role, userId = null) {
+    const userRole = this.normalizeRole(role);
+    const dismissed = this.getDismissedBroadcastIds(userRole, userId);
+
+    return this.broadcasts.filter(b => {
+      if (!b || !b.isActive || b.id === 'b_ges_standard_1') return false;
+      if (dismissed.includes(b.id)) return false;
+      const target = this.normalizeRole(b.targetAudience);
+      if (target === 'all') return true;
+      if (target === userRole) return true;
+      return false;
+    });
   }
 }
 

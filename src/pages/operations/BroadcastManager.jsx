@@ -1,8 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import broadcastService from '../../services/broadcastService';
 import blogService from '../../services/blogService';
+import schoolNotificationService from '../../services/schoolNotificationService';
 
 const PRESET_TEMPLATES = [
+  {
+    name: '🎒 Welcome Back From Vacation',
+    title: '🎉 Welcome Back to a Productive New Term!',
+    targetAudience: 'all',
+    severity: 'success',
+    bannerEnabled: true,
+    modalEnabled: true,
+    blogUrl: '',
+    blogTitle: '',
+    content: 'Dear School Leaders, Teachers, and Parents, welcome back from the vacation! We hope you had a refreshing break. Labour Edu is fully prepared to support your school with seamless terminal reporting and academic operations this term.',
+    actionUrl: '/',
+    actionLabel: 'Open Dashboard'
+  },
   {
     name: '🇬🇭 GES Curriculum & Assessment Directive',
     title: '🇬🇭 Official GES Continuous Assessment & Terminal Grading Window',
@@ -126,7 +140,7 @@ const BroadcastManager = () => {
 
     setSubmitting(true);
     try {
-      await broadcastService.createBroadcast({
+      const newBroadcast = await broadcastService.createBroadcast({
         title,
         content,
         targetAudience,
@@ -137,6 +151,20 @@ const BroadcastManager = () => {
         actionUrl: actionUrl.trim() || null,
         actionLabel: actionLabel.trim() || 'View Details'
       });
+
+      // Also trigger instant notification into notification bell
+      try {
+        schoolNotificationService.addNotification({
+          id: `broadcast_${newBroadcast.id}`,
+          title: `📢 ${newBroadcast.title}`,
+          message: newBroadcast.content,
+          category: 'broadcast',
+          timestamp: newBroadcast.createdAt,
+          actionUrl: newBroadcast.actionUrl,
+          actionLabel: newBroadcast.actionLabel,
+          severity: newBroadcast.severity
+        }, true, true);
+      } catch (notifErr) {}
 
       setSuccessMessage('Broadcast announcement successfully dispatched across target portals!');
       setTitle('');
@@ -687,55 +715,93 @@ const BroadcastManager = () => {
                 This is how the broadcast announcement banner will render at the top of <strong>{getAudienceLabel(targetAudience)}</strong> dashboards:
               </div>
 
-              {/* Preview Banner Box - Mobile Phone Push Notification Style */}
+              {/* Preview Banner Box - iPhone iOS Translucent Glass Push Notification Style */}
               {(() => {
                 const getPreviewTheme = (sev) => {
                   switch (sev) {
-                    case 'urgent': return { accent: '#EF4444', accentBg: 'rgba(239, 68, 68, 0.1)', glassBg: 'rgba(254, 242, 242, 0.88)', border: 'rgba(239, 68, 68, 0.3)', icon: 'fa-circle-exclamation', tag: 'Urgent' };
-                    case 'warning': return { accent: '#F59E0B', accentBg: 'rgba(245, 158, 11, 0.12)', glassBg: 'rgba(255, 251, 235, 0.88)', border: 'rgba(245, 158, 11, 0.35)', icon: 'fa-bullhorn', tag: 'Notice' };
-                    case 'success': return { accent: '#10B981', accentBg: 'rgba(16, 185, 129, 0.12)', glassBg: 'rgba(236, 253, 245, 0.88)', border: 'rgba(16, 185, 129, 0.3)', icon: 'fa-circle-check', tag: 'Update' };
+                    case 'urgent': return { accent: '#FF3B30', accentGradient: 'linear-gradient(135deg, #FF3B30 0%, #FF6259 100%)', iconGlow: 'rgba(255, 59, 48, 0.4)', tagBg: 'rgba(255, 59, 48, 0.12)', tagText: '#FF3B30', border: 'rgba(255, 59, 48, 0.25)', icon: 'fa-circle-exclamation', tag: 'Urgent Alert' };
+                    case 'warning': return { accent: '#FF9500', accentGradient: 'linear-gradient(135deg, #FF9500 0%, #FFB340 100%)', iconGlow: 'rgba(255, 149, 0, 0.4)', tagBg: 'rgba(255, 149, 0, 0.14)', tagText: '#D97706', border: 'rgba(255, 149, 0, 0.25)', icon: 'fa-triangle-exclamation', tag: 'Official Notice' };
+                    case 'success': return { accent: '#34C759', accentGradient: 'linear-gradient(135deg, #34C759 0%, #30D158 100%)', iconGlow: 'rgba(52, 199, 89, 0.4)', tagBg: 'rgba(52, 199, 89, 0.14)', tagText: '#15803D', border: 'rgba(52, 199, 89, 0.25)', icon: 'fa-circle-check', tag: 'System Update' };
                     case 'info':
-                    default: return { accent: '#2563EB', accentBg: 'rgba(37, 99, 235, 0.1)', glassBg: 'rgba(239, 246, 255, 0.88)', border: 'rgba(37, 99, 235, 0.25)', icon: 'fa-bell', tag: 'Announcement' };
+                    default: return { accent: '#007AFF', accentGradient: 'linear-gradient(135deg, #007AFF 0%, #5856D6 100%)', iconGlow: 'rgba(0, 122, 255, 0.4)', tagBg: 'rgba(0, 122, 255, 0.12)', tagText: '#007AFF', border: 'rgba(0, 122, 255, 0.22)', icon: 'fa-bolt-lightning', tag: 'Developer Broadcast' };
                   }
                 };
                 const theme = getPreviewTheme(severity);
                 return (
                   <div style={{
-                    background: theme.glassBg,
-                    border: `1.5px solid ${theme.border}`,
-                    borderRadius: '16px',
-                    padding: '0.85rem 1.1rem',
+                    background: 'rgba(255, 255, 255, 0.82)',
+                    border: `1px solid rgba(255, 255, 255, 0.85)`,
+                    borderRadius: '22px',
+                    padding: '0.9rem 1.15rem 0.95rem 1.15rem',
                     color: '#0F172A',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '6px',
-                    backdropFilter: 'blur(16px)',
-                    boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)'
+                    backdropFilter: 'blur(32px) saturate(210%)',
+                    WebkitBackdropFilter: 'blur(32px) saturate(210%)',
+                    boxShadow: '0 16px 36px -8px rgba(0, 0, 0, 0.35), inset 0 1px 1.5px rgba(255, 255, 255, 0.95)',
+                    position: 'relative',
+                    overflow: 'hidden'
                   }}>
                     {/* Header Row */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <div style={{ width: '20px', height: '20px', borderRadius: '5px', background: theme.accentBg, color: theme.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '7px',
+                          background: theme.accentGradient,
+                          boxShadow: `0 3px 8px ${theme.iconGlow}`,
+                          color: '#FFFFFF',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.72rem'
+                        }}>
                           <i className={`fas ${theme.icon}`}></i>
                         </div>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 800, color: theme.accent, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                          {theme.tag}
-                        </span>
-                        <span style={{ fontSize: '0.65rem', color: '#94A3B8' }}>•</span>
-                        <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#64748B' }}>Just now</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0F172A', letterSpacing: '-0.01em' }}>
+                            LABOUR EDU
+                          </span>
+                          <span style={{
+                            fontSize: '0.64rem',
+                            fontWeight: 800,
+                            color: theme.tagText,
+                            background: theme.tagBg,
+                            padding: '0.1rem 0.4rem',
+                            borderRadius: '5px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em'
+                          }}>
+                            {theme.tag}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.7rem', color: '#64748B', fontWeight: 500 }}>• Just now</span>
                       </div>
-                      <div style={{ width: '18px', height: '18px', borderRadius: '50%', background: 'rgba(0,0,0,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#64748B' }}>
+
+                      <div style={{
+                        width: '20px',
+                        height: '20px',
+                        borderRadius: '50%',
+                        background: 'rgba(0,0,0,0.06)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.65rem',
+                        color: '#64748B'
+                      }}>
                         ✕
                       </div>
                     </div>
 
                     {/* Title & Preview Content (Strictly what was typed) */}
-                    <div style={{ fontWeight: 800, fontSize: '0.92rem', color: '#0F172A', lineHeight: 1.3 }}>
+                    <div style={{ fontWeight: 800, fontSize: '0.94rem', color: '#09090B', lineHeight: 1.35, marginTop: '2px' }}>
                       {title || 'Announcement Title'}
                     </div>
 
                     <div style={{
-                      fontSize: '0.82rem',
+                      fontSize: '0.83rem',
                       color: '#334155',
                       lineHeight: 1.45,
                       display: '-webkit-box',
@@ -748,12 +814,28 @@ const BroadcastManager = () => {
 
                     {/* Footer Tap Hint */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px', paddingTop: '4px', borderTop: '1px solid rgba(0,0,0,0.05)', fontSize: '0.72rem', color: '#64748B', fontWeight: 600 }}>
-                      <span>Tap to view full message</span>
-                      <i className="fas fa-chevron-right" style={{ fontSize: '0.65rem' }}></i>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <i className="fas fa-fingerprint" style={{ color: theme.accent, fontSize: '0.7rem' }}></i>
+                        Tap to view full message
+                      </span>
+                      <i className="fas fa-chevron-right" style={{ fontSize: '0.65rem', color: theme.accent }}></i>
                     </div>
                   </div>
                 );
               })()}
+            </div>
+            
+            {/* Helpful Developer Guide Card */}
+            <div style={{ background: '#18181b', borderRadius: '18px', border: '1px solid #27272a', padding: '1.25rem', color: '#FFFFFF' }}>
+              <div style={{ fontSize: '0.78rem', fontWeight: 800, color: '#A1A1AA', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.5rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <i className="fas fa-info-circle" style={{ color: '#38BDF8' }}></i>
+                Broadcast Delivery Highlights
+              </div>
+              <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '0.8rem', color: '#D4D4D8', lineHeight: 1.6 }}>
+                <li><strong>Floating 7s Notification:</strong> Appears gracefully over Headteacher &amp; Teacher portals and disappears after 7s without shifting the layout.</li>
+                <li><strong>Bell Archival:</strong> Permanently recorded into their top-right Notification Bell for later reading.</li>
+                <li><strong>Multi-Targeting:</strong> Send to All Users, Headteachers Only, Teachers Only, or Parents.</li>
+              </ul>
             </div>
           </div>
 

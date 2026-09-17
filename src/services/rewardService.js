@@ -247,6 +247,20 @@ export const rewardService = {
     // Publish Reward Completed Event
     await eventBus.publish('ReferralRewardIssued', updatedReferral);
 
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('school-referral-event', {
+          detail: {
+            type: 'REWARD_ISSUED',
+            referral: updatedReferral,
+            referrerSchoolId: referral.referrerSchoolId,
+            referredSchoolId: targetSchoolId || referral.referredSchoolId,
+            amount: rewardAmount
+          }
+        }));
+      } catch (_) {}
+    }
+
     return {
       ...updatedReferral,
       newWalletBalance: creditResult?.newBalance

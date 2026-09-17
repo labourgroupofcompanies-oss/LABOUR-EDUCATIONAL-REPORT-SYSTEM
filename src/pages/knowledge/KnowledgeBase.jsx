@@ -125,7 +125,7 @@ const KnowledgeBase = () => {
     return manualCategories.includes(cat);
   };
 
-  const OFFICIAL_BLOG_URL = 'https://labouredusite.netlify.app/resources/blog';
+  const OFFICIAL_BLOG_URL = 'https://labouredu.com/resources/blog';
 
   // Fetch published posts with offline guarantee
   useEffect(() => {
@@ -1079,7 +1079,7 @@ const KnowledgeBase = () => {
                   onMouseLeave={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)'}
                 >
                   <i className="fas fa-globe" style={{ color: '#60A5FA' }}></i>
-                  <span>Visit Main Website Blog (labouredusite.netlify.app) ↗</span>
+                  <span>Visit Main Website Blog (labouredu.com) ↗</span>
                 </a>
               </div>
 
@@ -1411,7 +1411,7 @@ const KnowledgeBase = () => {
                         Official Publication on Labour Edu Website
                       </div>
                       <div style={{ fontSize: '0.72rem', color: '#3B82F6', fontWeight: 600 }}>
-                        labouredusite.netlify.app/resources/blog
+                        labouredu.com/resources/blog
                       </div>
                     </div>
                   </div>

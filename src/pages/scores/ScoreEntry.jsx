@@ -930,6 +930,32 @@ const ScoreEntry = () => {
 
     setIsDirty(false);
     setIsBatchSubmitted(submitFinal);
+
+    if (submitFinal) {
+      try {
+        const clsObj = (classes || []).find(c => String(c.id) === String(selectedClass) || String(c.supabaseId) === String(selectedClass));
+        const subObj = (subjects || []).find(s => String(s.id) === String(selectedSubject) || String(s.supabaseId) === String(selectedSubject));
+        const className = clsObj?.name || `Class ${selectedClass}`;
+        const subjectName = subObj?.name || `Subject ${selectedSubject}`;
+
+        window.dispatchEvent(new CustomEvent('school-scores-submitted', {
+          detail: {
+            schoolId: user.schoolId,
+            teacherId: user.id,
+            teacherName: user.name || user.fullName || 'Teacher',
+            classId: selectedClass,
+            className,
+            subjectId: selectedSubject,
+            subjectName,
+            term: selectedTerm,
+            academicYear: selectedAcademicYear
+          }
+        }));
+      } catch (evtErr) {
+        console.warn('[ScoreEntry] Failed to dispatch score submission event:', evtErr);
+      }
+    }
+
     alert(submitFinal 
       ? '✓ Scores saved and submitted successfully! Status is now Submitted.'
       : '✎ Scores saved as Draft successfully!'

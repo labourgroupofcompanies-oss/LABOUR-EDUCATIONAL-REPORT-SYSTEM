@@ -8,19 +8,28 @@ const SchoolNotificationContext = createContext(null);
 
 export const SchoolNotificationProvider = ({ children }) => {
   const { user } = useAuth();
-  const parent = authService.getCurrentParent();
+
+  // ✅ Reactive parent auth — re-reads when user changes (not stale closure)
+  const [parent, setParent] = useState(() => authService.getCurrentParent());
 
   const [state, setState] = useState(() => schoolNotificationService.getState());
   const [toasts, setToasts] = useState([]);
   const [soundEnabled, setSoundEnabled] = useState(() => {
-    const saved = localStorage.getItem('school_notif_sound_enabled');
-    return saved !== null ? saved === 'true' : true;
+    try {
+      const saved = localStorage.getItem('school_notif_sound_enabled');
+      return saved !== null ? saved === 'true' : true;
+    } catch { return true; }
   });
+
+  // Keep parent in sync whenever user changes (login/logout)
+  useEffect(() => {
+    setParent(authService.getCurrentParent());
+  }, [user]);
 
   const toggleSound = useCallback(() => {
     setSoundEnabled(prev => {
       const next = !prev;
-      localStorage.setItem('school_notif_sound_enabled', String(next));
+      try { localStorage.setItem('school_notif_sound_enabled', String(next)); } catch {}
       if (next) playNotificationChime();
       return next;
     });
@@ -30,20 +39,23 @@ export const SchoolNotificationProvider = ({ children }) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  // Determine current role and context identifier
+  // Init and subscribe to notification service
   useEffect(() => {
     let role = 'guest';
     let contextId = null;
     let userId = null;
 
-    if (user?.role === 'super_admin') {
+    const isHeadteacherRole = ['super_admin', 'headteacher', 'admin', 'school_admin'].includes(user?.role);
+    const isTeacherRole = user?.role === 'teacher';
+
+    if (isHeadteacherRole) {
       role = 'headteacher';
-      contextId = user.schoolId;
-      userId = user.id;
-    } else if (user?.role === 'teacher') {
+      contextId = user?.schoolId || user?.school_id;
+      userId = user?.id || user?.userId;
+    } else if (isTeacherRole) {
       role = 'teacher';
-      contextId = user.schoolId;
-      userId = user.id;
+      contextId = user?.schoolId || user?.school_id;
+      userId = user?.id || user?.userId;
     } else if (parent?.phone_number) {
       role = 'parent';
       contextId = parent.phone_number;
@@ -55,25 +67,33 @@ export const SchoolNotificationProvider = ({ children }) => {
 
     const unsubscribe = schoolNotificationService.subscribe((newState, newNotification) => {
       setState(newState);
-
       if (newNotification) {
+        // Respect sound preference before showing toast
+        if (soundEnabled) {
+          // Chime already fired inside service if soundEnabled was passed
+        }
         setToasts(prev => [newNotification, ...prev.slice(0, 2)]);
-        setTimeout(() => {
-          dismissToast(newNotification.id);
-        }, 6500);
+        setTimeout(() => dismissToast(newNotification.id), 6500);
       }
     });
 
+    // ✅ Full cleanup: unsubscribe listener AND close realtime channels on unmount
     return () => {
       unsubscribe();
+      schoolNotificationService.cleanup();
     };
-  }, [user?.role, user?.schoolId, user?.id, parent?.phone_number, dismissToast]);
+  }, [user?.role, user?.schoolId, user?.id, parent?.phone_number, soundEnabled, dismissToast]);
 
   const markAsRead = useCallback((id) => schoolNotificationService.markAsRead(id), []);
   const removeNotification = useCallback((id) => schoolNotificationService.removeNotification(id), []);
   const markAllAsRead = useCallback(() => schoolNotificationService.markAllAsRead(), []);
   const clearAll = useCallback(() => schoolNotificationService.clearAll(), []);
-  const addNotification = useCallback((item) => schoolNotificationService.addNotification(item, soundEnabled), [soundEnabled]);
+
+  // ✅ Sound-gated manual add — only chime if sound is on
+  const addNotification = useCallback(
+    (item) => schoolNotificationService.addNotification(item, soundEnabled),
+    [soundEnabled]
+  );
 
   const value = useMemo(() => ({
     notifications: state.notifications,

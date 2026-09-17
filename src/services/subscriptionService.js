@@ -156,7 +156,8 @@ const subscriptionService = {
         ...data,
         // Authoritative entitlement decisions — do NOT override from client-side logic
         is_unlocked:               isUnlocked,
-        reports_locked:            Boolean(data.reports_locked),
+        reports_locked:            Boolean(data.reports_locked ?? data.report_cards_locked),
+        report_cards_locked:       Boolean(data.report_cards_locked ?? data.reports_locked),
         billing_status:            data.billing_status || 'UNKNOWN',
         // Enriched / reconciled fields
         wallet_balance:            walletBal,
@@ -364,45 +365,58 @@ const subscriptionService = {
         withinWindow &&
         isOnboardingTerm;
 
-      // ── Paid term bill check ──────────────────────────────────────────────
-      const hasPaidTermBill = termBill
-        ? (termBill.status === 'PAID' ||
-           termBill.status === 'FIRST_TERM_FREE' ||
-           termBill.status === 'EXEMPT')
-        : false;
-
       // ── Final entitlement decision ────────────────────────────────────────
-      const isSubscribedActive = school?.subscription_status === 'Active' || hasPaidTermBill;
-      const isUnlocked         = isFirstTermFreeActive || isExempt || isSubscribedActive || walletBal >= reqAmount;
-      const billingStatus      = isFirstTermFreeActive
-        ? 'FIRST_TERM_FREE'
-        : isExempt
-        ? 'EXEMPT'
-        : termBill?.status === 'PAID'
-        ? 'PAID'
-        : (isSubscribedActive || walletBal >= reqAmount)
-        ? 'ACTIVE'
-        : termBill
-        ? (termBill.status || 'AWAITING_APPROVAL')
-        : 'NO_BILL';
+      let isUnlocked = true;
+      let reportsLocked = false;
+      let billingStatus = 'NO_BILL';
+      let lockReason = null;
+
+      if (isFirstTermFreeActive) {
+        isUnlocked = true;
+        reportsLocked = false;
+        billingStatus = 'FIRST_TERM_FREE';
+      } else if (isExempt) {
+        isUnlocked = true;
+        reportsLocked = false;
+        billingStatus = 'EXEMPT';
+      } else if (termBill) {
+        // Admin has explicitly triggered a billing cycle for this term!
+        billingStatus = termBill.status || 'AWAITING_APPROVAL';
+        const hasPaidTermBill = termBill.status === 'PAID' || termBill.status === 'FIRST_TERM_FREE' || termBill.status === 'EXEMPT';
+        const isSubscribedActive = school?.subscription_status === 'Active' || hasPaidTermBill;
+        if (isSubscribedActive || walletBal >= reqAmount) {
+          isUnlocked = true;
+          reportsLocked = false;
+        } else {
+          isUnlocked = false;
+          reportsLocked = true;
+          lockReason = `Term subscription for ${resolvedTerm} (${resolvedYear}) is unpaid. Required: GH₵ ${reqAmount.toFixed(2)}, Wallet: GH₵ ${walletBal.toFixed(2)}.`;
+        }
+      } else {
+        // No billing cycle triggered by Admin yet for this term: keep UNLOCKED (no payment prompt)
+        isUnlocked = true;
+        reportsLocked = false;
+        billingStatus = 'NO_BILL';
+      }
 
       return {
         is_unlocked:               isUnlocked,
         billing_status:            billingStatus,
-        reports_locked:            !isUnlocked,
+        reports_locked:            reportsLocked,
+        report_cards_locked:       reportsLocked,
         can_view_data:             true,
         can_enter_results:         true,
         can_edit_results:          true,
-        can_generate_reports:      isUnlocked,
-        can_download_reports:      isUnlocked,
-        can_print_reports:         isUnlocked,
-        can_export_reports:        isUnlocked,
+        can_generate_reports:      !reportsLocked,
+        can_download_reports:      !reportsLocked,
+        can_print_reports:         !reportsLocked,
+        can_export_reports:        !reportsLocked,
         wallet_balance:            walletBal,
         wallet_reserved:           walletRes,
         wallet_available:          walletBal - walletRes,
-        required_amount:           isFirstTermFreeActive ? 0 : reqAmount,
-        amount_due:                isFirstTermFreeActive ? 0 : reqAmount,
-        outstanding_amount:        isUnlocked ? 0 : Math.max(0, reqAmount - walletBal),
+        required_amount:           termBill ? reqAmount : 0,
+        amount_due:                termBill ? reqAmount : 0,
+        outstanding_amount:        reportsLocked ? Math.max(0, reqAmount - walletBal) : 0,
         learner_count:             learnerCnt,
         active_learner_count:      learnerCnt,
         rate_per_learner:          rate,
@@ -418,9 +432,7 @@ const subscriptionService = {
         onboarding_term_label:     onboardingTerm,
         bill_id:                   termBill?.id || null,
         approval_status:           termBill?.approval_status || 'PENDING',
-        lock_reason:               isUnlocked
-          ? null
-          : `Term subscription for ${resolvedTerm} (${resolvedYear}) is unpaid. Required: GH₵ ${reqAmount.toFixed(2)}, Wallet: GH₵ ${walletBal.toFixed(2)}.`,
+        lock_reason:               lockReason,
       };
     } catch (err) {
       console.error('[subscriptionService] Fallback error:', err);
@@ -541,7 +553,13 @@ const subscriptionService = {
       return data;
     } catch (err) {
       console.error('[subscriptionService] revertTermBillingCycle error:', err);
-      throw err;
+      const isConflict = err?.code === '23503' || err?.status === 409 || (err?.message && (err.message.includes('409') || err.message.includes('violates foreign key constraint')));
+      if (isConflict) {
+        throw new Error(
+          'Database constraint conflict (409). The SQL function revert_term_billing_cycle on Supabase needs the updated migration (20260917_fix_revert_term_billing_cycle_409.sql) applied.'
+        );
+      }
+      throw new Error(err?.message || err?.details || 'Failed to revert billing cycle.');
     }
   },
 
@@ -564,6 +582,104 @@ const subscriptionService = {
       console.error('[subscriptionService] toggleSchoolTermExemption error:', err);
       throw err;
     }
+  },
+
+  /**
+   * Sync and Broadcast Master Academic Year, Term, Vacation Date & Resumption to all schools
+   * (Labour Platform Admin Action)
+   */
+  async syncMasterAcademicTerm({
+    academicYear,
+    term,
+    vacationDate = null,
+    nextTermBegins = null,
+    performedBy = 'Labour Admin'
+  }) {
+    let rpcResult = null;
+    let rpcWorked = false;
+
+    // 1. Try RPC if installed in database
+    try {
+      const { data, error } = await supabase.rpc('sync_master_academic_term', {
+        p_academic_year: academicYear,
+        p_term: term,
+        p_vacation_date: vacationDate || null,
+        p_next_term_begins: nextTermBegins || null,
+        p_performed_by: performedBy,
+      });
+      if (!error && data) {
+        rpcResult = data;
+        rpcWorked = true;
+      }
+    } catch (_) {}
+
+    // 2. Direct cloud table sync on report_schools (ensures updates apply even if RPC is not yet compiled)
+    const updatePayload = {
+      current_academic_year: academicYear,
+      current_term: term,
+      ...(vacationDate ? { vacation_date: vacationDate } : {}),
+      ...(nextTermBegins ? { next_term_begins: nextTermBegins } : {}),
+      updated_at: new Date().toISOString()
+    };
+
+    const { data: updatedCloudSchools, error: dbError } = await supabase
+      .from('report_schools')
+      .update(updatePayload)
+      .neq('id', '__dummy_all__')
+      .select('id');
+
+    if (dbError && !rpcWorked) {
+      console.error('[subscriptionService] syncMasterAcademicTerm db error:', dbError);
+      throw new Error(dbError.message || 'Failed to synchronize master term.');
+    }
+
+    // 3. Update platform_academic_calendars
+    try {
+      await supabase
+        .from('platform_academic_calendars')
+        .update({ is_active: false })
+        .neq('id', '__dummy_all__');
+
+      await supabase
+        .from('platform_academic_calendars')
+        .insert({
+          calendar_name: `National Calendar ${academicYear} (${term})`,
+          academic_year: academicYear,
+          term: term,
+          school_category: 'GES',
+          start_date: nextTermBegins || new Date().toISOString().split('T')[0],
+          end_date: vacationDate || new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0],
+          is_active: true,
+          updated_at: new Date().toISOString()
+        });
+    } catch (_) {}
+
+    // 4. Update local Dexie IndexedDB cache for instant client reactivity
+    try {
+      const schools = await db.schools.toArray();
+      for (const s of schools) {
+        await db.schools.update(s.id, {
+          currentAcademicYear: academicYear,
+          currentTerm: term,
+          current_academic_year: academicYear,
+          current_term: term,
+          ...(vacationDate ? { vacationDate, vacation_date: vacationDate } : {}),
+          ...(nextTermBegins ? { nextTermBegins, next_term_begins: nextTermBegins } : {})
+        });
+      }
+    } catch (_) {}
+
+    const updatedCount = (updatedCloudSchools && updatedCloudSchools.length) || (rpcResult && rpcResult.updated_schools_count) || 0;
+
+    return {
+      success: true,
+      academic_year: academicYear,
+      term: term,
+      vacation_date: vacationDate,
+      next_term_begins: nextTermBegins,
+      updated_schools_count: updatedCount,
+      message: `Master academic term (${academicYear} — ${term}) successfully broadcasted to all schools!`
+    };
   },
 
   /**

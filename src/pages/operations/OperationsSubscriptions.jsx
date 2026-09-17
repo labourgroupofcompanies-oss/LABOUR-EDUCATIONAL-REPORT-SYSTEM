@@ -42,6 +42,14 @@ const OperationsSubscriptions = () => {
   const [startingCycle, setStartingCycle] = useState(false);
   const [cycleMsg, setCycleMsg] = useState(null);
 
+  // Master Platform Academic Calendar & Term Synchronizer State
+  const [masterYear, setMasterYear] = useState('2025/2026');
+  const [masterTerm, setMasterTerm] = useState('Term 1');
+  const [masterVacationDate, setMasterVacationDate] = useState('');
+  const [masterNextTermBegins, setMasterNextTermBegins] = useState('');
+  const [syncingMasterTerm, setSyncingMasterTerm] = useState(false);
+  const [masterTermMsg, setMasterTermMsg] = useState(null);
+
   // Edit / Action Modal
   const [selectedSchool, setSelectedSchool] = useState(null);
   const [modalType, setModalType] = useState(null); // 'config', 'topup', 'bills_history'
@@ -149,13 +157,57 @@ const OperationsSubscriptions = () => {
       const res = await subscriptionService.revertTermBillingCycle(targetYear, targetTerm, 'Labour Admin');
       setCycleMsg({
         type: 'success',
-        text: res.message || `Billing cycle for ${targetYear} (${targetTerm}) successfully reverted.`
+        text: res?.message || `Billing cycle for ${targetYear} (${targetTerm}) successfully reverted.`
       });
       await loadData();
     } catch (err) {
-      setCycleMsg({ type: 'error', text: 'Revert error: ' + err.message });
+      const msg = err?.message || 'Failed to revert billing cycle.';
+      setCycleMsg({ type: 'error', text: 'Revert error: ' + msg });
     } finally {
       setStartingCycle(false);
+    }
+  };
+
+  // Broadcast & Synchronize Master Academic Year, Term, Vacation & Resumption to all schools
+  const handleSyncMasterAcademicTerm = async (e) => {
+    e?.preventDefault();
+    if (!masterYear || !masterTerm) {
+      alert('Please specify Academic Year and Term.');
+      return;
+    }
+
+    const confirmText = `BROADCAST MASTER ACADEMIC TERM ACROSS ALL SCHOOLS?\n\n` +
+      `• Academic Year: ${masterYear}\n` +
+      `• Active Term: ${masterTerm}\n` +
+      `• Official Vacation Date: ${masterVacationDate || 'Keep Current / Not Set'}\n` +
+      `• Next Term Resumption: ${masterNextTermBegins || 'Keep Current / Not Set'}\n\n` +
+      `This will update the active term and calendar dates across all schools. It will NOT trigger payment prompts or lock report cards. You control billing independently from the 'Term Billing & Payment Prompt Trigger' section below. Proceed?`;
+
+    if (!window.confirm(confirmText)) return;
+
+    setSyncingMasterTerm(true);
+    setMasterTermMsg(null);
+    try {
+      const res = await subscriptionService.syncMasterAcademicTerm({
+        academicYear: masterYear,
+        term: masterTerm,
+        vacationDate: masterVacationDate,
+        nextTermBegins: masterNextTermBegins,
+        performedBy: 'Labour Admin'
+      });
+
+      setMasterTermMsg({
+        type: 'success',
+        text: res?.message || `Master academic term (${masterYear} ${masterTerm}) successfully synchronized across all schools!`
+      });
+      await loadData();
+    } catch (err) {
+      setMasterTermMsg({
+        type: 'error',
+        text: `Sync error: ${err?.message || 'Failed to broadcast master term.'}`
+      });
+    } finally {
+      setSyncingMasterTerm(false);
     }
   };
 
@@ -302,31 +354,12 @@ const OperationsSubscriptions = () => {
         icon = 'fa-lock';
       }
     } else {
-      const { rate } = getSchoolEffectiveRate(school);
-      const reqAmount = (school.learners_count || 0) * rate;
-      const bal = schoolWalletLedgerMap ? (schoolWalletLedgerMap.get(String(school.id)) ?? Number(school.wallet_balance || 0)) : Number(school.wallet_balance || 0);
-
-      const subLabel = !isOnboardingTerm ? 'Subsequent Term' : (within16Weeks ? '' : 'Trial Expired');
-
-      if (bal >= reqAmount && reqAmount > 0) {
-        statusKey = 'sufficient';
-        statusText = `${runningTerm}: Wallet Balance Sufficient (GH₵ ${bal.toFixed(2)})`;
-        badgeBg = '#ECFDF5';
-        badgeColor = '#10B981';
-        icon = 'fa-check-circle';
-      } else if (bal > 0) {
-        statusKey = 'insufficient';
-        statusText = `${runningTerm}: ${subLabel ? subLabel + ' — ' : ''}Partial Balance (Bal: GH₵ ${bal.toFixed(2)}, Req: GH₵ ${reqAmount.toFixed(2)})`;
-        badgeBg = '#FFFBEB';
-        badgeColor = '#F59E0B';
-        icon = 'fa-clock';
-      } else {
-        statusKey = 'insufficient';
-        statusText = `${runningTerm}: ${subLabel ? subLabel + ' — ' : ''}Payment Due (Req: GH₵ ${reqAmount.toFixed(2)})`;
-        badgeBg = '#FEF2F2';
-        badgeColor = '#EF4444';
-        icon = 'fa-lock';
-      }
+      // No billing snapshot generated yet for this term (Admin has not initiated billing cycle)
+      statusKey = 'no_bill';
+      statusText = `${runningTerm}: Active Term (Billing Not Yet Triggered — Full Access)`;
+      badgeBg = '#F4F4F5';
+      badgeColor = '#52525B';
+      icon = 'fa-calendar-check';
     }
 
     return {
@@ -1668,16 +1701,129 @@ const OperationsSubscriptions = () => {
         {/* ── TAB 3: PRICING CONTROLS & TERM BILLING CYCLES ─────────────────────── */}
         {activeTab === 'pricing_cycles' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            
+
+            {/* 🌐 MASTER PLATFORM ACADEMIC CALENDAR & TERM SYNCHRONIZER CARD */}
+            <div style={{ padding: '1.5rem', borderRadius: '20px', background: '#FFFFFF', border: '1.5px solid #DBEAFE', boxShadow: '0 4px 12px rgba(37, 99, 235, 0.05)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '0.35rem' }}>
+                    <span style={{ background: '#EFF6FF', color: '#2563eb', padding: '0.2rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      National Calendar Control
+                    </span>
+                  </div>
+                  <h3 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.3rem', fontWeight: 900, color: '#09090b', margin: '0 0 0.35rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-satellite-dish" style={{ color: '#2563eb' }} /> Master Academic Calendar &amp; Term Synchronizer
+                  </h3>
+                  <p style={{ color: '#64748B', fontSize: '0.85rem', margin: 0, maxWidth: '850px', lineHeight: 1.5 }}>
+                    Broadcast the official <strong>Academic Year, Active Term, Vacation Date, and Resumption Date</strong> across all schools in the system simultaneously. This enforces GES/National term progression, synchronizes dates onto student report cards, and stops schools from running on one term to exploit the free plan.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSyncMasterAcademicTerm} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: '#F8FAFC', padding: '1.25rem', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div style={{ flex: '1 1 180px' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.35rem' }}>
+                      Master Academic Year
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. 2025/2026"
+                      value={masterYear}
+                      onChange={(e) => setMasterYear(e.target.value)}
+                      style={{ width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #CBD5E1', color: '#0F172A', fontSize: '0.9rem', fontWeight: 700, outline: 'none' }}
+                    />
+                  </div>
+
+                  <div style={{ flex: '1 1 150px' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.35rem' }}>
+                      Active Term
+                    </label>
+                    <select
+                      value={masterTerm}
+                      onChange={(e) => setMasterTerm(e.target.value)}
+                      style={{ width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #CBD5E1', color: '#0F172A', fontSize: '0.9rem', fontWeight: 800, outline: 'none' }}
+                    >
+                      <option value="Term 1">Term 1</option>
+                      <option value="Term 2">Term 2</option>
+                      <option value="Term 3">Term 3</option>
+                    </select>
+                  </div>
+
+                  <div style={{ flex: '1 1 180px' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.35rem' }}>
+                      Official Vacation Date
+                    </label>
+                    <input
+                      type="date"
+                      value={masterVacationDate}
+                      onChange={(e) => setMasterVacationDate(e.target.value)}
+                      style={{ width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #CBD5E1', color: '#0F172A', fontSize: '0.9rem', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div style={{ flex: '1 1 180px' }}>
+                    <label style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800, color: '#0F172A', marginBottom: '0.35rem' }}>
+                      Next Term Resumption Date
+                    </label>
+                    <input
+                      type="date"
+                      value={masterNextTermBegins}
+                      onChange={(e) => setMasterNextTermBegins(e.target.value)}
+                      style={{ width: '100%', padding: '0.7rem 0.85rem', borderRadius: '10px', background: '#FFFFFF', border: '1px solid #CBD5E1', color: '#0F172A', fontSize: '0.9rem', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', paddingTop: '0.5rem', borderTop: '1px dashed #CBD5E1' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: '#64748B', fontWeight: 600, maxWidth: '580px' }}>
+                    <i className="fas fa-shield-alt" style={{ color: '#2563eb', fontSize: '1.05rem', flexShrink: 0 }} />
+                    <span>Broadcasting advances the term and syncs official vacation & reopening dates on report cards. It does <strong>not</strong> trigger payment prompts or lock accounts until you trigger billing below.</span>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={syncingMasterTerm}
+                    style={{
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '10px',
+                      background: '#2563eb',
+                      border: 'none',
+                      color: '#FFFFFF',
+                      fontWeight: 900,
+                      fontSize: '0.9rem',
+                      cursor: syncingMasterTerm ? 'not-allowed' : 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      boxShadow: '0 4px 12px rgba(37, 99, 235, 0.25)',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    {syncingMasterTerm ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-broadcast-tower" />}
+                    {syncingMasterTerm ? 'SYNCHRONIZING ACROSS SCHOOLS...' : 'BROADCAST MASTER TERM TO ALL SCHOOLS'}
+                  </button>
+                </div>
+              </form>
+
+              {masterTermMsg && (
+                <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', borderRadius: '10px', fontSize: '0.85rem', fontWeight: 600, background: masterTermMsg.type === 'success' ? '#ECFDF5' : '#FEF2F2', border: masterTermMsg.type === 'success' ? '1px solid #D1FAE5' : '1px solid #FEE2E2', color: masterTermMsg.type === 'success' ? '#059669' : '#DC2626', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <i className={`fas ${masterTermMsg.type === 'success' ? 'fa-check-circle' : 'fa-exclamation-triangle'}`} />
+                  {masterTermMsg.text}
+                </div>
+              )}
+            </div>
+
             {/* LABOUR ADMIN TERM BILLING CYCLE CONTROL CARD */}
             <div style={{ padding: '1.5rem', borderRadius: '20px', background: '#FFFFFF', border: '1px solid #E4E4E7', boxShadow: '0 2px 6px rgba(0,0,0,0.03)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.25rem' }}>
                 <div>
                   <h3 style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.25rem', fontWeight: 900, color: '#09090b', margin: '0 0 0.25rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <i className="fas fa-play-circle" style={{ color: '#2563eb' }} /> Labour Admin Term Billing Trigger
+                    <i className="fas fa-play-circle" style={{ color: '#2563eb' }} /> Labour Admin Term Billing & Payment Prompt Trigger
                   </h3>
                   <p style={{ color: '#71717a', fontSize: '0.85rem', margin: 0 }}>
-                    Initiate a new term billing cycle. Generates immutable billing snapshots for all eligible schools based on their active learner count.
+                    When you are ready to request subscription payments for this term, initiate the billing cycle below. This generates term bills, enforces payment prompts, and sets the payment deadline for schools.
                   </p>
                 </div>
               </div>
@@ -1739,7 +1885,7 @@ const OperationsSubscriptions = () => {
                     }}
                   >
                     {startingCycle ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-bolt" style={{ color: '#2563eb' }} />}
-                    START TERM BILLING
+                    START TERM BILLING & TRIGGER PAYMENT PROMPTS
                   </button>
 
                   <button

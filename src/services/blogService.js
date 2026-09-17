@@ -248,6 +248,18 @@ const blogService = {
           localStorage.setItem(CACHE_KEY, JSON.stringify([newPost, ...list]));
         } catch (e) {}
 
+        // Notify bells across client
+        if (typeof window !== 'undefined' && payload.is_published !== false) {
+          window.dispatchEvent(new CustomEvent('school-blog-published', {
+            detail: {
+              id: newPost.id,
+              title: newPost.title,
+              summary: newPost.summary,
+              slug: newPost.slug
+            }
+          }));
+        }
+
         return newPost;
       }
 
@@ -262,6 +274,17 @@ const blogService = {
         const list = cached ? JSON.parse(cached) : [];
         localStorage.setItem(CACHE_KEY, JSON.stringify([offlinePost, ...list]));
       } catch (e) {}
+
+      if (typeof window !== 'undefined' && payload.is_published !== false) {
+        window.dispatchEvent(new CustomEvent('school-blog-published', {
+          detail: {
+            id: offlinePost.id,
+            title: offlinePost.title,
+            summary: offlinePost.summary,
+            slug: offlinePost.slug
+          }
+        }));
+      }
 
       return offlinePost;
     } catch (err) {
@@ -342,6 +365,17 @@ const blogService = {
             }
           }
         } catch (e) {}
+
+        if (typeof window !== 'undefined' && payload.is_published !== false) {
+          window.dispatchEvent(new CustomEvent('school-blog-published', {
+            detail: {
+              id: updated.id,
+              title: updated.title,
+              summary: updated.summary,
+              slug: updated.slug
+            }
+          }));
+        }
 
         return updated;
       }

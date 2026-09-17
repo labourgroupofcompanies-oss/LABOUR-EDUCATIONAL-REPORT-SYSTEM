@@ -1,21 +1,35 @@
-# dependencies
+# Dependencies
 node_modules/
 
-# build output
+# Build output
 dist/
 
-# environment variables — NEVER commit these
+# Environment variables - NEVER commit these
 .env
 .env.local
 .env.production
+.env.*.local
 
-# editor
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor directories
 .vscode/
 .idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# OS
+# OS files
 .DS_Store
 Thumbs.db
 
-# Local Netlify folder
-.netlify
+# Vite
+.vite/
+
+# Local netlify files
+.netlify/

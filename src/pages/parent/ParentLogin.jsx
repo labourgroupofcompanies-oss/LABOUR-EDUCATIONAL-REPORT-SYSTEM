@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import authService from '../../services/authService';
+import loginRateLimitService from '../../services/loginRateLimitService';
 
 const ParentLogin = () => {
   const navigate = useNavigate();
@@ -9,14 +10,33 @@ const ParentLogin = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reassuranceData, setReassuranceData] = useState(null);
-  
+  const [lockout, setLockout] = useState(() => loginRateLimitService.checkLockout());
+
   // Stage 2 inputs
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // 1-second interval tracking lockout & anti-refresh countdown
+  useEffect(() => {
+    const checkLock = () => {
+      setLockout(loginRateLimitService.checkLockout(phoneNumber.trim()));
+    };
+    checkLock();
+    const interval = setInterval(checkLock, 1000);
+    return () => clearInterval(interval);
+  }, [phoneNumber]);
   
   const handleVerifyPhone = async (e) => {
     e.preventDefault();
     if (!phoneNumber) return;
+
+    const lockCheck = loginRateLimitService.checkLockout(phoneNumber.trim());
+    if (lockCheck.isLocked) {
+      setError(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${lockCheck.remainingFormatted}. Refreshing will not bypass this restriction.`);
+      setLockout(lockCheck);
+      return;
+    }
+
     setLoading(true);
     setError('');
     
@@ -34,6 +54,14 @@ const ParentLogin = () => {
   const handlePasswordSubmit = async (e) => {
     e.preventDefault();
     if (!password) return;
+
+    const cleanPhone = phoneNumber.trim();
+    const lockCheck = loginRateLimitService.checkLockout(cleanPhone);
+    if (lockCheck.isLocked) {
+      setError(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${lockCheck.remainingFormatted}. Refreshing will not bypass this restriction.`);
+      setLockout(lockCheck);
+      return;
+    }
     
     setLoading(true);
     setError('');
@@ -41,7 +69,7 @@ const ParentLogin = () => {
     try {
       if (reassuranceData.isRegistered) {
         // Log in
-        await authService.loginParent(phoneNumber, password);
+        await authService.loginParent(cleanPhone, password);
       } else {
         // First-time setup
         if (password !== confirmPassword) {
@@ -50,7 +78,7 @@ const ParentLogin = () => {
         if (password.length < 6) {
           throw new Error('Password must be at least 6 characters.');
         }
-        await authService.registerParent(phoneNumber, password);
+        await authService.registerParent(cleanPhone, password);
       }
       
       // Save matched siblings list in localStorage for fast local use in dashboard
@@ -60,6 +88,7 @@ const ParentLogin = () => {
       navigate('/parent/dashboard');
     } catch (err) {
       setError(err.message || 'Authentication failed. Please try again.');
+      setLockout(loginRateLimitService.checkLockout(cleanPhone));
     } finally {
       setLoading(false);
     }
@@ -330,6 +359,73 @@ const ParentLogin = () => {
           <p>Access your children's reports & fee statements</p>
         </div>
 
+        {/* Security Lockout Banner */}
+        {lockout.isLocked && (
+          <div style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1.5px solid #ef4444',
+            borderRadius: '16px',
+            padding: '1.1rem 1.25rem',
+            marginBottom: '1.5rem',
+            color: '#fca5a5'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f87171', fontWeight: 800, fontSize: '0.95rem', marginBottom: '0.35rem' }}>
+              <i className="fas fa-shield-alt" style={{ fontSize: '1.1rem' }}></i>
+              <span>Security Lockout Active</span>
+            </div>
+            <p style={{ margin: '0 0 0.75rem', fontSize: '0.82rem', color: '#fecaca', lineHeight: 1.4 }}>
+              Maximum of 5 failed login attempts reached. Access has been temporarily restricted (Tier {lockout.strikeCount}: {lockout.tierLabel}).
+            </p>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(0, 0, 0, 0.35)',
+              padding: '0.65rem 1rem',
+              borderRadius: '10px',
+              border: '1px solid rgba(239, 68, 68, 0.3)'
+            }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#fca5a5' }}>
+                Cooldown Countdown:
+              </span>
+              <span style={{
+                fontFamily: 'monospace',
+                fontSize: '1.15rem',
+                fontWeight: 900,
+                color: '#f87171',
+                letterSpacing: '1px'
+              }}>
+                <i className="fas fa-clock" style={{ marginRight: '6px', fontSize: '0.9rem' }}></i>
+                {lockout.remainingDigital}
+              </span>
+            </div>
+            <div style={{ marginTop: '0.65rem', fontSize: '0.72rem', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fas fa-lock"></i>
+              <span>Anti-Tamper: Refreshing or reopening browser will not reset this countdown.</span>
+            </div>
+          </div>
+        )}
+
+        {/* Failed attempts warning */}
+        {!lockout.isLocked && lockout.failedAttempts > 0 && (
+          <div style={{
+            background: 'rgba(245, 158, 11, 0.1)',
+            border: '1px solid rgba(245, 158, 11, 0.3)',
+            borderRadius: '12px',
+            padding: '0.65rem 0.9rem',
+            marginBottom: '1rem',
+            color: '#fde68a',
+            fontSize: '0.8rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <i className="fas fa-exclamation-triangle" style={{ color: '#f59e0b' }}></i>
+            <span>Warning: {lockout.failedAttempts} of 5 login attempts used. ({lockout.remainingAttempts} left before security lockout)</span>
+          </div>
+        )}
+
         {error && (
           <div className="error-banner">
             <i className="fas fa-exclamation-circle" style={{ marginTop: '2px' }}></i>
@@ -355,10 +451,14 @@ const ParentLogin = () => {
               </div>
             </div>
 
-            <button type="submit" className="btn-submit" disabled={loading || !phoneNumber}>
+            <button type="submit" className="btn-submit" disabled={loading || !phoneNumber || lockout.isLocked}>
               {loading ? (
                 <>
                   <i className="fas fa-spinner fa-spin"></i> Checking Records...
+                </>
+              ) : lockout.isLocked ? (
+                <>
+                  <i className="fas fa-lock"></i> Locked ({lockout.remainingDigital})
                 </>
               ) : (
                 <>
@@ -458,10 +558,14 @@ const ParentLogin = () => {
               </div>
             )}
 
-            <button type="submit" className="btn-submit" disabled={loading || !password}>
+            <button type="submit" className="btn-submit" disabled={loading || !password || lockout.isLocked}>
               {loading ? (
                 <>
                   <i className="fas fa-spinner fa-spin"></i> Authenticating...
+                </>
+              ) : lockout.isLocked ? (
+                <>
+                  <i className="fas fa-lock"></i> Locked ({lockout.remainingDigital})
                 </>
               ) : reassuranceData?.isRegistered ? (
                 <>
@@ -480,7 +584,27 @@ const ParentLogin = () => {
           </form>
         )}
 
-        <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+        <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
+          <button
+            type="button"
+            onClick={() => navigate('/login')}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#94a3b8',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+          >
+            <i className="fas fa-chalkboard-user" /> Back to Staff &amp; Teacher Login
+          </button>
+        </div>
+
+        <div style={{ marginTop: '1.25rem', textAlign: 'center', fontSize: '0.75rem', color: '#64748b', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
           <span>&copy; 2026 Labour Group of Companies</span>
           <span>&bull;</span>
           <a href="/privacy-policy" style={{ color: '#38bdf8', textDecoration: 'none', fontWeight: 600 }}>Privacy Policy</a>

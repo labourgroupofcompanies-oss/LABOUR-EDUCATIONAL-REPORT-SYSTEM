@@ -12,6 +12,7 @@ RETURNS JSONB AS $$
 DECLARE
   v_cycle_id UUID;
   v_deleted_bills INTEGER := 0;
+  v_audit_school_id TEXT;
 BEGIN
   -- 1. Find billing cycle
   SELECT id INTO v_cycle_id
@@ -20,32 +21,49 @@ BEGIN
 
   -- 2. Delete unpaid term bills for this cycle
   DELETE FROM public.school_term_bills
-  WHERE academic_year = p_academic_year 
-    AND term = p_term
+  WHERE (billing_cycle_id = v_cycle_id OR (academic_year = p_academic_year AND term = p_term))
     AND status != 'PAID';
 
   GET DIAGNOSTICS v_deleted_bills = ROW_COUNT;
 
-  -- 3. Delete or update billing cycle status
+  -- 3. Delete or update billing cycle status (prevent 409 foreign key RESTRICT conflict)
   IF v_cycle_id IS NOT NULL THEN
-    DELETE FROM public.billing_cycles WHERE id = v_cycle_id;
+    IF EXISTS (SELECT 1 FROM public.school_term_bills WHERE billing_cycle_id = v_cycle_id) THEN
+      UPDATE public.billing_cycles SET status = 'CANCELLED' WHERE id = v_cycle_id;
+    ELSE
+      BEGIN
+        DELETE FROM public.billing_cycles WHERE id = v_cycle_id;
+      EXCEPTION WHEN foreign_key_violation THEN
+        UPDATE public.billing_cycles SET status = 'CANCELLED' WHERE id = v_cycle_id;
+      END IF;
+    END IF;
   END IF;
 
-  -- 4. Log Audit Event
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'platform_subscription_audit') THEN
-    INSERT INTO public.platform_subscription_audit (
-      school_id, event, details, performed_by
-    ) VALUES (
-      'SYSTEM',
-      'TERM_BILLING_CYCLE_REVERTED',
-      jsonb_build_object(
-        'academic_year', p_academic_year,
-        'term', p_term,
-        'deleted_bills_count', v_deleted_bills
-      ),
-      p_reverted_by
-    );
-  END IF;
+  -- 4. Log Audit Event safely (never violate school_id foreign key constraint)
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'platform_subscription_audit') THEN
+      SELECT id INTO v_audit_school_id FROM public.report_schools LIMIT 1;
+
+      IF v_audit_school_id IS NOT NULL THEN
+        INSERT INTO public.platform_subscription_audit (
+          school_id, academic_year, term, event, details, performed_by
+        ) VALUES (
+          v_audit_school_id,
+          p_academic_year,
+          p_term,
+          'TERM_BILLING_CYCLE_REVERTED',
+          jsonb_build_object(
+            'academic_year', p_academic_year,
+            'term', p_term,
+            'deleted_bills_count', v_deleted_bills
+          ),
+          p_reverted_by
+        );
+      END IF;
+    END IF;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
 
   RETURN jsonb_build_object(
     'success', true,

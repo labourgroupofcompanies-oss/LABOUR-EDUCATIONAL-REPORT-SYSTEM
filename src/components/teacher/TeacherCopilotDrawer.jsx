@@ -439,41 +439,20 @@ Ask me anything you want from your portal and I will help you do it! Whether you
         >
           <i className="fas fa-headset" style={{ color: '#ffffff' }} />
 
-          {/* Draft Scores Indicator Badge */}
-          {draftScoresCount > 0 ? (
-            <span
-              style={{
-                position: 'absolute',
-                top: '-3px',
-                right: '-3px',
-                background: '#F59E0B',
-                color: '#ffffff',
-                fontSize: '0.62rem',
-                fontWeight: 800,
-                borderRadius: '999px',
-                padding: '2px 6px',
-                border: '2px solid #09090b',
-                boxShadow: '0 2px 6px rgba(245, 158, 11, 0.6)'
-              }}
-              title={`${draftScoresCount} draft mark(s) waiting to be submitted`}
-            >
-              {draftScoresCount}
-            </span>
-          ) : (
-            <span
-              style={{
-                position: 'absolute',
-                bottom: '3px',
-                right: '3px',
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                background: '#10B981',
-                border: '2px solid #09090b'
-              }}
-              title="Grading Assistant Active"
-            />
-          )}
+          {/* Active status indicator */}
+          <span
+            style={{
+              position: 'absolute',
+              bottom: '3px',
+              right: '3px',
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: '#10B981',
+              border: '2px solid #09090b'
+            }}
+            title="Grading Assistant Active"
+          />
         </button>
       </div>
 

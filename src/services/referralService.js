@@ -271,6 +271,19 @@ export const referralService = {
     // Publish Event
     await eventBus.publish('ReferralAttached', referralRecord);
 
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('school-referral-event', {
+          detail: {
+            type: 'ATTACHED',
+            referral: referralRecord,
+            schoolName: updatedNewSchool.name,
+            referrerSchoolId: referralRecord.referrerSchoolId
+          }
+        }));
+      } catch (_) {}
+    }
+
     return {
       success: true,
       message: `Referral code ${cleanCode} attached successfully! Status: Under Verification.`,

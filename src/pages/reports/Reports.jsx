@@ -1016,6 +1016,9 @@ const Reports = () => {
   useEffect(() => {
     loadSubStatus();
   }, [loadSubStatus]);
+
+  // Report cards are strictly locked ONLY if billing was triggered by Admin and school is unpaid
+  const isReportCardsLocked = Boolean(subStatus?.report_cards_locked || subStatus?.reports_locked) && subStatus?.billing_status !== 'NO_BILL';
   const classes            = useLiveQuery(
     () => schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [],
     [schoolId]
@@ -2433,7 +2436,7 @@ const Reports = () => {
         {/* ══════════════════════════════════════════════ */}
         {/*  REPORT CARDS LOCK GUARD                       */}
         {/* ══════════════════════════════════════════════ */}
-        {subStatus?.report_cards_locked && (
+        {isReportCardsLocked && (
           <div style={{ background: '#0f172a', border: '2px solid #f43f5e', borderRadius: '24px', padding: '3rem 2rem', textAlign: 'center', margin: '1rem 0 2rem', color: 'white', boxShadow: '0 25px 50px rgba(244,63,94,0.25)' }}>
             <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(244,63,94,0.15)', border: '2px solid rgba(244,63,94,0.3)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#f43f5e', fontSize: '2.5rem', marginBottom: '1.5rem' }}>
               <i className="fas fa-lock" />
@@ -2484,7 +2487,7 @@ const Reports = () => {
         {/* ══════════════════════════════════════════════ */}
         {/*  CONFIG SCREEN                                 */}
         {/* ══════════════════════════════════════════════ */}
-        {!subStatus?.report_cards_locked && view === 'config' && (
+        {!isReportCardsLocked && view === 'config' && (
           <div>
             {/* Tabs Selector for Admins */}
             {isAdmin && (
@@ -3070,7 +3073,7 @@ const Reports = () => {
         {/* ══════════════════════════════════════════════ */}
         {/*  PREVIEW SCREEN                                */}
         {/* ══════════════════════════════════════════════ */}
-        {!subStatus?.report_cards_locked && view === 'preview' && (
+        {!isReportCardsLocked && view === 'preview' && (
           <div className="rc-print-container">
             {/* Preview header */}
             <div className="rc-preview-header no-print">
