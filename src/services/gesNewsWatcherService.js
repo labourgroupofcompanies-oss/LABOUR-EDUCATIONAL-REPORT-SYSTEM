@@ -319,102 +319,17 @@ class GesNewsWatcherService {
           .subscribe();
       } catch (e) {}
     }
-
-    // Also fetch live Pulse Ghana feed directly
-    this.fetchPulseGhanaFeed();
-
-    // Start background radar loop (every 5 minutes)
-    if (!this.pulseInterval && typeof window !== 'undefined') {
-      this.pulseInterval = setInterval(() => {
-        if (navigator.onLine) {
-          this.fetchPulseGhanaFeed();
-        }
-      }, 5 * 60 * 1000);
-    }
   }
 
   /**
-   * Fetch live RSS feed directly from Pulse Ghana (https://www.pulse.com.gh/rss-articles.xml)
+   * Fetch live feeds - synchronizes with Supabase cloud radar database
    */
   async fetchPulseGhanaFeed() {
+    // Cloud sync via Supabase handles live circulars without CORS/proxy issues
     if (!navigator.onLine) return;
     try {
-      const feedUrl = 'https://www.pulse.com.gh/rss-articles.xml';
-      const proxies = [
-        `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`,
-        `https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`,
-        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`
-      ];
-
-      for (const proxyUrl of proxies) {
-        try {
-          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
-          if (res.ok) {
-            const text = await res.text();
-            if (text && text.includes('<item>')) {
-              xmlText = text;
-              break;
-            }
-          }
-        } catch (_) {
-          // Continue to next proxy fallback quietly
-        }
-      }
-
-      if (!xmlText || !xmlText.includes('<item>')) return;
-
-      const itemMatches = xmlText.match(/<item[\s\S]*?<\/item>/gi) || [];
-      const newItems = [];
-
-      for (const itemXml of itemMatches.slice(0, 15)) {
-        const titleMatch = itemXml.match(/<title>(?:<!\[CDATA\[(.*?)\]\]>|(.*?))<\/title>/i);
-        const linkMatch = itemXml.match(/<link>(?:<!\[CDATA\[(.*?)\]\]>|(.*?))<\/link>/i);
-        const pubDateMatch = itemXml.match(/<pubDate>(?:<!\[CDATA\[(.*?)\]\]>|(.*?))<\/pubDate>/i);
-
-        const title = (titleMatch ? (titleMatch[1] || titleMatch[2]) : '').trim();
-        const link = (linkMatch ? (linkMatch[1] || linkMatch[2]) : '').trim();
-        const pubDate = (pubDateMatch ? (pubDateMatch[1] || pubDateMatch[2]) : new Date().toISOString()).trim();
-
-        if (title && link) {
-          const id = `pulse_${btoa(unescape(encodeURIComponent(link))).replace(/[^a-zA-Z0-9]/g, '').slice(0, 24)}`;
-          
-          if (!this.newsItems.some(n => n.id === id)) {
-            const newItem = {
-              id,
-              sourceId: 'pulseghana',
-              sourceName: 'Pulse Ghana News',
-              title,
-              summary: `Latest national & education news published on Pulse Ghana (pulse.com.gh).`,
-              publishedDate: new Date(pubDate).toISOString(),
-              sourceUrl: link,
-              category: 'National Headlines & Education',
-              urgency: 'high',
-              targetAudience: 'all',
-              isBreaking: true
-            };
-            newItems.push(newItem);
-          }
-        }
-      }
-
-      if (newItems.length > 0) {
-        this.newsItems = [...newItems, ...this.newsItems];
-        this.save();
-
-        // Alert user of the latest breaking article
-        const newest = newItems[0];
-        platformNotificationService.addNotification({
-          title: '⚡ Breaking on Pulse Ghana',
-          message: `${newest.title}`,
-          category: 'radar',
-          actionUrl: newest.sourceUrl,
-          actionLabel: 'Read on Pulse',
-          severity: 'warning'
-        }, true, true);
-      }
-    } catch (e) {
-      console.warn('[GesNewsWatcher] Pulse Ghana fetch note:', e);
-    }
+      await this.initRealtimeCloudSync();
+    } catch (_) {}
   }
 
   /**
@@ -425,7 +340,6 @@ class GesNewsWatcherService {
     localStorage.setItem(LAST_SCAN_KEY, scanTimestamp);
 
     await this.initRealtimeCloudSync();
-    await this.fetchPulseGhanaFeed();
 
     return {
       totalSources: MONITORED_SOURCES.length,
@@ -438,3 +352,4 @@ class GesNewsWatcherService {
 
 export const gesNewsWatcherService = new GesNewsWatcherService();
 export default gesNewsWatcherService;
+
