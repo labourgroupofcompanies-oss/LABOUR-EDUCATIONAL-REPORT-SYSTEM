@@ -340,19 +340,25 @@ class GesNewsWatcherService {
     if (!navigator.onLine) return;
     try {
       const feedUrl = 'https://www.pulse.com.gh/rss-articles.xml';
-      // Attempt direct fetch with proxy fallbacks for CORS safety in browser
-      let xmlText = '';
-      try {
-        const res = await fetch(feedUrl, { signal: AbortSignal.timeout(8000) });
-        if (res.ok) xmlText = await res.text();
-      } catch (directErr) {
-        // Fallback to CORS proxy
+      const proxies = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`,
+        `https://corsproxy.io/?url=${encodeURIComponent(feedUrl)}`,
+        `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(feedUrl)}`
+      ];
+
+      for (const proxyUrl of proxies) {
         try {
-          const proxyRes = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(feedUrl)}`, {
-            signal: AbortSignal.timeout(10000)
-          });
-          if (proxyRes.ok) xmlText = await proxyRes.text();
-        } catch (_) {}
+          const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(6000) });
+          if (res.ok) {
+            const text = await res.text();
+            if (text && text.includes('<item>')) {
+              xmlText = text;
+              break;
+            }
+          }
+        } catch (_) {
+          // Continue to next proxy fallback quietly
+        }
       }
 
       if (!xmlText || !xmlText.includes('<item>')) return;
