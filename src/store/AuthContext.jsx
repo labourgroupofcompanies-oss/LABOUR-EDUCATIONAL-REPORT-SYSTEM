@@ -74,7 +74,7 @@ export const AuthProvider = ({ children }) => {
     setUser(prev => prev ? { ...prev, ...updatedFields } : null);
   };
 
-  const startImpersonation = (targetSchoolId, targetSchoolName, targetRole = 'headteacher', extraMeta = {}) => {
+  const startImpersonation = async (targetSchoolId, targetSchoolName, targetRole = 'super_admin', extraMeta = {}) => {
     if (!user) return;
     const backupSession = localStorage.getItem('labour_edu_admin_backup_session');
     if (!backupSession) {
@@ -84,16 +84,35 @@ export const AuthProvider = ({ children }) => {
       ...user,
       schoolId: String(targetSchoolId),
       schoolName: targetSchoolName || 'School',
-      role: targetRole,
+      role: 'super_admin', // Headteacher role within school portal context
       isImpersonating: true,
-      originalAdminName: user.fullName || 'Super Admin',
+      originalAdminName: user.fullName || user.email || 'Super Admin',
       ...extraMeta
     };
     authService.saveSession(impersonatedUser);
     setUser(impersonatedUser);
+
+    // Audit log remote intervention session start
+    try {
+      if (navigator.onLine) {
+        await supabase.from('platform_support_interventions').insert([{
+          admin_id: user.id || null,
+          admin_name: user.fullName || user.email || 'Super Admin',
+          school_id: String(targetSchoolId),
+          school_name: targetSchoolName || 'School',
+          action_type: 'remote_impersonation_start',
+          description: `Super Admin started remote intervention session for "${targetSchoolName || targetSchoolId}".`,
+          previous_state: { role: user.role, schoolId: user.schoolId },
+          new_state: { role: 'super_admin', schoolId: String(targetSchoolId), isImpersonating: true },
+          result: 'success',
+          created_at: new Date().toISOString()
+        }]);
+      }
+    } catch (_) {}
   };
 
-  const stopImpersonation = () => {
+  const stopImpersonation = async () => {
+    const currentImpersonated = user;
     const backup = localStorage.getItem('labour_edu_admin_backup_session');
     if (backup) {
       try {
@@ -111,6 +130,22 @@ export const AuthProvider = ({ children }) => {
       authService.saveSession(restored);
       setUser(restored);
     }
+
+    // Audit log remote intervention session exit
+    try {
+      if (navigator.onLine && currentImpersonated?.schoolId) {
+        await supabase.from('platform_support_interventions').insert([{
+          admin_id: currentImpersonated.id || null,
+          admin_name: currentImpersonated.originalAdminName || currentImpersonated.fullName || 'Super Admin',
+          school_id: String(currentImpersonated.schoolId),
+          school_name: currentImpersonated.schoolName || 'School',
+          action_type: 'remote_impersonation_end',
+          description: `Super Admin exited remote intervention session for "${currentImpersonated.schoolName || currentImpersonated.schoolId}".`,
+          result: 'success',
+          created_at: new Date().toISOString()
+        }]);
+      }
+    } catch (_) {}
   };
 
   return (

@@ -538,9 +538,7 @@ const ClassManager = ({
                   <button
                     type="button"
                     onClick={async () => {
-                      if (window.confirm(`Delete "${c.name}" and its allocations?`)) {
-                        await deleteClass(c.id);
-                      }
+                      await deleteClass(c.id);
                     }}
                     title="Delete Class"
                     style={{

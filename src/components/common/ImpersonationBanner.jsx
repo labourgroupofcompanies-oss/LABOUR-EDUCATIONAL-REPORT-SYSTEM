@@ -1,16 +1,28 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../store/AuthContext';
+import { useSyncEngine } from '../../store/SyncEngineProvider';
 
 const ImpersonationBanner = () => {
   const { user, stopImpersonation } = useAuth();
+  const { triggerPullSync } = useSyncEngine();
   const navigate = useNavigate();
 
   if (!user?.isImpersonating) return null;
 
-  const handleExit = () => {
-    stopImpersonation();
-    navigate('/platform/operations/support');
+  const handleExitToInterventions = async () => {
+    await stopImpersonation();
+    navigate('/platform/operations/interventions');
+  };
+
+  const handleExitToSchool = async () => {
+    const targetSchoolId = user?.schoolId;
+    await stopImpersonation();
+    if (targetSchoolId) {
+      navigate(`/platform/operations/schools/${targetSchoolId}`);
+    } else {
+      navigate('/platform/operations/interventions');
+    }
   };
 
   return (
@@ -18,51 +30,96 @@ const ImpersonationBanner = () => {
       position: 'sticky',
       top: 0,
       zIndex: 10000,
-      background: 'linear-gradient(90deg, #dc2626 0%, #b91c1c 100%)',
+      background: 'linear-gradient(90deg, #4f46e5 0%, #7c3aed 100%)',
       color: '#ffffff',
-      padding: '0.65rem 1.5rem',
+      padding: '0.6rem 1.5rem',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      fontSize: '0.88rem',
+      flexWrap: 'wrap',
+      gap: '10px',
+      fontSize: '0.85rem',
       fontWeight: 700,
-      boxShadow: '0 4px 12px rgba(220, 38, 38, 0.4)',
+      boxShadow: '0 4px 16px rgba(79, 70, 229, 0.35)',
       fontFamily: 'Inter, sans-serif'
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
         <span style={{
           display: 'inline-block',
           width: '10px',
           height: '10px',
           borderRadius: '50%',
-          background: '#ffffff',
-          boxShadow: '0 0 10px #ffffff',
+          background: '#10B981',
+          boxShadow: '0 0 10px #10B981',
           animation: 'pulseDot 1.2s ease-in-out infinite'
         }} />
         <span>
-          <strong>REMOTE SUPPORT SESSION ACTIVE:</strong> Operating inside <u>{user?.schoolName || 'School Portal'}</u> (ID: {user?.schoolId})
+          <strong style={{ letterSpacing: '0.04em' }}>⚡ HEADTEACHER PORTAL INTERVENTION SESSION:</strong> Operating as Headteacher inside <u style={{ color: '#FDE047', fontWeight: 800 }}>{user?.schoolName || 'School Portal'}</u> <span style={{ opacity: 0.85, fontSize: '0.78rem' }}>({user?.schoolId})</span>
         </span>
       </div>
 
-      <button
-        onClick={handleExit}
-        style={{
-          background: '#ffffff',
-          color: '#dc2626',
-          border: 'none',
-          padding: '0.4rem 1rem',
-          borderRadius: '8px',
-          fontWeight: 800,
-          fontSize: '0.8rem',
-          cursor: 'pointer',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px'
-        }}
-      >
-        <i className="fas fa-right-from-bracket" /> Exit Session & Return to Ops
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        {triggerPullSync && (
+          <button
+            onClick={() => triggerPullSync()}
+            title="Force pull latest data from cloud"
+            style={{
+              background: 'rgba(255, 255, 255, 0.15)',
+              color: '#ffffff',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              padding: '0.35rem 0.75rem',
+              borderRadius: '8px',
+              fontWeight: 700,
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px'
+            }}
+          >
+            <i className="fas fa-rotate" /> Sync Cloud
+          </button>
+        )}
+
+        <button
+          onClick={handleExitToSchool}
+          style={{
+            background: 'rgba(255, 255, 255, 0.2)',
+            color: '#ffffff',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
+            padding: '0.35rem 0.75rem',
+            borderRadius: '8px',
+            fontWeight: 700,
+            fontSize: '0.75rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px'
+          }}
+        >
+          <i className="fas fa-school" /> School Info
+        </button>
+
+        <button
+          onClick={handleExitToInterventions}
+          style={{
+            background: '#ffffff',
+            color: '#4f46e5',
+            border: 'none',
+            padding: '0.4rem 0.95rem',
+            borderRadius: '8px',
+            fontWeight: 800,
+            fontSize: '0.78rem',
+            cursor: 'pointer',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+        >
+          <i className="fas fa-right-from-bracket" /> Exit Session &amp; Return to Ops
+        </button>
+      </div>
 
       <style>{`
         @keyframes pulseDot {

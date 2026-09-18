@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../store/AuthContext';
 import subscriptionService from '../../services/subscriptionService';
 import {
   getSchoolsDirectory,
@@ -149,6 +150,20 @@ const SchoolDetailView = () => {
     }
   };
 
+  const { startImpersonation } = useAuth();
+
+  const handleLaunchHeadteacherPortal = async () => {
+    if (!school) return;
+    if (!window.confirm(`Launch Live Remote Access as Headteacher for "${school.name}"?\n\nYou will enter the school portal with full administrative rights to inspect learners, input scores, diagnose settings, or generate reports.`)) return;
+
+    try {
+      await startImpersonation(school.id, school.name);
+      navigate('/');
+    } catch (err) {
+      alert(`Error launching remote session: ${err.message}`);
+    }
+  };
+
   const handleSendSupportNotice = async (e) => {
     e.preventDefault();
     if (!school || !msgTitle || !messageText) return;
@@ -219,6 +234,29 @@ const SchoolDetailView = () => {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleLaunchHeadteacherPortal}
+            disabled={saving}
+            title="Launch interactive remote support session inside this school's headteacher portal"
+            style={{
+              padding: '0.6rem 1.15rem',
+              borderRadius: '10px',
+              background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)',
+              border: 'none',
+              color: '#FFFFFF',
+              fontWeight: 800,
+              fontSize: '0.82rem',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.35)'
+            }}
+          >
+            <i className="fas fa-right-to-bracket" />
+            Launch Headteacher Portal
+          </button>
+
           <button
             onClick={handleToggleFreeTrial}
             disabled={saving}

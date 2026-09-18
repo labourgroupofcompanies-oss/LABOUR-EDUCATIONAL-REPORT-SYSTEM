@@ -236,7 +236,7 @@ const HeadteacherCopilotDrawer = () => {
   } = useDraggableButton('ht_copilot_icon_pos');
 
   // Strictly restricted to headteacher (super_admin role within school context)
-  const isHeadteacher = user?.role === 'super_admin' && !!user?.schoolId;
+  const isHeadteacher = (user?.role === 'super_admin' || user?.isImpersonating || user?.role === 'headteacher' || user?.role === 'admin') && !!user?.schoolId;
 
   // Real-time school info for drawer header
   const schoolInfo = useLiveQuery(

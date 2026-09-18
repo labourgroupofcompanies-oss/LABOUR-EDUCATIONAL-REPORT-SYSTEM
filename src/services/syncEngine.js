@@ -591,6 +591,31 @@ async function processSingleItem(item) {
       }
 
       case 'delete': {
+        const filter = payload.filter || {};
+        const schoolId = item.schoolId || filter.school_id;
+
+        // Cascade wipe child records on Supabase prior to deleting parent if applicable
+        if (item.table === 'report_classes' && filter.id) {
+          try {
+            await Promise.allSettled([
+              supabase.from('report_learners').update({ class_id: null }).eq('class_id', filter.id),
+              supabase.from('report_class_subjects').delete().eq('class_id', filter.id),
+              supabase.from('report_teacher_assignments').delete().eq('class_id', filter.id)
+            ]);
+          } catch (_) {}
+        } else if (item.table === 'report_subjects' && filter.id) {
+          try {
+            await Promise.allSettled([
+              supabase.from('report_class_subjects').delete().eq('subject_id', filter.id),
+              supabase.from('report_teacher_assignments').delete().eq('subject_id', filter.id)
+            ]);
+          } catch (_) {}
+        } else if (item.table === 'report_profiles' && filter.id) {
+          try {
+            await supabase.from('report_teacher_assignments').delete().eq('teacher_id', filter.id);
+          } catch (_) {}
+        }
+
         let q = supabase.from(item.table).delete();
         if (payload.filter) {
           Object.entries(payload.filter).forEach(([k, v]) => {
@@ -1208,6 +1233,42 @@ const healForeignKey = async (opError, item, payload) => {
   if (!isFkErr) return opError;
 
   try {
+    if (item.operation === 'delete') {
+      const filter = payload.filter || {};
+      if (item.table === 'report_classes' && filter.id) {
+        console.log(`[SyncEngine] 🔄 Healing FK violation on delete report_classes ${filter.id}...`);
+        await Promise.allSettled([
+          supabase.from('report_learners').update({ class_id: null }).eq('class_id', filter.id),
+          supabase.from('report_class_subjects').delete().eq('class_id', filter.id),
+          supabase.from('report_teacher_assignments').delete().eq('class_id', filter.id),
+          supabase.from('report_scores').delete().eq('class_id', filter.id)
+        ]);
+        const { error: retryErr } = await supabase.from('report_classes').delete().eq('id', filter.id);
+        if (!retryErr) return null;
+        return retryErr;
+      }
+
+      if (item.table === 'report_subjects' && filter.id) {
+        console.log(`[SyncEngine] 🔄 Healing FK violation on delete report_subjects ${filter.id}...`);
+        await Promise.allSettled([
+          supabase.from('report_class_subjects').delete().eq('subject_id', filter.id),
+          supabase.from('report_teacher_assignments').delete().eq('subject_id', filter.id),
+          supabase.from('report_scores').delete().eq('subject_id', filter.id)
+        ]);
+        const { error: retryErr } = await supabase.from('report_subjects').delete().eq('id', filter.id);
+        if (!retryErr) return null;
+        return retryErr;
+      }
+
+      if (item.table === 'report_profiles' && filter.id) {
+        console.log(`[SyncEngine] 🔄 Healing FK violation on delete report_profiles ${filter.id}...`);
+        await supabase.from('report_teacher_assignments').delete().eq('teacher_id', filter.id);
+        const { error: retryErr } = await supabase.from('report_profiles').delete().eq('id', filter.id);
+        if (!retryErr) return null;
+        return retryErr;
+      }
+    }
+
     if (item.table === 'report_scores') {
       let rows = Array.isArray(payload.insertData)
         ? payload.insertData

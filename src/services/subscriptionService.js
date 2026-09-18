@@ -26,6 +26,65 @@ const subscriptionService = {
   },
 
   /**
+   * Resolves the authoritative per-learner rate for a school.
+   * Priority:
+   * 1. School-specific rate override (per_learner_rate_override) if set and valid.
+   * 2. Category base pricing from platform_subscription_pricing (GES / Private / International).
+   * 3. Fallback category defaults (International: 15.00, Private/GES: 5.00).
+   */
+  async getEffectiveRateForSchool(schoolOrSchoolId) {
+    try {
+      let school = typeof schoolOrSchoolId === 'object' ? schoolOrSchoolId : null;
+      const schoolId = typeof schoolOrSchoolId === 'string' ? schoolOrSchoolId : school?.id;
+
+      // 1. Fetch latest school record if not fully provided
+      if (!school && schoolId) {
+        if (navigator.onLine) {
+          try {
+            const { data } = await supabase
+              .from('report_schools')
+              .select('id, school_category, school_type, per_learner_rate_override')
+              .eq('id', schoolId)
+              .maybeSingle();
+            if (data) school = data;
+          } catch (_) {}
+        }
+        if (!school) {
+          school = await db.schools.get(schoolId).catch(() => null);
+        }
+      }
+
+      // 2. Check for explicit school override
+      const overrideVal = school?.per_learner_rate_override ?? school?.perLearnerRateOverride;
+      if (overrideVal !== null && overrideVal !== undefined && overrideVal !== '' && !isNaN(Number(overrideVal))) {
+        return Number(overrideVal);
+      }
+
+      // 3. Resolve category
+      const category = (school?.school_category || school?.school_type || school?.schoolType || 'Private').trim();
+
+      // 4. Resolve category pricing from platform_subscription_pricing
+      const pricingList = await this.getSubscriptionPricing().catch(() => []);
+      const matchedPricing = (pricingList || []).find(
+        p => (p.school_category || '').toLowerCase() === category.toLowerCase()
+      );
+
+      if (matchedPricing && matchedPricing.amount_per_learner !== undefined && !isNaN(Number(matchedPricing.amount_per_learner))) {
+        return Number(matchedPricing.amount_per_learner);
+      }
+
+      // 5. Hardcoded baseline fallbacks
+      if (category.toLowerCase().includes('international')) {
+        return 15.00;
+      }
+      return 5.00;
+    } catch (err) {
+      console.warn('[subscriptionService] Error resolving effective rate for school:', err);
+      return 5.00;
+    }
+  },
+
+  /**
    * Get dynamic subscription & report entitlement status for a school.
    * The server-side RPC (get_school_subscription_status) is the single
    * authoritative source of truth for billing_status / is_unlocked /
@@ -54,9 +113,15 @@ const subscriptionService = {
       const effectiveLearnerCount = activeLearnerCnt > 0 ? activeLearnerCnt : serverLearnerCount;
 
       let walletBal = Number(data.wallet_balance ?? 0);
-      const amountDue  = Number(data.amount_due ?? 0);
-      const rate       = Number(data.rate_per_learner ?? 5.00);
       const isUnlocked = Boolean(data.is_unlocked);
+      const isFirstTermFree = Boolean(data.is_first_term_free);
+
+      // Dynamically resolve authoritative rate (override vs category pricing)
+      const effectiveRate = await this.getEffectiveRateForSchool(schoolId);
+      const finalRate = effectiveRate;
+      const finalAmountDue = (isUnlocked || isFirstTermFree)
+        ? Number(data.amount_due ?? 0)
+        : (effectiveLearnerCount * finalRate);
 
       // Check if school has a local or platform-wide reset timestamp
       const resetAt = getEffectiveResetTimestamp(schoolId);
@@ -164,13 +229,13 @@ const subscriptionService = {
         wallet_available:          walletBal - Number(data.wallet_reserved || 0),
         learner_count:             effectiveLearnerCount,
         active_learner_count:      effectiveLearnerCount,
-        rate_per_learner:          rate,
-        required_amount:           amountDue,
-        amount_due:                amountDue,
-        outstanding_amount:        isUnlocked ? 0 : Math.max(0, amountDue - walletBal),
+        rate_per_learner:          finalRate,
+        required_amount:           finalAmountDue,
+        amount_due:                finalAmountDue,
+        outstanding_amount:        isUnlocked ? 0 : Math.max(0, finalAmountDue - walletBal),
         // Free-term metadata
-        is_first_term_free:        Boolean(data.is_first_term_free),
-        is_first_term_free_active: Boolean(data.is_first_term_free),
+        is_first_term_free:        isFirstTermFree,
+        is_first_term_free_active: isFirstTermFree,
         is_onboarding_term:        Boolean(data.is_onboarding_term),
         onboarding_year:           data.onboarding_year     || null,
         onboarding_term_label:     data.onboarding_term     || null,
@@ -335,8 +400,9 @@ const subscriptionService = {
       // ── Rate ──────────────────────────────────────────────────────────────
       const walletRes  = Number(school?.wallet_reserved || school?.walletReserved || 0);
       const learnerCnt = await learnerRepository.getActiveLearnerCount(schoolId).catch(() => 0);
-      const rate       = Number(school?.per_learner_rate_override ?? school?.per_learner_rate ?? school?.ratePerLearner ?? 5.00);
-      const reqAmount  = termBill ? Number(termBill.amount_due) : (learnerCnt * rate);
+      const rate       = await this.getEffectiveRateForSchool(school || schoolId);
+      const isPaidBill = termBill && (termBill.status === 'PAID' || termBill.approval_status === 'APPROVED');
+      const reqAmount  = isPaidBill ? Number(termBill.amount_due) : (learnerCnt * rate);
 
       // ── Admin exemption ───────────────────────────────────────────────────
       const isExempt = school?.subscription_exempt_until &&
@@ -437,6 +503,7 @@ const subscriptionService = {
     } catch (err) {
       console.error('[subscriptionService] Fallback error:', err);
       const learnerCnt = await learnerRepository.getActiveLearnerCount(schoolId).catch(() => 0);
+      const fallbackRate = await this.getEffectiveRateForSchool(schoolId).catch(() => 5.00);
       return {
         is_unlocked:          true,
         billing_status:       'ACTIVE',
@@ -451,12 +518,12 @@ const subscriptionService = {
         wallet_balance:       0,
         wallet_reserved:      0,
         wallet_available:     0,
-        required_amount:      learnerCnt * 5.00,
-        amount_due:           learnerCnt * 5.00,
+        required_amount:      learnerCnt * fallbackRate,
+        amount_due:           learnerCnt * fallbackRate,
         outstanding_amount:   0,
         learner_count:        learnerCnt,
         active_learner_count: learnerCnt,
-        rate_per_learner:     5.00,
+        rate_per_learner:     fallbackRate,
         academic_year:        '2025/2026',
         term:                 'Term 1',
         is_exempt:            false,
@@ -886,8 +953,8 @@ const subscriptionService = {
    */
   async updatePerLearnerRate(schoolId, newRate) {
     if (!schoolId) return;
-    const rateVal = Number(newRate);
-    if (isNaN(rateVal) || rateVal < 0) throw new Error('Invalid rate amount');
+    const rateVal = newRate !== '' && newRate !== null && !isNaN(Number(newRate)) ? Number(newRate) : null;
+    if (rateVal !== null && rateVal < 0) throw new Error('Invalid rate amount');
 
     if (navigator.onLine) {
       await supabase
@@ -895,10 +962,35 @@ const subscriptionService = {
         .update({ per_learner_rate_override: rateVal })
         .eq('id', schoolId)
         .catch(() => null);
+
+      try {
+        const rateToApply = rateVal !== null ? rateVal : (await this.getEffectiveRateForSchool(schoolId));
+        const { data: pendingBills } = await supabase
+          .from('school_term_bills')
+          .select('id, active_learner_count')
+          .eq('school_id', schoolId)
+          .neq('status', 'PAID')
+          .neq('approval_status', 'APPROVED');
+
+        if (pendingBills && pendingBills.length > 0) {
+          for (const pb of pendingBills) {
+            const cnt = Number(pb.active_learner_count || 0);
+            await supabase
+              .from('school_term_bills')
+              .update({
+                rate_per_learner: rateToApply,
+                amount_due: cnt * rateToApply,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', pb.id);
+          }
+        }
+      } catch (_) {}
     }
 
     await db.schools.update(schoolId, {
       per_learner_rate_override: rateVal,
+      perLearnerRateOverride: rateVal,
       ratePerLearner: rateVal
     });
   },
@@ -1219,7 +1311,7 @@ const subscriptionService = {
     if (isNaN(rateVal) || rateVal < 0) throw new Error('Please enter a valid numeric rate');
 
     let currentList = await this.getSubscriptionPricing();
-    const existingIndex = currentList.findIndex(p => p.school_category === category);
+    const existingIndex = currentList.findIndex(p => p.school_category?.toLowerCase() === category.toLowerCase());
 
     if (existingIndex >= 0) {
       currentList[existingIndex] = {
@@ -1257,12 +1349,47 @@ const subscriptionService = {
             .update({ amount_per_learner: rateVal, updated_at: new Date().toISOString() })
             .eq('school_category', category);
         }
+
+        // Update pending/unpaid school_term_bills for schools in this category without an override
+        try {
+          const { data: schoolsInCat } = await supabase
+            .from('report_schools')
+            .select('id, school_category, school_type, per_learner_rate_override')
+            .or(`school_category.eq.${category},school_type.ilike.${category}`)
+            .is('per_learner_rate_override', null);
+
+          if (schoolsInCat && schoolsInCat.length > 0) {
+            const schoolIds = schoolsInCat.map(s => s.id);
+            const { data: pendingBills } = await supabase
+              .from('school_term_bills')
+              .select('id, active_learner_count')
+              .in('school_id', schoolIds)
+              .neq('status', 'PAID')
+              .neq('approval_status', 'APPROVED');
+
+            if (pendingBills && pendingBills.length > 0) {
+              for (const pb of pendingBills) {
+                const cnt = Number(pb.active_learner_count || 0);
+                await supabase
+                  .from('school_term_bills')
+                  .update({
+                    rate_per_learner: rateVal,
+                    amount_due: cnt * rateVal,
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', pb.id);
+              }
+            }
+          }
+        } catch (billUpdateErr) {
+          console.warn('[subscriptionService] Cloud term bills rate update notice:', billUpdateErr);
+        }
       } catch (cloudErr) {
         console.warn('[subscriptionService] Cloud pricing update notice:', cloudErr);
       }
     }
 
-    return currentList.find(p => p.school_category === category);
+    return currentList.find(p => p.school_category?.toLowerCase() === category.toLowerCase());
   },
 
   /**
@@ -1324,6 +1451,7 @@ const subscriptionService = {
         updateData.per_learner_rate_override = config.per_learner_rate_override !== '' && config.per_learner_rate_override !== null
           ? Number(config.per_learner_rate_override)
           : null;
+        updateData.perLearnerRateOverride = updateData.per_learner_rate_override;
       }
       if (config.subscription_exempt_until !== undefined) updateData.subscription_exempt_until = config.subscription_exempt_until || null;
       if (config.subscription_notes !== undefined) updateData.subscription_notes = config.subscription_notes || null;
@@ -1339,6 +1467,34 @@ const subscriptionService = {
       await db.schools.update(schoolId, updateData).catch(() => null);
 
       if (error) throw error;
+
+      if (navigator.onLine && config.per_learner_rate_override !== undefined) {
+        try {
+          const rateToApply = updateData.per_learner_rate_override !== null
+            ? updateData.per_learner_rate_override
+            : (await this.getEffectiveRateForSchool(schoolId));
+          const { data: pendingBills } = await supabase
+            .from('school_term_bills')
+            .select('id, active_learner_count')
+            .eq('school_id', schoolId)
+            .neq('status', 'PAID')
+            .neq('approval_status', 'APPROVED');
+
+          if (pendingBills && pendingBills.length > 0) {
+            for (const pb of pendingBills) {
+              const cnt = Number(pb.active_learner_count || 0);
+              await supabase
+                .from('school_term_bills')
+                .update({
+                  rate_per_learner: rateToApply,
+                  amount_due: cnt * rateToApply,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', pb.id);
+            }
+          }
+        } catch (_) {}
+      }
 
       try {
         await supabase.from('platform_subscription_audit').insert({

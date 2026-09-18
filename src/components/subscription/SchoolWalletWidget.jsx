@@ -411,7 +411,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
             {effectiveLearners} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#71717a' }}>Students</span>
           </div>
           <div style={{ fontSize: '0.72rem', color: '#2563eb', fontWeight: 700, marginTop: '2px' }}>
-            GH₵ {rate_per_learner}.00 / student / term
+            GH₵ {Number(rate_per_learner).toFixed(2)} / student / term
           </div>
         </div>
 
@@ -425,7 +425,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
             {isFirstTermFreeActive ? 'GH₵ 0.00' : `GH₵ ${Number(termFee).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
           </div>
           <div style={{ fontSize: '0.72rem', color: isFirstTermFreeActive ? '#10B981' : '#71717a', fontWeight: 600, marginTop: '2px' }}>
-            {isFirstTermFreeActive ? '🎁 Complimentary Trial Waived' : `${effectiveLearners} × GH₵ ${rate_per_learner}`}
+            {isFirstTermFreeActive ? '🎁 Complimentary Trial Waived' : `${effectiveLearners} × GH₵ ${Number(rate_per_learner).toFixed(2)}`}
           </div>
         </div>
 
@@ -642,7 +642,7 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
 
             <div style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '12px', padding: '1rem' }}>
               <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#71717a', textTransform: 'uppercase' }}>Student Licensing</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#18181b', marginTop: '4px' }}>GH₵ {rate_per_learner}.00 / learner</div>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#18181b', marginTop: '4px' }}>GH₵ {Number(rate_per_learner).toFixed(2)} / learner</div>
               <div style={{ fontSize: '0.8rem', color: '#71717a', marginTop: '4px' }}>{effectiveLearners} enrolled learners calculated for terminal reports.</div>
             </div>
 

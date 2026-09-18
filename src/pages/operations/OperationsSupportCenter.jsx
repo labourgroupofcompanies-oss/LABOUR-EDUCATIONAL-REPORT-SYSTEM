@@ -245,10 +245,10 @@ const OperationsSupportCenter = () => {
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (selectedTicket?.school_id) {
-                      const targetRole = selectedTicket.sender_role === 'teacher' ? 'teacher' : 'headteacher';
-                      startImpersonation(selectedTicket.school_id, selectedTicket.school_name, targetRole, {
+                      const targetRole = selectedTicket.sender_role === 'teacher' ? 'teacher' : 'super_admin';
+                      await startImpersonation(selectedTicket.school_id, selectedTicket.school_name, targetRole, {
                         fullName: selectedTicket.sender_name || 'Impersonated User',
                         staffId: selectedTicket.sender_staff_id || null
                       });

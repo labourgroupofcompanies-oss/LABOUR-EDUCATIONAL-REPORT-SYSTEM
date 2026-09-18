@@ -200,14 +200,28 @@ const OperationsSchoolsDirectory = () => {
                       <td style={{ padding: '1rem', textAlign: 'right' }}>
                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
                           <button
-                            onClick={() => {
-                              startImpersonation(s.id, s.name);
-                              navigate('/');
+                            onClick={async () => {
+                              if (window.confirm(`Launch Live Remote Access as Headteacher for "${s.name}"?`)) {
+                                await startImpersonation(s.id, s.name);
+                                navigate('/');
+                              }
                             }}
-                            title="Access school portal in remote support mode"
-                            style={{ padding: '0.45rem 0.75rem', borderRadius: '8px', background: '#09090b', border: 'none', color: '#FFFFFF', fontSize: '0.75rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            title="Access school portal in remote headteacher mode"
+                            style={{
+                              padding: '0.45rem 0.85rem',
+                              borderRadius: '8px',
+                              background: 'linear-gradient(135deg, #4F46E5 0%, #3B82F6 100%)',
+                              border: 'none',
+                              color: '#FFFFFF',
+                              fontSize: '0.75rem',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '5px'
+                            }}
                           >
-                            <i className="fas fa-right-to-bracket" /> Remote Access
+                            <i className="fas fa-right-to-bracket" /> Headteacher Portal
                           </button>
                           <button
                             onClick={() => navigate(`/platform/operations/schools/${s.id}`)}

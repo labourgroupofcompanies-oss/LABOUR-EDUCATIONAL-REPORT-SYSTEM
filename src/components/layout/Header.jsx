@@ -16,7 +16,7 @@ const Header = ({ title, onMenuClick }) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
 
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.isImpersonating || user?.role === 'headteacher' || user?.role === 'admin';
 
   const handleLogout = async () => {
     await logout();

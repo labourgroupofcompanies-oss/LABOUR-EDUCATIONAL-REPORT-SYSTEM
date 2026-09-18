@@ -11,7 +11,7 @@ import { DEFAULT_GRADING_SCALE } from '../../lib/grading';
 
 const Settings = () => {
   const { user, updateProfile } = useAuth();
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.isImpersonating || user?.role === 'headteacher' || user?.role === 'admin';
 
   const globalSettings = useLiveQuery(() => db.settings.get('global'), []);
   const schoolData = useLiveQuery(() => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]);

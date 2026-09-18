@@ -12,7 +12,7 @@ const Sidebar = ({ isOpen, onClose }) => {
   const { pendingCount, failedCount, isSyncing, retryFailed, forceDrain } = useSyncEngine();
   const { unreadNotifications, markAsRead } = useSchoolNotifications();
   const navigate = useNavigate();
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.isImpersonating || user?.role === 'headteacher' || user?.role === 'admin';
   const [logoError, setLogoError] = useState(false);
 
   const unreadBlogCount = unreadNotifications?.filter(n => n.category === 'blog').length || 0;

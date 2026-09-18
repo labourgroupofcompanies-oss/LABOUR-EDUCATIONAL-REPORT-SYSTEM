@@ -1,6 +1,7 @@
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { enqueueSync } from './syncEngine';
+import { resurrectionGuard } from './resurrectionGuard';
 
 /**
  * Service to manage soft-deleted entities, recovery snapshots, and auto-purge in Recycle Bin.
@@ -307,12 +308,28 @@ class RecycleBinService {
         const { profile, assignments = [] } = dataPayload;
         if (!profile) throw new Error('Teacher profile data is missing.');
 
+        resurrectionGuard.unmarkDeleted('teacher', profile.id);
+        resurrectionGuard.unmarkDeleted('profile', profile.id);
+
         // Recreate in Dexie
         await db.profiles.put(profile);
+
+        // Recreate in Supabase / Outbox
+        await enqueueSync('insert', 'report_profiles', {
+          id: profile.id,
+          school_id: schoolId,
+          full_name: profile.fullName,
+          role: profile.role || 'teacher',
+          staff_id: profile.staffId,
+          email: profile.email,
+          is_claimed: profile.isClaimed || false,
+          created_at: profile.createdAt || new Date().toISOString()
+        }, schoolId);
 
         // Recreate assignments
         if (assignments.length > 0) {
           for (const a of assignments) {
+            resurrectionGuard.unmarkDeleted('assignment', a.id, a.supabaseId);
             await db.teacherAssignments.put(a);
             await enqueueSync('insert', 'report_teacher_assignments', {
               id: a.id,
@@ -325,20 +342,91 @@ class RecycleBinService {
           }
         }
       } else if (entityType === 'class') {
-        const { classObj } = dataPayload;
+        const { classObj, classSubjects = [], assignments = [] } = dataPayload;
         if (classObj) {
+          resurrectionGuard.unmarkDeleted('class', classObj.id, classObj.name);
           const cleanClass = { ...classObj };
           delete cleanClass.id;
-          await db.classes.add(cleanClass);
+          const newClassId = await db.classes.add(cleanClass);
+
+          await enqueueSync('insert', 'report_classes', {
+            school_id: schoolId,
+            name: classObj.name,
+            teaching_mode: classObj.teachingMode || 'class_teacher',
+            category: classObj.category || 'basic 1-3'
+          }, schoolId);
+
+          // Restore class-subjects
+          for (const cs of classSubjects) {
+            resurrectionGuard.unmarkDeleted('class_subject', cs.id, cs.supabaseId);
+            const csCopy = { ...cs, classId: newClassId, schoolId };
+            delete csCopy.id;
+            await db.classSubjects.add(csCopy);
+            await enqueueSync('insert', 'report_class_subjects', {
+              class_id: newClassId,
+              subject_id: cs.subjectId,
+              school_id: schoolId
+            }, schoolId);
+          }
+
+          // Restore assignments
+          for (const a of assignments) {
+            resurrectionGuard.unmarkDeleted('assignment', a.id, a.supabaseId);
+            const aCopy = { ...a, classId: newClassId, schoolId };
+            delete aCopy.id;
+            await db.teacherAssignments.add(aCopy);
+            await enqueueSync('insert', 'report_teacher_assignments', {
+              teacher_id: a.teacherId,
+              class_id: newClassId,
+              subject_id: a.subjectId,
+              school_id: schoolId
+            }, schoolId);
+          }
         }
       } else if (entityType === 'subject') {
-        const { subjectObj } = dataPayload;
+        const { subjectObj, classSubjects = [], assignments = [] } = dataPayload;
         if (subjectObj) {
+          resurrectionGuard.unmarkDeleted('subject', subjectObj.id, subjectObj.name);
           const cleanSub = { ...subjectObj };
           delete cleanSub.id;
-          await db.subjects.add(cleanSub);
+          const newSubId = await db.subjects.add(cleanSub);
+
+          await enqueueSync('insert', 'report_subjects', {
+            school_id: schoolId,
+            name: subjectObj.name
+          }, schoolId);
+
+          // Restore class-subjects
+          for (const cs of classSubjects) {
+            resurrectionGuard.unmarkDeleted('class_subject', cs.id, cs.supabaseId);
+            const csCopy = { ...cs, subjectId: newSubId, schoolId };
+            delete csCopy.id;
+            await db.classSubjects.add(csCopy);
+            await enqueueSync('insert', 'report_class_subjects', {
+              class_id: cs.classId,
+              subject_id: newSubId,
+              school_id: schoolId
+            }, schoolId);
+          }
+
+          // Restore assignments
+          for (const a of assignments) {
+            resurrectionGuard.unmarkDeleted('assignment', a.id, a.supabaseId);
+            const aCopy = { ...a, subjectId: newSubId, schoolId };
+            delete aCopy.id;
+            await db.teacherAssignments.add(aCopy);
+            await enqueueSync('insert', 'report_teacher_assignments', {
+              teacher_id: a.teacherId,
+              class_id: a.classId,
+              subject_id: newSubId,
+              school_id: schoolId
+            }, schoolId);
+          }
         }
       }
+
+      // Unmark generic entity ID
+      resurrectionGuard.unmarkDeleted(entityType, item.entityId);
 
       // Remove from Recycle Bin
       await this.permanentlyDelete(item);

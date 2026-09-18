@@ -88,7 +88,7 @@ const StatCard = ({ icon, iconColor, value, label, badge, badgeColor, onClick, i
 const Dashboard = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const isAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'super_admin' || user?.isImpersonating || user?.role === 'headteacher' || user?.role === 'admin';
 
   const formatDateSafe = (dateStr) => {
     if (!dateStr) return '—';

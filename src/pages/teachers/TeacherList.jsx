@@ -7,6 +7,8 @@ import { useAuth } from '../../store/AuthContext';
 import { enqueueSync } from '../../services/syncEngine';
 import { ensureAuth } from '../../lib/authUtils';
 import recycleBinService from '../../services/recycleBinService';
+import { deletionManager } from '../../services/deletionManager';
+import { resurrectionGuard } from '../../services/resurrectionGuard';
 
 const getNextStaffId = (teachersList) => {
   if (!teachersList || teachersList.length === 0) return 'TCH-001';
@@ -135,9 +137,12 @@ const TeacherList = () => {
             .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
-          // Delete any local teacher not in the remote list,
-          // BUT protect teachers with a pending insert in the outbox (registered offline)
+          // Delete any local teacher not in the remote list or marked deleted
           for (const lt of localTeachers) {
+            if (resurrectionGuard.isDeleted('teacher', lt.id) || resurrectionGuard.isDeleted('profile', lt.id)) {
+              await db.profiles.delete(lt.id);
+              continue;
+            }
             if (!remoteIds.has(lt.id)) {
               const hasPendingInsert = await db.outbox
                 .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(lt.id))
@@ -152,6 +157,10 @@ const TeacherList = () => {
 
           // Save/Update remote active profiles
           for (const p of teachersData) {
+            if (resurrectionGuard.isDeleted('teacher', p.id) || resurrectionGuard.isDeleted('profile', p.id)) {
+              continue;
+            }
+
             await db.profiles.put({
               id: p.id,
               schoolId: p.school_id,
@@ -173,9 +182,34 @@ const TeacherList = () => {
           .select('*')
           .eq('school_id', user.schoolId);
         if (!assignErr && assignData) {
-          await db.teacherAssignments.clear();
+          const remoteIds = new Set(assignData.map(a => a.id));
+          const localAssigns = await db.teacherAssignments
+            .where('schoolId').equals(user.schoolId)
+            .toArray();
+
+          for (const la of localAssigns) {
+            if (resurrectionGuard.isDeleted('assignment', la.id, la.supabaseId) ||
+                resurrectionGuard.isDeleted('teacher', la.teacherId) ||
+                resurrectionGuard.isDeleted('class', la.classId) ||
+                resurrectionGuard.isDeleted('subject', la.subjectId)) {
+              await db.teacherAssignments.delete(la.id);
+              continue;
+            }
+            if (la.supabaseId && !remoteIds.has(la.supabaseId)) {
+              await db.teacherAssignments.delete(la.id);
+            }
+          }
+
           for (const a of assignData) {
-            await db.teacherAssignments.put({
+            if (resurrectionGuard.isDeleted('assignment', a.id) ||
+                resurrectionGuard.isDeleted('teacher', a.teacher_id) ||
+                resurrectionGuard.isDeleted('class', a.class_id) ||
+                resurrectionGuard.isDeleted('subject', a.subject_id)) {
+              continue;
+            }
+
+            const existing = localAssigns.find(la => la.supabaseId === a.id);
+            const mapped = {
               supabaseId: a.id,
               schoolId: a.school_id,
               teacherId: a.teacher_id,
@@ -183,7 +217,12 @@ const TeacherList = () => {
               subjectId: a.subject_id ? Number(a.subject_id) : null,
               termId: a.term_id ? Number(a.term_id) : null,
               synced: true
-            });
+            };
+            if (existing) {
+              await db.teacherAssignments.update(existing.id, mapped);
+            } else {
+              await db.teacherAssignments.add(mapped);
+            }
           }
         }
       } catch (err) {
@@ -333,34 +372,7 @@ const TeacherList = () => {
   const handleDeleteTeacher = async (id) => {
     if (!window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
     try {
-      const teacherObj = await db.profiles.get(id);
-      const relatedAssigns = allAssignments?.filter(a => a.teacherId === id) || [];
-
-      // Save to Recycle Bin
-      await recycleBinService.moveToRecycleBin({
-        schoolId: user.schoolId,
-        entityType: 'teacher',
-        entityId: id,
-        entityName: teacherObj?.fullName || 'Teacher',
-        dataPayload: {
-          profile: teacherObj,
-          assignments: relatedAssigns
-        },
-        user
-      });
-
-      // Enqueue sync for delete
-      await enqueueSync('delete', 'report_profiles', {
-        filter: { id: id }
-      }, user.schoolId);
-
-      // Delete locally
-      await db.profiles.delete(id);
-      
-      // Cascade delete local assignments
-      for (const a of relatedAssigns) {
-        await db.teacherAssignments.delete(a.id);
-      }
+      await deletionManager.deleteTeacher(user.schoolId, id, user);
     } catch (err) {
       console.error('Failed to delete teacher:', err);
       alert('An error occurred: ' + err.message);
@@ -455,12 +467,7 @@ const TeacherList = () => {
 
   const handleDeleteAssignment = async (assignment) => {
     try {
-      await db.teacherAssignments.delete(assignment.id);
-      if (assignment.supabaseId) {
-        await enqueueSync('delete', 'report_teacher_assignments', {
-          filter: { id: assignment.supabaseId }
-        }, user.schoolId);
-      }
+      await deletionManager.deleteTeacherAssignment(user.schoolId, assignment);
     } catch (err) {
       console.error('Failed to delete assignment:', err);
     }

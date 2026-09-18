@@ -22,6 +22,7 @@
 import { db } from '../lib/db';
 import { supabase } from '../lib/supabase';
 import { downloadImageAsBlob } from '../utils/imageUtils';
+import { resurrectionGuard } from './resurrectionGuard';
 
 // ─── Polling interval ─────────────────────────────────────────────────────────
 // 45 seconds — short enough to feel live across multiple devices,
@@ -90,6 +91,17 @@ async function runAdminSync(user) {
     }
   } catch (_) { /* non-critical — skip silently */ }
 
+  // 0a. Sync Category Pricing in background
+  try {
+    const { data: pricingData, error: pricingErr } = await supabase
+      .from('platform_subscription_pricing')
+      .select('*')
+      .order('school_category', { ascending: true });
+    if (!pricingErr && pricingData && pricingData.length > 0) {
+      localStorage.setItem('labour_edu_category_pricing', JSON.stringify(pricingData));
+    }
+  } catch (_) { /* non-critical */ }
+
   // 0b. Sync School Info in background
   try {
     const { data: remoteSchool, error: schoolErr } = await supabase
@@ -127,6 +139,12 @@ async function runAdminSync(user) {
         circuit: remoteSchool.circuit || existing?.circuit || '',
         motto: remoteSchool.motto || existing?.motto || '',
         schoolType: remoteSchool.school_type || remoteSchool.schoolType || existing?.schoolType || 'private',
+        school_category: remoteSchool.school_category || remoteSchool.school_type || existing?.school_category || existing?.schoolType || 'Private',
+        per_learner_rate_override: remoteSchool.per_learner_rate_override !== undefined ? remoteSchool.per_learner_rate_override : (existing?.per_learner_rate_override ?? null),
+        perLearnerRateOverride: remoteSchool.per_learner_rate_override !== undefined ? remoteSchool.per_learner_rate_override : (existing?.perLearnerRateOverride ?? null),
+        initial_academic_year: remoteSchool.initial_academic_year || existing?.initial_academic_year || '',
+        initial_term: remoteSchool.initial_term || existing?.initial_term || '',
+        first_term_free_terminated: remoteSchool.first_term_free_terminated !== undefined ? remoteSchool.first_term_free_terminated : (existing?.first_term_free_terminated || false),
         logoUrl: finalLogoUrl,
         logoBlob: existing?.logoBlob || null,
         currentAcademicYear: remoteSchool.current_academic_year || existing?.currentAcademicYear || '',
@@ -139,7 +157,7 @@ async function runAdminSync(user) {
         walletBalance: remoteSchool.wallet_balance !== undefined ? Number(remoteSchool.wallet_balance) : (existing?.walletBalance || 0),
         is_first_term_free: remoteSchool.is_first_term_free !== undefined ? remoteSchool.is_first_term_free : existing?.is_first_term_free
       };
-      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'district', 'region', 'circuit', 'phone', 'email', 'wallet_balance', 'walletBalance', 'is_first_term_free'])) {
+      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'school_category', 'per_learner_rate_override', 'perLearnerRateOverride', 'initial_academic_year', 'initial_term', 'first_term_free_terminated', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'district', 'region', 'circuit', 'phone', 'email', 'wallet_balance', 'walletBalance', 'is_first_term_free'])) {
         await db.schools.put(mapped);
       }
     }
@@ -152,8 +170,32 @@ async function runAdminSync(user) {
 
     if (!error && remoteClasses) {
       const localClasses = await db.classes.where('schoolId').equals(schoolId).toArray();
+      const remoteIds = new Set(remoteClasses.map(rc => rc.id));
+      const remoteNames = new Set(remoteClasses.map(rc => rc.name?.toLowerCase().trim()));
 
+      // 1. 2-Way Purge Pass: Remove local classes that no longer exist remotely or are marked deleted
+      for (const lc of localClasses) {
+        if (resurrectionGuard.isDeleted('class', lc.id, lc.name)) {
+          await db.classes.delete(lc.id);
+          continue;
+        }
+        if (!remoteIds.has(lc.id) && !remoteNames.has(lc.name?.toLowerCase().trim())) {
+          const hasPendingInsert = await db.outbox
+            .filter(o => o.table === 'report_classes' && o.operation === 'insert' && (o.payload.includes(String(lc.name)) || o.payload.includes(String(lc.id))))
+            .first();
+          if (!hasPendingInsert) {
+            console.log(`[SyncDown] Purging remotely deleted class "${lc.name}" (${lc.id})`);
+            await db.classes.delete(lc.id);
+          }
+        }
+      }
+
+      // 2. Upsert Pass with Resurrection Guard
       for (const rc of remoteClasses) {
+        if (resurrectionGuard.isDeleted('class', rc.id, rc.name)) {
+          continue;
+        }
+
         const localByName = localClasses.find(
           c => c.name.toLowerCase().trim() === rc.name.toLowerCase().trim()
         );
@@ -214,8 +256,32 @@ async function runAdminSync(user) {
 
     if (!error && remoteSubjects) {
       const localSubjects = await db.subjects.where('schoolId').equals(schoolId).toArray();
+      const remoteIds = new Set(remoteSubjects.map(rs => rs.id));
+      const remoteNames = new Set(remoteSubjects.map(rs => rs.name?.toLowerCase().trim()));
 
+      // 1. 2-Way Purge Pass: Remove local subjects that no longer exist remotely or are marked deleted
+      for (const ls of localSubjects) {
+        if (resurrectionGuard.isDeleted('subject', ls.id, ls.name)) {
+          await db.subjects.delete(ls.id);
+          continue;
+        }
+        if (!remoteIds.has(ls.id) && !remoteNames.has(ls.name?.toLowerCase().trim())) {
+          const hasPendingInsert = await db.outbox
+            .filter(o => o.table === 'report_subjects' && o.operation === 'insert' && (o.payload.includes(String(ls.name)) || o.payload.includes(String(ls.id))))
+            .first();
+          if (!hasPendingInsert) {
+            console.log(`[SyncDown] Purging remotely deleted subject "${ls.name}" (${ls.id})`);
+            await db.subjects.delete(ls.id);
+          }
+        }
+      }
+
+      // 2. Upsert Pass with Resurrection Guard
       for (const rs of remoteSubjects) {
+        if (resurrectionGuard.isDeleted('subject', rs.id, rs.name)) {
+          continue;
+        }
+
         const localByName = localSubjects.find(
           s => s.name.toLowerCase().trim() === rs.name.toLowerCase().trim()
         );
@@ -255,8 +321,14 @@ async function runAdminSync(user) {
       const existing = await db.classSubjects.where('schoolId').equals(schoolId).toArray();
       const remoteIds = new Set(classSubsData.map(cs => cs.id));
 
-      // 1. Remove mappings no longer in remote
+      // 1. Remove mappings no longer in remote or marked deleted
       for (const e of existing) {
+        if (resurrectionGuard.isDeleted('class_subject', e.id, e.supabaseId) ||
+            resurrectionGuard.isDeleted('class', e.classId) ||
+            resurrectionGuard.isDeleted('subject', e.subjectId)) {
+          await db.classSubjects.delete(e.id);
+          continue;
+        }
         if (e.supabaseId && !remoteIds.has(e.supabaseId)) {
           await db.classSubjects.delete(e.id);
         }
@@ -282,6 +354,12 @@ async function runAdminSync(user) {
 
       // 3. Reconcile with remote items
       for (const cs of classSubsData) {
+        if (resurrectionGuard.isDeleted('class_subject', cs.id) ||
+            resurrectionGuard.isDeleted('class', cs.class_id) ||
+            resurrectionGuard.isDeleted('subject', cs.subject_id)) {
+          continue;
+        }
+
         const key = `${cs.class_id}_${cs.subject_id}`;
         const local = seenCombinations.get(key);
 
@@ -310,8 +388,12 @@ async function runAdminSync(user) {
         .where('schoolId').equals(schoolId)
         .toArray();
 
-      // Remove local profiles no longer in remote (guard pending outbox inserts)
+      // Remove local profiles no longer in remote or marked deleted (guard pending outbox inserts)
       for (const ls of localStaff) {
+        if (resurrectionGuard.isDeleted('teacher', ls.id) || resurrectionGuard.isDeleted('profile', ls.id)) {
+          await db.profiles.delete(ls.id);
+          continue;
+        }
         if (!remoteIds.has(ls.id)) {
           const hasPendingInsert = await db.outbox
             .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(ls.id))
@@ -322,6 +404,10 @@ async function runAdminSync(user) {
 
       // Upsert with smart diff, preserving offline authentication password hashes and caching signatures
       for (const p of staffData) {
+        if (resurrectionGuard.isDeleted('teacher', p.id) || resurrectionGuard.isDeleted('profile', p.id)) {
+          continue;
+        }
+
         const local = await db.profiles.get(p.id);
         const signatureUrlChanged = navigator.onLine && p.signature_url && p.signature_url !== local?.signatureUrl;
         let signatureBlob = local?.signature instanceof Blob ? local.signature : null;
@@ -365,8 +451,14 @@ async function runAdminSync(user) {
         .filter(a => String(a.schoolId || a.school_id || '') === String(schoolId))
         .toArray();
 
-      // Remove stale local assignments that exist locally with a supabaseId no longer in remote
+      // Remove stale local assignments that exist locally with a supabaseId no longer in remote or marked deleted
       for (const la of localAssigns) {
+        if (resurrectionGuard.isDeleted('assignment', la.id, la.supabaseId) ||
+            resurrectionGuard.isDeleted('teacher', la.teacherId) ||
+            resurrectionGuard.isDeleted('class', la.classId)) {
+          await db.teacherAssignments.delete(la.id);
+          continue;
+        }
         if (la.supabaseId && !remoteIds.has(la.supabaseId)) {
           await db.teacherAssignments.delete(la.id);
         }
@@ -374,6 +466,12 @@ async function runAdminSync(user) {
 
       // Add/update with smart diff
       for (const a of assignData) {
+        if (resurrectionGuard.isDeleted('assignment', a.id) ||
+            resurrectionGuard.isDeleted('teacher', a.teacher_id) ||
+            resurrectionGuard.isDeleted('class', a.class_id)) {
+          continue;
+        }
+
         const local = localAssigns.find(la => la.supabaseId === a.id);
         const mapped = {
           supabaseId: a.id,
@@ -562,7 +660,7 @@ async function runAdminSync(user) {
             (o.payload.includes(rl.id) || (rl.reg_number && o.payload.includes(rl.reg_number))))
           .first();
         const inlineDeletedQueue = JSON.parse(localStorage.getItem('pending_deleted_learners') || '[]');
-        if (isPendingDelete || inlineDeletedQueue.includes(rl.id)) continue;
+        if (isPendingDelete || inlineDeletedQueue.includes(rl.id) || resurrectionGuard.isDeleted('learner', rl.id, rl.reg_number)) continue;
 
         const cleanRemoteReg = rl.reg_number ? String(rl.reg_number).trim().toUpperCase() : '';
 

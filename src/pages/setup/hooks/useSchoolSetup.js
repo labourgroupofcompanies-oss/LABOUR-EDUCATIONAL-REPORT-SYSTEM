@@ -4,6 +4,8 @@ import { supabase } from '../../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useAuth } from '../../../store/AuthContext';
 import { enqueueSync } from '../../../services/syncEngine';
+import { deletionManager } from '../../../services/deletionManager';
+import { resurrectionGuard } from '../../../services/resurrectionGuard';
 
 export const useSchoolSetup = () => {
   const [className, setClassName] = useState('');
@@ -34,8 +36,30 @@ export const useSchoolSetup = () => {
 
         if (!classErr && remoteClasses) {
           const localClasses = await db.classes.where('schoolId').equals(user.schoolId).toArray();
+          const remoteIds = new Set(remoteClasses.map(rc => rc.id));
+          const remoteNames = new Set(remoteClasses.map(rc => rc.name?.toLowerCase().trim()));
+
+          // Purge local classes that no longer exist remotely or are marked deleted
+          for (const lc of localClasses) {
+            if (resurrectionGuard.isDeleted('class', lc.id, lc.name)) {
+              await db.classes.delete(lc.id);
+              continue;
+            }
+            if (!remoteIds.has(lc.id) && !remoteNames.has(lc.name?.toLowerCase().trim())) {
+              const hasPendingInsert = await db.outbox
+                .filter(o => o.table === 'report_classes' && o.operation === 'insert' && (o.payload.includes(String(lc.name)) || o.payload.includes(String(lc.id))))
+                .first();
+              if (!hasPendingInsert) {
+                await db.classes.delete(lc.id);
+              }
+            }
+          }
           
           for (const rc of remoteClasses) {
+            if (resurrectionGuard.isDeleted('class', rc.id, rc.name)) {
+              continue;
+            }
+
             // Find if there is a local class with the same name (case-insensitive, trimmed)
             const localByName = localClasses.find(c => c.name.toLowerCase().trim() === rc.name.toLowerCase().trim());
             
@@ -113,8 +137,30 @@ export const useSchoolSetup = () => {
 
         if (!subErr && remoteSubjects) {
           const localSubjects = await db.subjects.where('schoolId').equals(user.schoolId).toArray();
+          const remoteIds = new Set(remoteSubjects.map(rs => rs.id));
+          const remoteNames = new Set(remoteSubjects.map(rs => rs.name?.toLowerCase().trim()));
+
+          // Purge local subjects that no longer exist remotely or are marked deleted
+          for (const ls of localSubjects) {
+            if (resurrectionGuard.isDeleted('subject', ls.id, ls.name)) {
+              await db.subjects.delete(ls.id);
+              continue;
+            }
+            if (!remoteIds.has(ls.id) && !remoteNames.has(ls.name?.toLowerCase().trim())) {
+              const hasPendingInsert = await db.outbox
+                .filter(o => o.table === 'report_subjects' && o.operation === 'insert' && (o.payload.includes(String(ls.name)) || o.payload.includes(String(ls.id))))
+                .first();
+              if (!hasPendingInsert) {
+                await db.subjects.delete(ls.id);
+              }
+            }
+          }
           
           for (const rs of remoteSubjects) {
+            if (resurrectionGuard.isDeleted('subject', rs.id, rs.name)) {
+              continue;
+            }
+
             // Find if there is a local subject with the same name (case-insensitive, trimmed)
             const localByName = localSubjects.find(s => s.name.toLowerCase().trim() === rs.name.toLowerCase().trim());
             
@@ -136,7 +182,6 @@ export const useSchoolSetup = () => {
                 }
 
                 // Rewrite any pending outbox payloads that still reference the old subject ID
-                // so queued delete_insert→report_scores use the correct new subject_id
                 try {
                   const allOutbox = await db.outbox.toArray();
                   let rewriteCount = 0;
@@ -205,9 +250,15 @@ export const useSchoolSetup = () => {
           const remoteMap = new Set(classSubsData.map(cs => `${Number(cs.class_id)}-${Number(cs.subject_id)}`));
           const localClassSubs = await db.classSubjects.where('schoolId').equals(user.schoolId).toArray();
 
-          // Delete local records for this school that no longer exist remotely, unless pending in outbox
+          // Delete local records for this school that no longer exist remotely or are marked deleted
           for (const lcs of localClassSubs) {
             const key = `${Number(lcs.classId)}-${Number(lcs.subjectId)}`;
+            if (resurrectionGuard.isDeleted('class_subject', lcs.id, lcs.supabaseId) ||
+                resurrectionGuard.isDeleted('class', lcs.classId) ||
+                resurrectionGuard.isDeleted('subject', lcs.subjectId)) {
+              await db.classSubjects.delete(lcs.id);
+              continue;
+            }
             if (!remoteMap.has(key)) {
               const pendingInsert = await db.outbox
                 .filter(o => o.table === 'report_class_subjects' && o.operation === 'insert' && o.payload.includes(String(lcs.classId)) && o.payload.includes(String(lcs.subjectId)))
@@ -220,6 +271,12 @@ export const useSchoolSetup = () => {
 
           // Insert or update remote class-subject assignments
           for (const cs of classSubsData) {
+            if (resurrectionGuard.isDeleted('class_subject', cs.id) ||
+                resurrectionGuard.isDeleted('class', cs.class_id) ||
+                resurrectionGuard.isDeleted('subject', cs.subject_id)) {
+              continue;
+            }
+
             const cId = Number(cs.class_id);
             const sId = Number(cs.subject_id);
             const existing = await db.classSubjects
@@ -264,9 +321,12 @@ export const useSchoolSetup = () => {
             .and(p => p.role?.toLowerCase().trim() === 'teacher')
             .toArray();
             
-          // Delete any local teacher that is not in the remote list,
-          // BUT protect those with a pending insert in the outbox (registered offline)
+          // Delete any local teacher that is not in the remote list or is marked deleted
           for (const lt of localTeachers) {
+            if (resurrectionGuard.isDeleted('teacher', lt.id) || resurrectionGuard.isDeleted('profile', lt.id)) {
+              await db.profiles.delete(lt.id);
+              continue;
+            }
             if (!remoteIds.has(lt.id)) {
               const hasPendingInsert = await db.outbox
                 .filter(o => o.table === 'report_profiles' && o.operation === 'insert' && o.payload.includes(lt.id))
@@ -281,6 +341,10 @@ export const useSchoolSetup = () => {
 
           // Save/Update remote active profiles
           for (const p of teachersData) {
+            if (resurrectionGuard.isDeleted('teacher', p.id) || resurrectionGuard.isDeleted('profile', p.id)) {
+              continue;
+            }
+
             await db.profiles.put({
               id: p.id,
               schoolId: p.school_id,
@@ -302,9 +366,34 @@ export const useSchoolSetup = () => {
           .select('*')
           .eq('school_id', user.schoolId);
         if (!assignErr && assignData) {
-          await db.teacherAssignments.clear();
+          const remoteIds = new Set(assignData.map(a => a.id));
+          const localAssigns = await db.teacherAssignments
+            .where('schoolId').equals(user.schoolId)
+            .toArray();
+
+          for (const la of localAssigns) {
+            if (resurrectionGuard.isDeleted('assignment', la.id, la.supabaseId) ||
+                resurrectionGuard.isDeleted('teacher', la.teacherId) ||
+                resurrectionGuard.isDeleted('class', la.classId) ||
+                resurrectionGuard.isDeleted('subject', la.subjectId)) {
+              await db.teacherAssignments.delete(la.id);
+              continue;
+            }
+            if (la.supabaseId && !remoteIds.has(la.supabaseId)) {
+              await db.teacherAssignments.delete(la.id);
+            }
+          }
+
           for (const a of assignData) {
-            await db.teacherAssignments.put({
+            if (resurrectionGuard.isDeleted('assignment', a.id) ||
+                resurrectionGuard.isDeleted('teacher', a.teacher_id) ||
+                resurrectionGuard.isDeleted('class', a.class_id) ||
+                resurrectionGuard.isDeleted('subject', a.subject_id)) {
+              continue;
+            }
+
+            const existing = localAssigns.find(la => la.supabaseId === a.id);
+            const mapped = {
               supabaseId: a.id,
               schoolId: a.school_id,
               teacherId: a.teacher_id,
@@ -312,7 +401,12 @@ export const useSchoolSetup = () => {
               subjectId: a.subject_id ? Number(a.subject_id) : null,
               termId: a.term_id ? Number(a.term_id) : null,
               synced: true
-            });
+            };
+            if (existing) {
+              await db.teacherAssignments.update(existing.id, mapped);
+            } else {
+              await db.teacherAssignments.add(mapped);
+            }
           }
         }
       } catch (err) {
@@ -378,42 +472,9 @@ export const useSchoolSetup = () => {
   };
 
   const deleteClass = async (id) => {
-    if (!await window.confirm('Are you sure you want to delete this class? All learners, scores, assignments, and assigned subjects will be permanently deleted.')) return;
+    if (!window.confirm('Are you sure you want to delete this class? All learners in this class will be unlinked, and associated subject and teacher allocations will be removed.')) return;
     try {
-      const classIdNum = Number(id);
-
-      // Queue cloud delete via outbox (works online & offline)
-      await enqueueSync('delete', 'report_classes', {
-        filter: { id: classIdNum }
-      }, user?.schoolId);
-
-      await enqueueSync('delete', 'report_class_subjects', {
-        filter: { class_id: classIdNum, school_id: user?.schoolId }
-      }, user?.schoolId);
-
-      await enqueueSync('delete', 'report_teacher_assignments', {
-        filter: { class_id: classIdNum, school_id: user?.schoolId }
-      }, user?.schoolId);
-
-      // Clean up local Dexie storage immediately
-      await db.classes.delete(id);
-      await db.classes.delete(classIdNum);
-      
-      const relatedAssigns = await db.teacherAssignments
-        .where('schoolId').equals(user.schoolId)
-        .filter(a => Number(a.classId) === classIdNum || String(a.classId) === String(id))
-        .toArray();
-      for (const a of relatedAssigns) {
-        await db.teacherAssignments.delete(a.id);
-      }
-
-      const relatedClassSubjects = await db.classSubjects
-        .where('schoolId').equals(user.schoolId)
-        .filter(cs => Number(cs.classId) === classIdNum || String(cs.classId) === String(id))
-        .toArray();
-      for (const cs of relatedClassSubjects) {
-        await db.classSubjects.delete(cs.id);
-      }
+      await deletionManager.deleteClass(user?.schoolId, id, user);
     } catch (err) {
       console.error('Failed to delete class:', err);
       alert('An error occurred: ' + err.message);
@@ -465,42 +526,9 @@ export const useSchoolSetup = () => {
   };
 
   const deleteSubject = async (id) => {
-    if (!await window.confirm('Are you sure you want to delete this subject? All scores, teacher assignments, and class-subject mappings associated with it will be permanently deleted.')) return;
+    if (!window.confirm('Are you sure you want to delete this subject? All associated teacher assignments and class-subject allocations will be removed.')) return;
     try {
-      const subjectIdNum = Number(id);
-
-      // Queue cloud delete via outbox (works online & offline)
-      await enqueueSync('delete', 'report_subjects', {
-        filter: { id: subjectIdNum }
-      }, user?.schoolId);
-
-      await enqueueSync('delete', 'report_class_subjects', {
-        filter: { subject_id: subjectIdNum, school_id: user?.schoolId }
-      }, user?.schoolId);
-
-      await enqueueSync('delete', 'report_teacher_assignments', {
-        filter: { subject_id: subjectIdNum, school_id: user?.schoolId }
-      }, user?.schoolId);
-
-      // Clean up local Dexie storage immediately
-      await db.subjects.delete(id);
-      await db.subjects.delete(subjectIdNum);
-
-      const relatedAssigns = await db.teacherAssignments
-        .where('schoolId').equals(user.schoolId)
-        .filter(a => Number(a.subjectId) === subjectIdNum || String(a.subjectId) === String(id))
-        .toArray();
-      for (const a of relatedAssigns) {
-        await db.teacherAssignments.delete(a.id);
-      }
-
-      const relatedClassSubjects = await db.classSubjects
-        .where('schoolId').equals(user.schoolId)
-        .filter(cs => Number(cs.subjectId) === subjectIdNum || String(cs.subjectId) === String(id))
-        .toArray();
-      for (const cs of relatedClassSubjects) {
-        await db.classSubjects.delete(cs.id);
-      }
+      await deletionManager.deleteSubject(user?.schoolId, id, user);
     } catch (err) {
       console.error('Failed to delete subject:', err);
       alert('An error occurred: ' + err.message);

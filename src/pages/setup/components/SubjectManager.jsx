@@ -289,15 +289,6 @@ const SubjectManager = ({
                     <button
                       type="button"
                       onClick={async () => {
-                        if (classesOffering > 0) {
-                          if (!window.confirm(`"${sub.name}" is assigned to ${classesOffering} class stream(s). Delete anyway?`)) {
-                            return;
-                          }
-                        } else {
-                          if (!window.confirm(`Delete "${sub.name}"?`)) {
-                            return;
-                          }
-                        }
                         await deleteSubject(sub.id);
                       }}
                       title="Delete Subject"
