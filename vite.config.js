@@ -71,7 +71,7 @@ export default defineConfig({
               cacheName: 'supabase-api-cache',
               expiration: {
                 maxEntries: 100,
-                maxAgeSeconds: 60 * 60 * 24 * 7 // 7 days
+                maxAgeSeconds: 60 * 60 // 1 hour — short TTL prevents stale auth data
               },
               cacheableResponse: {
                 statuses: [0, 200]

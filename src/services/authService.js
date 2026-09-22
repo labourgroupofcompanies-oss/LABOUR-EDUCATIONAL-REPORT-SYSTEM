@@ -143,12 +143,6 @@ export const authService = {
           };
         }
 
-        // Force super_admin & developer portal authorization for shrtgallery3@gmail.com
-        if (cleanedEmail === 'shrtgallery3@gmail.com') {
-          profileToSave.role = 'super_admin';
-          profileToSave.isPlatformDeveloper = true;
-        }
-
         // Self-heal: attempt to persist missing profile row into Supabase report_profiles table
         if (!profile && navigator.onLine) {
           supabase
@@ -204,11 +198,6 @@ export const authService = {
           lastLogin: new Date().toISOString()
         };
 
-        if (cleanedEmail === 'shrtgallery3@gmail.com') {
-          fallbackProfile.role = 'super_admin';
-          fallbackProfile.isPlatformDeveloper = true;
-        }
-
         await db.profiles.put(fallbackProfile);
         if (fallbackProfile.schoolId) {
           cacheSchoolStaffProfiles(fallbackProfile.schoolId);
@@ -247,37 +236,16 @@ export const authService = {
           throw new Error(`Incorrect password (offline mode). You have ${failRec.remainingAttempts} attempt(s) remaining before security lockout.`);
         }
       } else {
-        // Cached user before password hash feature was introduced
-        console.warn('[Auth] Offline login using legacy cached profile (no password hash recorded yet).');
-        loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
-        return { profile: cached, isOffline: true };
+        // No password hash recorded — require online authentication to establish credentials securely
+        throw new Error(
+          navigator.onLine
+            ? 'Authentication data is incomplete. Please try logging in again.'
+            : 'You must be online to log in to this account for the first time. Please connect to the internet and try again.'
+        );
       }
     }
 
-    // ── Step 5: Platform Developer / Super Admin Provisioning Fallback ──────────
-    // Matches both emails in case of typo variations; works fully offline.
-    const devEmails = ['shrtgallery3@gmail.com', 'shrtgallery@gmail.com', 'shritgallery@gmail.com'];
-    if (devEmails.includes(cleanedEmail) && password === 'iwillberich@30') {
-      const salt = 'labour_edu_salt_2026';
-      const passwordHash = await hashUserPassword(password, salt);
-      const superAdminProfile = {
-        id: 'super-admin-platform-developer',
-        email: cleanedEmail,
-        fullName: 'Platform Super Admin',
-        role: 'super_admin',
-        isPlatformDeveloper: true,
-        schoolId: null,
-        staffId: 'SA-001',
-        passwordHash,
-        passwordSalt: salt,
-        lastLogin: new Date().toISOString()
-      };
-      await db.profiles.put(superAdminProfile);
-      loginRateLimitService.recordSuccessfulLogin(cleanedEmail);
-      return { profile: superAdminProfile };
-    }
-
-    // ── Step 6: Account Not Found Locally / Failed Authentication ───────────
+    // ── Step 5: Account Not Found Locally / Failed Authentication ───────────
     const failRec = loginRateLimitService.recordFailedAttempt(cleanedEmail);
     if (failRec.isLocked) {
       throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${failRec.remainingFormatted}. Refreshing will not bypass this restriction.`);
@@ -335,6 +303,12 @@ export const authService = {
   async verifyParentPhone(phoneNumber) {
     const cleanInput = phoneNumber.replace(/[\s\-\+\(\)]/g, '').slice(-9);
     if (!cleanInput || cleanInput.length < 9) throw new Error('Invalid phone number. Please enter a valid 10-digit number.');
+
+    // ── Rate-limit phone lookup to prevent enumeration attacks ──────────────
+    const lockout = loginRateLimitService.checkLockout(`phone_verify_${cleanInput}`);
+    if (lockout.isLocked) {
+      throw new Error(`Too many lookup attempts. Please wait ${lockout.remainingFormatted} before trying again.`);
+    }
 
     // 1. Search locally in Dexie first (instant feedback)
     // Use filter() instead of toArray() to avoid loading all learners into memory.
@@ -410,8 +384,13 @@ export const authService = {
     }
 
     if (matchedLearners.length === 0) {
-      throw new Error('This phone number is not registered under any learner. Please contact the administration.');
+      loginRateLimitService.recordFailedAttempt(`phone_verify_${cleanInput}`);
+      // Generic error — don't reveal whether the number exists or not
+      throw new Error('This phone number is not registered. Please contact the school administration.');
     }
+
+    // Clear any previous failed lookups on successful find
+    loginRateLimitService.recordSuccessfulLogin(`phone_verify_${cleanInput}`);
 
     // Extract guardian name/relation from first matched learner
     const firstMatch = matchedLearners[0];
@@ -455,11 +434,13 @@ export const authService = {
 
   async registerParent(phoneNumber, password) {
     const cleanInput = phoneNumber.replace(/[\s\-\+\(\)]/g, '').slice(-9);
-    const passwordHash = await hashPassword(password);
+    const salt = generateParentSalt();
+    const passwordHash = await hashPassword(password, salt);
 
     const record = {
       phone_number: cleanInput,
       password_hash: passwordHash,
+      password_salt: salt,
       synced: false
     };
 
@@ -510,7 +491,10 @@ export const authService = {
       throw new Error(`Account temporarily restricted: 5 failed login attempts reached. Security lockout active for another ${lockout.remainingFormatted}. Refreshing will not bypass this restriction.`);
     }
 
-    const inputHash = await hashPassword(password);
+    // Fetch local record first to get stored salt (if any)
+    const cachedForSalt = await db.parentAccounts.get(cleanInput);
+    const storedSalt = cachedForSalt?.password_salt || null;
+    const inputHash = await hashPassword(password, storedSalt);
 
     // 1. If online, fetch from remote to ensure latest credential sync
     if (navigator.onLine) {
@@ -583,13 +567,23 @@ export const authService = {
 
   async resetParentPassword(phoneNumber) {
     const cleanInput = phoneNumber.replace(/[\s\-\+\(\)]/g, '').slice(-9);
-    const newHash = await hashPassword('123456');
+
+    // Generate a secure random temporary password (8 chars: letters + digits)
+    const tempPasswordChars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const randomValues = new Uint8Array(8);
+    (window.crypto || crypto).getRandomValues(randomValues);
+    const tempPassword = Array.from(randomValues)
+      .map(v => tempPasswordChars[v % tempPasswordChars.length])
+      .join('');
+
+    const newHash = await hashPassword(tempPassword);
 
     // Update locally
     await db.parentAccounts.put({
       phone_number: cleanInput,
       password_hash: newHash,
-      synced: navigator.onLine
+      synced: navigator.onLine,
+      requiresPasswordChange: true
     });
 
     // Update Supabase if online
@@ -609,7 +603,8 @@ export const authService = {
       }
     }
     
-    return true;
+    // Return the temp password so the headteacher can relay it securely to the parent (shown once)
+    return { tempPassword };
   },
 
   async changeParentPassword(phoneNumber, currentPassword, newPassword) {
@@ -734,9 +729,21 @@ export const authService = {
   }
 };
 
-// ─── Universal SHA-256 Hashing ─────────────────────────────────────────
-async function hashPassword(password) {
+// ─── Parent Password Hashing with Per-User Salt ─────────────────────────────
+// Generates a random salt if none provided (new accounts), otherwise uses stored salt.
+// Legacy unsalted hashes (no salt stored) remain compatible for existing accounts.
+async function hashPassword(password, salt = null) {
+  if (salt) {
+    return sha256(`${password}:${salt}`);
+  }
+  // Legacy path (no salt) — kept for backward-compat with existing stored hashes
   return sha256(password);
+}
+
+export function generateParentSalt() {
+  const array = new Uint8Array(16);
+  (window.crypto || crypto).getRandomValues(array);
+  return Array.from(array, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 export default authService;

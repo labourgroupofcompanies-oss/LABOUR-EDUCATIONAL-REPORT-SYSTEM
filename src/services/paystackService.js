@@ -14,7 +14,13 @@ export const paystackService = {
       return;
     }
 
-    const key = (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_268bda36ac82a08f2180c82fc5ab2f782dbc5601').trim();
+    const key = (import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '').trim();
+    if (!key) {
+      console.error('[Paystack] VITE_PAYSTACK_PUBLIC_KEY is not configured.');
+      alert('Payment service is not configured. Please contact support.');
+      if (onCancel) onCancel();
+      return;
+    }
 
     try {
       const handler = window.PaystackPop.setup({

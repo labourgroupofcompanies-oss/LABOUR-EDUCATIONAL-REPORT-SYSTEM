@@ -68,6 +68,12 @@ export const AuthProvider = ({ children }) => {
     authService.clearSession();
     await authService.logout();
     setUser(null);
+    // Purge Supabase API cache so stale data is not served to next session
+    try {
+      if ('caches' in window) {
+        await caches.delete('supabase-api-cache');
+      }
+    } catch (_) {}
   };
 
   const updateProfile = (updatedFields) => {
@@ -78,7 +84,8 @@ export const AuthProvider = ({ children }) => {
     if (!user) return;
     const backupSession = localStorage.getItem('labour_edu_admin_backup_session');
     if (!backupSession) {
-      localStorage.setItem('labour_edu_admin_backup_session', JSON.stringify(user));
+      // Store only the admin user ID — restore the full profile from IndexedDB on exit
+      localStorage.setItem('labour_edu_admin_backup_session', JSON.stringify({ id: user.id }));
     }
     const impersonatedUser = {
       ...user,
@@ -114,15 +121,19 @@ export const AuthProvider = ({ children }) => {
   const stopImpersonation = async () => {
     const currentImpersonated = user;
     const backup = localStorage.getItem('labour_edu_admin_backup_session');
+    localStorage.removeItem('labour_edu_admin_backup_session');
+
     if (backup) {
       try {
-        const originalUser = JSON.parse(backup);
-        authService.saveSession(originalUser);
-        setUser(originalUser);
+        const { id: adminId } = JSON.parse(backup);
+        // Restore from IndexedDB (not from the localStorage snapshot)
+        const originalUser = adminId ? await db.profiles.get(adminId) : null;
+        if (originalUser) {
+          authService.saveSession(originalUser);
+          setUser(originalUser);
+        }
       } catch (err) {
         console.error('Error restoring session:', err);
-      } finally {
-        localStorage.removeItem('labour_edu_admin_backup_session');
       }
     } else if (user) {
       const restored = { ...user, isImpersonating: false };
