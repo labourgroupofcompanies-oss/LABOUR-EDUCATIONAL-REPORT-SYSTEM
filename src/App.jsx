@@ -19,6 +19,7 @@ import ScoreDiagnostic from './pages/setup/ScoreDiagnostic';
 import Promotions from './pages/learners/Promotions';
 import NotFound from './pages/NotFound';
 import ReloadPrompt from './components/common/ReloadPrompt';
+import MobileInstallPrompt from './components/common/MobileInstallPrompt';
 import SyncEngineProvider from './store/SyncEngineProvider';
 import ReferralPage from './pages/referrals/ReferralPage';
 import referralService from './services/referralService';
@@ -34,39 +35,10 @@ import HeadTeacherMessages from './pages/parent/HeadTeacherMessages';
 import PublicReceiptVerification from './pages/financials/PublicReceiptVerification';
 import authService from './services/authService';
 
-// Platform Developer & Operations Imports
-import SuperAdminRoute from './components/layout/SuperAdminRoute';
-import PlatformShellLayout from './components/layout/PlatformShellLayout';
-import DeveloperLayout from './components/developer/DeveloperLayout';
-import DeveloperDashboard from './pages/developer/DeveloperDashboard';
-import ApiKeyManager from './pages/developer/ApiKeyManager';
-import ApiDocsCenter from './pages/developer/ApiDocsCenter';
-import ApiVersionManager from './pages/developer/ApiVersionManager';
-import WebhookManager from './pages/developer/WebhookManager';
-import SandboxEnvironment from './pages/developer/SandboxEnvironment';
-import ApiAnalytics from './pages/developer/ApiAnalytics';
-import SecurityCenter from './pages/developer/SecurityCenter';
-import SdkDownloads from './pages/developer/SdkDownloads';
-import AcademicCalendarManager from './pages/developer/AcademicCalendarManager';
-
-import OperationsLayout from './components/operations/OperationsLayout';
-import OperationsDashboard from './pages/operations/OperationsDashboard';
-import OperationsSchoolsDirectory from './pages/operations/OperationsSchoolsDirectory';
-import SchoolDetailView from './pages/operations/SchoolDetailView';
-import OperationsSupportCenter from './pages/operations/OperationsSupportCenter';
-import OperationsSubscriptions from './pages/operations/OperationsSubscriptions';
-import OperationsInterventionsAudit from './pages/operations/OperationsInterventionsAudit';
-import OperationsSchoolAnalytics from './pages/operations/OperationsSchoolAnalytics';
-import OperationsReports from './pages/operations/OperationsReports';
-import ReferralManagementDashboard from './pages/developer/ReferralManagementDashboard';
-import PlatformDeveloperRegister from './pages/auth/PlatformDeveloperRegister';
-import BlogManager from './pages/operations/BlogManager';
+// Public Knowledge Base & Legal
 import KnowledgeBase from './pages/knowledge/KnowledgeBase';
 import PrivacyPolicy from './pages/legal/PrivacyPolicy';
-import BroadcastManager from './pages/operations/BroadcastManager';
-import OperationsAgentView from './pages/operations/OperationsAgentView';
-import GesNewsWatcher from './pages/operations/GesNewsWatcher';
-import OperationsRunbook from './pages/operations/OperationsRunbook';
+
 
 
 const ParentProtectedRoute = ({ children }) => {
@@ -115,6 +87,7 @@ function App() {
     <AuthProvider>
       <SyncEngineProvider>
         <ReloadPrompt />
+        <MobileInstallPrompt />
         <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthListener />
           <Routes>
@@ -123,8 +96,6 @@ function App() {
             <Route path="/join" element={<Onboarding />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/developer" element={<Navigate to="/platform/operations" replace />} />
-            <Route path="/platform/register" element={<PlatformDeveloperRegister />} />
             <Route 
               path="/" 
               element={
@@ -294,54 +265,6 @@ function App() {
             <Route path="/resources/blog/:slug" element={<KnowledgeBase />} />
             <Route path="/guides" element={<KnowledgeBase />} />
 
-            {/* Platform Console Shell (Super Admin Only) */}
-            <Route 
-              path="/platform" 
-              element={
-                <SuperAdminRoute>
-                  <PlatformShellLayout />
-                </SuperAdminRoute>
-              }
-            >
-              <Route index element={<Navigate to="/platform/operations" replace />} />
-
-              {/* Developer Portal Sub-Routes */}
-              <Route path="developer" element={<DeveloperLayout />}>
-                <Route index element={<DeveloperDashboard />} />
-                <Route path="transactions" element={<OperationsSubscriptions />} />
-                <Route path="api-keys" element={<ApiKeyManager />} />
-                <Route path="api-docs" element={<ApiDocsCenter />} />
-                <Route path="api-versions" element={<ApiVersionManager />} />
-                <Route path="webhooks" element={<WebhookManager />} />
-                <Route path="sandbox" element={<SandboxEnvironment />} />
-                <Route path="analytics" element={<ApiAnalytics />} />
-                <Route path="security" element={<SecurityCenter />} />
-                <Route path="sdk" element={<SdkDownloads />} />
-                <Route path="blog" element={<BlogManager />} />
-              </Route>
-
-              {/* Platform Operations Center Sub-Routes */}
-              <Route path="operations" element={<OperationsLayout />}>
-                <Route index element={<OperationsDashboard />} />
-                <Route path="runbook" element={<OperationsRunbook />} />
-                <Route path="copilot" element={<OperationsAgentView />} />
-                <Route path="ges-radar" element={<GesNewsWatcher />} />
-                <Route path="broadcasts" element={<BroadcastManager />} />
-                <Route path="schools" element={<OperationsSchoolsDirectory />} />
-                <Route path="schools/:schoolId" element={<SchoolDetailView />} />
-                <Route path="support" element={<OperationsSupportCenter />} />
-                <Route path="subscriptions" element={<OperationsSubscriptions />} />
-                <Route path="transactions" element={<OperationsSubscriptions />} />
-                <Route path="referrals" element={<ReferralManagementDashboard />} />
-                <Route path="calendar" element={<AcademicCalendarManager />} />
-                <Route path="blog" element={<BlogManager />} />
-                <Route path="interventions" element={<OperationsInterventionsAudit />} />
-                <Route path="analytics" element={<OperationsSchoolAnalytics />} />
-                <Route path="reports" element={<OperationsReports />} />
-              </Route>
-            </Route>
-
-            <Route path="/onboarding" element={<Onboarding />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Router>

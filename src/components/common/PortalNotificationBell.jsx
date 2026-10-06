@@ -44,9 +44,22 @@ const PortalNotificationBell = ({ dark = false }) => {
   } = useSchoolNotifications();
 
   const [isOpen, setIsOpen] = useState(false);
+  const [isPulsing, setIsPulsing] = useState(false);
   const dropdownRef = useRef(null);
   const autoReadTimerRef = useRef(null);
   const navigate = useNavigate();
+
+  // Listen for countdown dismiss event to highlight and shake bell
+  useEffect(() => {
+    const handleBellHighlight = () => {
+      setIsPulsing(true);
+      const timer = setTimeout(() => setIsPulsing(false), 4500);
+      return () => clearTimeout(timer);
+    };
+
+    window.addEventListener('platform-broadcast-bell-highlight', handleBellHighlight);
+    return () => window.removeEventListener('platform-broadcast-bell-highlight', handleBellHighlight);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -82,6 +95,23 @@ const PortalNotificationBell = ({ dark = false }) => {
 
   const handleCardClick = useCallback((notif) => {
     markAsRead(notif.id);
+
+    // If it is an operations platform broadcast, open the full announcement modal
+    if (notif.category === 'broadcast' || notif.id?.startsWith('broadcast_')) {
+      setIsOpen(false);
+      const bData = notif.broadcastData || {
+        id: notif.id.replace('broadcast_', ''),
+        title: notif.title.replace(/^📢\s*/, ''),
+        content: notif.content || notif.message,
+        severity: notif.severity || 'info',
+        actionUrl: notif.actionUrl || null,
+        actionLabel: notif.actionLabel || 'View Notice',
+        createdAt: notif.timestamp
+      };
+      window.dispatchEvent(new CustomEvent('open-platform-broadcast-modal', { detail: bData }));
+      return;
+    }
+
     if (notif.actionUrl) {
       setIsOpen(false);
       navigate(notif.actionUrl);
@@ -99,19 +129,19 @@ const PortalNotificationBell = ({ dark = false }) => {
         aria-label={`Notifications${unreadCount > 0 ? ` — ${unreadCount} unread` : ''}`}
         style={{
           position: 'relative',
-          background: dark ? (isOpen ? '#27272a' : '#18181b') : (isOpen ? '#F4F4F5' : '#FFFFFF'),
-          border: dark ? '1px solid #27272a' : '1.5px solid #E4E4E7',
-          color: unreadCount > 0 ? (dark ? '#FFFFFF' : '#2563eb') : (dark ? '#A1A1AA' : '#71717a'),
+          background: isPulsing ? '#EFF6FF' : (dark ? (isOpen ? '#27272a' : '#18181b') : (isOpen ? '#F4F4F5' : '#FFFFFF')),
+          border: isPulsing ? '2px solid #2563eb' : (dark ? '1px solid #27272a' : '1.5px solid #E4E4E7'),
+          color: (unreadCount > 0 || isPulsing) ? (dark ? '#FFFFFF' : '#2563eb') : (dark ? '#A1A1AA' : '#71717a'),
           width: '36px', height: '36px', borderRadius: '50%',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', fontSize: '0.95rem',
           transition: 'all 0.2s ease',
-          boxShadow: unreadCount > 0 ? '0 0 10px rgba(37,99,235,0.25)' : 'none',
+          boxShadow: isPulsing ? '0 0 16px rgba(37,99,235,0.55)' : (unreadCount > 0 ? '0 0 10px rgba(37,99,235,0.25)' : 'none'),
           flexShrink: 0
         }}
-        title="Notifications"
+        title={unreadCount > 0 ? `${unreadCount} unread notifications` : 'Notifications'}
       >
-        <i className={`fas fa-bell ${unreadCount > 0 ? 'fa-shake' : ''}`}></i>
+        <i className={`fas fa-bell ${unreadCount > 0 || isPulsing ? 'fa-shake' : ''}`}></i>
         {unreadCount > 0 && (
           <span style={{
             position: 'absolute', top: '-3px', right: '-3px',
@@ -119,7 +149,9 @@ const PortalNotificationBell = ({ dark = false }) => {
             fontSize: '0.65rem', fontWeight: 900,
             padding: '0.12rem 0.35rem', borderRadius: '999px', lineHeight: 1,
             border: `2px solid ${dark ? '#09090b' : '#FFFFFF'}`,
-            boxShadow: '0 2px 4px rgba(239,68,68,0.4)'
+            boxShadow: '0 2px 4px rgba(239,68,68,0.4)',
+            transform: isPulsing ? 'scale(1.15)' : 'scale(1)',
+            transition: 'transform 0.2s ease'
           }}>
             {unreadCount > 99 ? '99+' : unreadCount}
           </span>
@@ -240,12 +272,12 @@ const PortalNotificationBell = ({ dark = false }) => {
                           {notif.message}
                         </div>
 
-                        {notif.actionUrl && (
+                        {(notif.category === 'broadcast' || notif.actionUrl) && (
                           <button type="button"
                             onClick={(e) => { e.stopPropagation(); handleCardClick(notif); }}
-                            style={{ background: accent, border: 'none', color: '#FFFFFF', padding: '0.2rem 0.55rem', borderRadius: '5px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            <span>{notif.actionLabel || 'View'}</span>
-                            <i className="fas fa-arrow-right" style={{ fontSize: '0.58rem' }}></i>
+                            style={{ background: accent, border: 'none', color: '#FFFFFF', padding: '0.2rem 0.6rem', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '5px', marginTop: '4px' }}>
+                            <span>{notif.category === 'broadcast' ? 'Read Notice' : (notif.actionLabel || 'View')}</span>
+                            <i className={`fas ${notif.category === 'broadcast' ? 'fa-book-open' : 'fa-arrow-right'}`} style={{ fontSize: '0.58rem' }}></i>
                           </button>
                         )}
                       </div>

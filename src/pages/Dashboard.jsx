@@ -10,6 +10,7 @@ import TeacherAnalytics from '../components/analytics/TeacherAnalytics';
 import TeacherReferralCard from '../components/referrals/TeacherReferralCard';
 import learnerRepository from '../repositories/learnerRepository';
 import subscriptionService from '../services/subscriptionService';
+import broadcastService from '../services/broadcastService';
 import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../utils/teacherUtils';
 
 // Premium Green-Themed Stat Card with Micro-Animations
@@ -102,6 +103,20 @@ const Dashboard = () => {
   const [annContent, setAnnContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [platformBroadcasts, setPlatformBroadcasts] = useState([]);
+
+  // Reactive active platform announcements for this role
+  useEffect(() => {
+    const role = user?.role === 'super_admin' ? 'headteacher' : (user?.role || 'all');
+    const updateBroadcasts = () => {
+      const list = broadcastService.getBroadcastsForRole(role);
+      setPlatformBroadcasts(list || []);
+    };
+
+    updateBroadcasts();
+    window.addEventListener('platform-broadcast-updated', updateBroadcasts);
+    return () => window.removeEventListener('platform-broadcast-updated', updateBroadcasts);
+  }, [user?.role]);
 
   // Reactive query for local announcements (Admin view)
   const adminAnnouncements = useLiveQuery(
@@ -452,6 +467,103 @@ const Dashboard = () => {
             <span>{new Date().toLocaleDateString('en-GH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
           </div>
         </div>
+
+        {/* Official Platform Announcements & Directives */}
+        {platformBroadcasts && platformBroadcasts.length > 0 && (
+          <div
+            style={{
+              marginBottom: '1.25rem',
+              borderRadius: '16px',
+              background: 'linear-gradient(135deg, #18181B 0%, #09090B 100%)',
+              color: '#FFFFFF',
+              padding: '1rem 1.25rem',
+              boxShadow: '0 8px 24px -4px rgba(0, 0, 0, 0.18)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '14px',
+              flexWrap: 'wrap',
+              border: '1px solid rgba(255, 255, 255, 0.12)'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '240px' }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #007AFF 0%, #5856D6 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                boxShadow: '0 4px 12px rgba(0, 122, 255, 0.35)'
+              }}>
+                <i className="fas fa-bullhorn" style={{ color: '#FFFFFF', fontSize: '0.92rem' }}></i>
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
+                  <span style={{
+                    fontSize: '0.65rem',
+                    fontWeight: 800,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
+                    background: 'rgba(0, 122, 255, 0.22)',
+                    color: '#60A5FA',
+                    padding: '0.12rem 0.45rem',
+                    borderRadius: '5px'
+                  }}>
+                    Platform Announcement
+                  </span>
+                  <span style={{ fontSize: '0.72rem', color: '#A1A1AA' }}>
+                    {platformBroadcasts.length > 1 ? `${platformBroadcasts.length} Active Directives` : 'Official Notice'}
+                  </span>
+                </div>
+                <h4 style={{ margin: '0 0 2px 0', fontSize: '0.92rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {platformBroadcasts[0].title}
+                </h4>
+                <p style={{
+                  margin: 0,
+                  fontSize: '0.78rem',
+                  color: '#CBD5E1',
+                  lineHeight: 1.4,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 1,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden'
+                }}>
+                  {platformBroadcasts[0].content}
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('open-platform-broadcast-modal', { detail: platformBroadcasts[0] }));
+                }}
+                style={{
+                  background: '#2563EB',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '0.45rem 1rem',
+                  borderRadius: '10px',
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 3px 10px rgba(37, 99, 235, 0.3)',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <i className="fas fa-book-open" style={{ fontSize: '0.72rem' }}></i>
+                <span>Read Notice</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Dynamic Portal Dashboards */}
         {isAdmin ? (

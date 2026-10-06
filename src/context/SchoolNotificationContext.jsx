@@ -85,6 +85,7 @@ export const SchoolNotificationProvider = ({ children }) => {
   }, [user?.role, user?.schoolId, user?.id, parent?.phone_number, soundEnabled, dismissToast]);
 
   const markAsRead = useCallback((id) => schoolNotificationService.markAsRead(id), []);
+  const markAsUnread = useCallback((id, fallbackItem) => schoolNotificationService.markAsUnread(id, fallbackItem), []);
   const removeNotification = useCallback((id) => schoolNotificationService.removeNotification(id), []);
   const markAllAsRead = useCallback(() => schoolNotificationService.markAllAsRead(), []);
   const clearAll = useCallback(() => schoolNotificationService.clearAll(), []);
@@ -100,6 +101,7 @@ export const SchoolNotificationProvider = ({ children }) => {
     unreadCount: state.unreadCount,
     unreadNotifications: state.unreadNotifications,
     markAsRead,
+    markAsUnread,
     removeNotification,
     markAllAsRead,
     clearAll,
@@ -113,6 +115,7 @@ export const SchoolNotificationProvider = ({ children }) => {
     state.unreadCount,
     state.unreadNotifications,
     markAsRead,
+    markAsUnread,
     removeNotification,
     markAllAsRead,
     clearAll,

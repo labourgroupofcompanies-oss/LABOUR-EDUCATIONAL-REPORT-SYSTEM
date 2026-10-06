@@ -194,44 +194,81 @@ class BroadcastService {
     return true;
   }
 
-  getDismissedKey(role = null, userId = null) {
-    if (userId) return `${DISMISSED_BROADCASTS_KEY}_${userId}`;
-    if (role) return `${DISMISSED_BROADCASTS_KEY}_${this.normalizeRole(role)}`;
-    return DISMISSED_BROADCASTS_KEY;
+  getBroadcastById(id) {
+    if (!id) return null;
+    return this.broadcasts.find(b => b.id === id || b.id === `broadcast_${id}` || `broadcast_${b.id}` === id) || null;
   }
 
-  getDismissedBroadcastIds(role = null, userId = null) {
+  getDismissedBannerKey(role = null, userId = null) {
+    if (userId) return `labour_edu_dismissed_banner_${userId}`;
+    if (role) return `labour_edu_dismissed_banner_${this.normalizeRole(role)}`;
+    return 'labour_edu_dismissed_banner_all';
+  }
+
+  getDismissedBannerIds(role = null, userId = null) {
     try {
-      const stored = localStorage.getItem(this.getDismissedKey(role, userId));
+      const stored = localStorage.getItem(this.getDismissedBannerKey(role, userId));
       return stored ? JSON.parse(stored) : [];
     } catch (e) {
       return [];
     }
   }
 
-  dismissBroadcast(id, role = null, userId = null) {
-    const dismissed = this.getDismissedBroadcastIds(role, userId);
+  dismissBanner(id, role = null, userId = null) {
+    if (!id) return;
+    const dismissed = this.getDismissedBannerIds(role, userId);
     if (!dismissed.includes(id)) {
       dismissed.push(id);
       try {
-        localStorage.setItem(this.getDismissedKey(role, userId), JSON.stringify(dismissed));
+        localStorage.setItem(this.getDismissedBannerKey(role, userId), JSON.stringify(dismissed));
       } catch (e) {}
     }
-    window.dispatchEvent(new CustomEvent('platform-broadcast-updated'));
+    window.dispatchEvent(new CustomEvent('platform-broadcast-updated', { detail: { action: 'banner-dismissed', id } }));
   }
 
-  getActiveBroadcastsForRole(role, userId = null) {
-    const userRole = this.normalizeRole(role);
-    const dismissed = this.getDismissedBroadcastIds(userRole, userId);
+  // Alias for backward compatibility - dismisses the popup banner only, never deletes the broadcast
+  dismissBroadcast(id, role = null, userId = null) {
+    this.dismissBanner(id, role, userId);
+  }
 
-    return this.broadcasts.filter(b => {
-      if (!b || !b.isActive || b.id === 'b_ges_standard_1') return false;
-      if (dismissed.includes(b.id)) return false;
-      const target = this.normalizeRole(b.targetAudience);
-      if (target === 'all') return true;
-      if (target === userRole) return true;
-      return false;
+  /**
+   * Get ALL active broadcasts targeted to this role (never filtered out by banner dismissal)
+   */
+  getBroadcastsForRole(role) {
+    const userRole = this.normalizeRole(role);
+    return this.broadcasts
+      .filter(b => {
+        if (!b || !b.isActive || b.id === 'b_ges_standard_1') return false;
+        const target = this.normalizeRole(b.targetAudience);
+        if (target === 'all') return true;
+        if (target === userRole) return true;
+        return false;
+      })
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }
+
+  /**
+   * Get active broadcasts whose floating banner has not yet been dismissed
+   */
+  getUnseenBannerBroadcastsForRole(role, userId = null) {
+    const userRole = this.normalizeRole(role);
+    const dismissedBanners = this.getDismissedBannerIds(userRole, userId);
+
+    return this.getBroadcastsForRole(role).filter(b => {
+      if (b.bannerEnabled === false) return false;
+      return !dismissedBanners.includes(b.id);
     });
+  }
+
+  /**
+   * Returns active broadcasts. By default (or when filterDismissedBanner is true), returns
+   * un-dismissed banners for floating banner components.
+   */
+  getActiveBroadcastsForRole(role, userId = null, filterDismissedBanner = true) {
+    if (filterDismissedBanner) {
+      return this.getUnseenBannerBroadcastsForRole(role, userId);
+    }
+    return this.getBroadcastsForRole(role);
   }
 }
 

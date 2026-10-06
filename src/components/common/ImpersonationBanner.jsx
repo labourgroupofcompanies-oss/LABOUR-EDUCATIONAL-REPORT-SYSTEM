@@ -10,19 +10,9 @@ const ImpersonationBanner = () => {
 
   if (!user?.isImpersonating) return null;
 
-  const handleExitToInterventions = async () => {
+  const handleExitSession = async () => {
     await stopImpersonation();
-    navigate('/platform/operations/interventions');
-  };
-
-  const handleExitToSchool = async () => {
-    const targetSchoolId = user?.schoolId;
-    await stopImpersonation();
-    if (targetSchoolId) {
-      navigate(`/platform/operations/schools/${targetSchoolId}`);
-    } else {
-      navigate('/platform/operations/interventions');
-    }
+    navigate('/');
   };
 
   return (
@@ -82,26 +72,7 @@ const ImpersonationBanner = () => {
         )}
 
         <button
-          onClick={handleExitToSchool}
-          style={{
-            background: 'rgba(255, 255, 255, 0.2)',
-            color: '#ffffff',
-            border: '1px solid rgba(255, 255, 255, 0.3)',
-            padding: '0.35rem 0.75rem',
-            borderRadius: '8px',
-            fontWeight: 700,
-            fontSize: '0.75rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px'
-          }}
-        >
-          <i className="fas fa-school" /> School Info
-        </button>
-
-        <button
-          onClick={handleExitToInterventions}
+          onClick={handleExitSession}
           style={{
             background: '#ffffff',
             color: '#4f46e5',
@@ -117,7 +88,7 @@ const ImpersonationBanner = () => {
             gap: '6px'
           }}
         >
-          <i className="fas fa-right-from-bracket" /> Exit Session &amp; Return to Ops
+          <i className="fas fa-right-from-bracket" /> Exit Intervention Session
         </button>
       </div>
 

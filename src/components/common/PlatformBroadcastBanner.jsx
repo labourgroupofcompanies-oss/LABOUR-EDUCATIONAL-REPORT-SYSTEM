@@ -28,7 +28,7 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
       await broadcastService.getAllBroadcasts();
     } catch (e) {}
 
-    const list = broadcastService.getActiveBroadcastsForRole(role, userId);
+    const list = broadcastService.getActiveBroadcastsForRole(role, userId, true);
     if (list && list.length > 0) {
       setBroadcasts(list);
       if (currentIndex >= list.length) {
@@ -47,9 +47,20 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
       fetchActiveBroadcasts();
     };
 
+    const handleOpenModal = (e) => {
+      const item = e?.detail;
+      if (item) {
+        // Resolve full broadcast object if needed
+        const fullItem = broadcastService.getBroadcastById(item.id) || item;
+        setReaderModalItem(fullItem);
+      }
+    };
+
     window.addEventListener('platform-broadcast-updated', handleUpdate);
+    window.addEventListener('open-platform-broadcast-modal', handleOpenModal);
     return () => {
       window.removeEventListener('platform-broadcast-updated', handleUpdate);
+      window.removeEventListener('open-platform-broadcast-modal', handleOpenModal);
     };
   }, [user?.role, user?.id, isParentPortal]);
 
@@ -66,19 +77,21 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
         timestamp: current.createdAt || new Date().toISOString(),
         actionUrl: current.actionUrl || null,
         actionLabel: current.actionLabel || 'View Notice',
-        severity: current.severity || 'info'
+        severity: current.severity || 'info',
+        broadcastData: current
       }, false, false);
     }
   }, [current?.id]);
 
   // 7-second popup auto-disappear timer (pauses when hovered or modal is open)
+  // Only hides the floating banner, never deletes the broadcast from the platform
   useEffect(() => {
     if (!current || isHovered || readerModalItem) return;
 
     const timer = setTimeout(() => {
       setIsExiting(true);
       setTimeout(() => {
-        handleDismiss(current.id);
+        handleDismissBanner(current.id, true);
         setIsExiting(false);
         setTimerKey(prev => prev + 1);
       }, 350);
@@ -87,8 +100,10 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
     return () => clearTimeout(timer);
   }, [current?.id, currentIndex, isHovered, readerModalItem, broadcasts.length]);
 
-  if (!broadcasts || broadcasts.length === 0) return null;
-  if (!current || !current.bannerEnabled) return null;
+  const hasActiveBanner = Boolean(!readerModalItem && broadcasts && broadcasts.length > 0 && current && current.bannerEnabled);
+
+  // If no banner is active and no modal viewer is open, nothing to render
+  if (!hasActiveBanner && !readerModalItem) return null;
 
   // iOS-style Vibrancy & Glassmorphism Theme Configuration
   const getTheme = (severity) => {
@@ -141,8 +156,8 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
     }
   };
 
-  const theme = getTheme(current.severity);
-  const modalTheme = readerModalItem ? getTheme(readerModalItem.severity) : theme;
+  const theme = getTheme(current?.severity || 'info');
+  const modalTheme = readerModalItem ? getTheme(readerModalItem.severity || 'info') : theme;
 
   const formatRelativeTime = (dateStr) => {
     if (!dateStr) return 'Just now';
@@ -164,32 +179,55 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
     }
   };
 
-  const handleDismiss = (broadcastId) => {
+  const handleDismissBanner = (broadcastId, isAutoTimeout = false) => {
     const role = getNormalizedRole();
     const userId = user?.id || null;
-    broadcastService.dismissBroadcast(broadcastId, role, userId);
+    broadcastService.dismissBanner(broadcastId, role, userId);
+    const targetBroadcast = broadcasts.find(b => b.id === broadcastId) || current;
+
     const remaining = broadcasts.filter(b => b.id !== broadcastId);
     setBroadcasts(remaining);
     if (currentIndex >= remaining.length) {
       setCurrentIndex(Math.max(0, remaining.length - 1));
     }
-    if (readerModalItem?.id === broadcastId) {
-      setReaderModalItem(null);
+
+    // When the countdown completes, automatically indicate a new message on the notification bell
+    if (isAutoTimeout && targetBroadcast) {
+      const notifId = `broadcast_${targetBroadcast.id}`;
+      schoolNotificationService.markAsUnread(notifId, {
+        id: notifId,
+        title: `📢 ${targetBroadcast.title}`,
+        message: targetBroadcast.content || 'Official message from Platform Developer.',
+        content: targetBroadcast.content || '',
+        category: 'broadcast',
+        timestamp: targetBroadcast.createdAt || new Date().toISOString(),
+        actionUrl: targetBroadcast.actionUrl || null,
+        actionLabel: targetBroadcast.actionLabel || 'View Notice',
+        severity: targetBroadcast.severity || 'info',
+        broadcastData: targetBroadcast
+      });
+
+      // Dispatch event to animate and highlight the bell
+      window.dispatchEvent(new CustomEvent('platform-broadcast-bell-highlight', { detail: { id: targetBroadcast.id } }));
     }
   };
 
   const handleCardClick = (broadcast) => {
-    // 1. Open full modal with all information
+    // 1. Open full modal with complete broadcast details
     setReaderModalItem(broadcast);
-    // 2. Immediately vanish / dismiss the floating pop card
+    // 2. Hide the floating popup card for this broadcast so it doesn't block work
     const role = getNormalizedRole();
     const userId = user?.id || null;
-    broadcastService.dismissBroadcast(broadcast.id, role, userId);
+    broadcastService.dismissBanner(broadcast.id, role, userId);
     const remaining = broadcasts.filter(b => b.id !== broadcast.id);
     setBroadcasts(remaining);
     if (currentIndex >= remaining.length) {
       setCurrentIndex(Math.max(0, remaining.length - 1));
     }
+    // 3. Mark read in notifications context
+    try {
+      schoolNotificationService.markAsRead(`broadcast_${broadcast.id}`);
+    } catch (_) {}
   };
 
   const handleNext = (e) => {
@@ -871,23 +909,27 @@ const PlatformBroadcastBanner = ({ isParentPortal = false }) => {
             </div>
 
             {/* Sheet Footer */}
-            <div className="ios-sheet-footer">
-              <button
-                type="button"
-                className="ios-clear-btn"
-                onClick={() => handleDismiss(readerModalItem.id)}
-                title="Dismiss this notice"
-              >
-                <i className="fas fa-trash-can"></i>
-                <span>Clear Notification</span>
-              </button>
-
+            <div className="ios-sheet-footer" style={{ justifyContent: 'flex-end' }}>
               <button
                 type="button"
                 className="ios-close-btn"
                 onClick={() => setReaderModalItem(null)}
+                style={{
+                  background: '#09090B',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  padding: '0.55rem 1.4rem',
+                  borderRadius: '12px',
+                  fontWeight: 700,
+                  fontSize: '0.85rem',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
               >
-                Done
+                <i className="fas fa-check"></i>
+                <span>Understood</span>
               </button>
             </div>
           </div>

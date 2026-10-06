@@ -145,11 +145,13 @@ class SchoolNotificationService {
       id,
       title: item.title || 'Notification',
       message: item.message || '',
+      content: item.content || item.message || '',
       category: item.category || 'general',
       timestamp: item.timestamp || new Date().toISOString(),
       actionUrl: item.actionUrl || null,
       actionLabel: item.actionLabel || 'View',
       severity: item.severity || 'info',
+      broadcastData: item.broadcastData || null,
       isRead: !isNewLiveEvent
     };
 
@@ -185,6 +187,28 @@ class SchoolNotificationService {
     this.readIds.add(id);
     this.notifications = this.notifications.map(n => n.id === id ? { ...n, isRead: true } : n);
     this.notifyListeners();
+  }
+
+  markAsUnread(id, fallbackItem = null) {
+    this.readIds.delete(id);
+    let found = false;
+    this.notifications = this.notifications.map(n => {
+      if (n.id === id) {
+        found = true;
+        return { ...n, isRead: false };
+      }
+      return n;
+    });
+
+    if (!found && fallbackItem) {
+      this.addNotification({
+        ...fallbackItem,
+        id,
+        isRead: false
+      }, true, true);
+    } else {
+      this.notifyListeners();
+    }
   }
 
   markAllAsRead() {
@@ -308,11 +332,13 @@ class SchoolNotificationService {
         id: `broadcast_${b.id || Date.now()}`,
         title: `📢 ${b.title}`,
         message: b.content || 'Official message from Platform Developer.',
+        content: b.content || '',
         category: 'broadcast',
         timestamp: b.createdAt || new Date().toISOString(),
         actionUrl: b.actionUrl || null,
         actionLabel: b.actionLabel || 'View Notice',
-        severity: b.severity || 'info'
+        severity: b.severity || 'info',
+        broadcastData: b
       }, true, true);
     };
     window.addEventListener('platform-broadcast-updated', onBroadcastEvent);
@@ -401,7 +427,7 @@ class SchoolNotificationService {
 
       // Check active platform developer broadcasts (for all roles)
       try {
-        const activeBroadcasts = broadcastService.getActiveBroadcastsForRole(role);
+        const activeBroadcasts = broadcastService.getBroadcastsForRole(role);
         if (Array.isArray(activeBroadcasts) && activeBroadcasts.length > 0) {
           activeBroadcasts.forEach(b => {
             const bNotifId = `broadcast_${b.id}`;
@@ -410,11 +436,13 @@ class SchoolNotificationService {
                 id: bNotifId,
                 title: `📢 ${b.title}`,
                 message: b.content || 'Official announcement from Developer.',
+                content: b.content || '',
                 category: 'broadcast',
                 timestamp: b.createdAt || new Date().toISOString(),
                 actionUrl: b.actionUrl || null,
                 actionLabel: b.actionLabel || 'View Notice',
                 severity: b.severity || 'info',
+                broadcastData: b,
                 isRead: this.readIds.has(bNotifId)
               });
             }
@@ -746,11 +774,22 @@ class SchoolNotificationService {
                 id: `broadcast_${b.id || Date.now()}`,
                 title: `📢 ${b.title}`,
                 message: b.content || 'Official message from Platform Developer.',
+                content: b.content || '',
                 category: 'broadcast',
                 timestamp: b.created_at || new Date().toISOString(),
                 actionUrl: b.action_url || null,
                 actionLabel: b.action_label || 'View Notice',
-                severity: b.severity || 'info'
+                severity: b.severity || 'info',
+                broadcastData: {
+                  id: b.id,
+                  title: b.title,
+                  content: b.content,
+                  severity: b.severity || 'info',
+                  actionUrl: b.action_url || null,
+                  actionLabel: b.action_label || 'View Details',
+                  createdAt: b.created_at,
+                  author: b.author || 'Platform Super Admin'
+                }
               }, true, true);
             }
           }

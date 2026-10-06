@@ -29,9 +29,33 @@ const PortalToastContainer = () => {
           return '#2563EB';
         };
 
+        const handleToastClick = () => {
+          markAsRead(toast.id);
+          dismissToast(toast.id);
+
+          if (toast.category === 'broadcast' || toast.id?.startsWith('broadcast_')) {
+            const bData = toast.broadcastData || {
+              id: toast.id.replace('broadcast_', ''),
+              title: toast.title.replace(/^📢\s*/, ''),
+              content: toast.content || toast.message,
+              severity: toast.severity || 'info',
+              actionUrl: toast.actionUrl || null,
+              actionLabel: toast.actionLabel || 'View Notice',
+              createdAt: toast.timestamp
+            };
+            window.dispatchEvent(new CustomEvent('open-platform-broadcast-modal', { detail: bData }));
+            return;
+          }
+
+          if (toast.actionUrl) {
+            navigate(toast.actionUrl);
+          }
+        };
+
         return (
           <div
             key={toast.id}
+            onClick={handleToastClick}
             style={{
               pointerEvents: 'auto',
               background: '#FFFFFF',
@@ -44,6 +68,7 @@ const PortalToastContainer = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: '6px',
+              cursor: 'pointer',
               animation: 'slideInRight 0.25s ease forwards'
             }}
           >
@@ -62,7 +87,10 @@ const PortalToastContainer = () => {
               </span>
 
               <button
-                onClick={() => dismissToast(toast.id)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  dismissToast(toast.id);
+                }}
                 style={{
                   background: 'transparent',
                   border: 'none',
@@ -87,13 +115,12 @@ const PortalToastContainer = () => {
               </div>
             )}
 
-            {toast.actionUrl && (
+            {(toast.category === 'broadcast' || toast.actionUrl) && (
               <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '4px' }}>
                 <button
-                  onClick={() => {
-                    markAsRead(toast.id);
-                    dismissToast(toast.id);
-                    navigate(toast.actionUrl);
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToastClick();
                   }}
                   style={{
                     background: '#2563eb',
@@ -109,8 +136,8 @@ const PortalToastContainer = () => {
                     gap: '5px'
                   }}
                 >
-                  <span>{toast.actionLabel || 'View'}</span>
-                  <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
+                  <span>{toast.category === 'broadcast' ? 'Read Notice' : (toast.actionLabel || 'View')}</span>
+                  <i className={`fas ${toast.category === 'broadcast' ? 'fa-book-open' : 'fa-arrow-right'}`} style={{ fontSize: '0.7rem' }}></i>
                 </button>
               </div>
             )}

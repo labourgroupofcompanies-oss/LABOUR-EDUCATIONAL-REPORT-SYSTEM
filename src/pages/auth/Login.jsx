@@ -45,12 +45,7 @@ const Login = () => {
   // Redirect if already logged in
   useEffect(() => {
     if (user) {
-      const userEmail = (user.email || '').toLowerCase().trim();
-      if (userEmail === 'shrtgallery3@gmail.com' || user.role === 'platform_developer' || user.isPlatformDeveloper) {
-        navigate('/platform/operations');
-      } else {
-        navigate('/');
-      }
+      navigate('/');
     }
   }, [user, navigate]);
 

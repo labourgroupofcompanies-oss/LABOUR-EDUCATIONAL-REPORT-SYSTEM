@@ -378,6 +378,31 @@ const Header = ({ title, onMenuClick }) => {
           <span className="header-guide-text">Guide</span>
         </button>
 
+        {/* Quick PWA Install Trigger */}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('open-pwa-install'))}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            background: 'rgba(37, 99, 235, 0.08)',
+            color: '#2563eb',
+            padding: '0.38rem 0.65rem',
+            borderRadius: '999px',
+            border: '1.5px solid rgba(37, 99, 235, 0.25)',
+            cursor: 'pointer',
+            fontSize: '0.75rem',
+            fontWeight: 800,
+            transition: 'all 0.2s ease',
+            flexShrink: 0
+          }}
+          title="Install Labour Edu App"
+        >
+          <i className="fas fa-download" style={{ fontSize: '0.78rem' }}></i>
+          <span className="header-guide-text">Install</span>
+        </button>
+
         {/* Real-time Portal Notifications for Headteachers and Teachers */}
         <PortalNotificationBell />
 

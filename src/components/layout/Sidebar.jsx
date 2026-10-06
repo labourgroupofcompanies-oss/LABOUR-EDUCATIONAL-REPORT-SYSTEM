@@ -281,6 +281,34 @@ const Sidebar = ({ isOpen, onClose }) => {
             style={{ fontSize: '0.8rem', color: isSyncing ? '#2563eb' : hasFailed ? '#EF4444' : hasPending ? '#F59E0B' : 'rgba(255,255,255,0.4)', transition: 'color 0.3s' }}
           />
         </button>
+
+        {/* Install PWA App Button */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('open-pwa-install'))}
+          style={{
+            width: '100%',
+            padding: '0.55rem',
+            marginBottom: '0.5rem',
+            background: 'rgba(37, 99, 235, 0.15)',
+            border: '1px solid rgba(37, 99, 235, 0.3)',
+            borderRadius: 'var(--radius-md)',
+            color: '#60A5FA',
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            transition: 'var(--transition)',
+            fontFamily: 'inherit'
+          }}
+          title="Install Labour Edu App on your device"
+        >
+          <i className="fas fa-download"></i>
+          <span>Install App</span>
+        </button>
+
         <button
           onClick={handleLogout}
           style={{ width: '100%', padding: '0.6rem', background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 'var(--radius-md)', color: '#fca5a5', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', transition: 'var(--transition)', fontFamily: 'inherit' }}
