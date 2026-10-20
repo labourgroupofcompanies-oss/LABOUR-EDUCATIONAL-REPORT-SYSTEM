@@ -740,7 +740,10 @@ async function processSingleItem(item) {
 
       case 'upsert': {
         const rows = Array.isArray(payload) ? payload : [payload];
-        let { error } = await supabase.from(item.table).upsert(rows);
+        const upsertOpts = item.table === 'report_daily_logs' 
+          ? { onConflict: 'school_id,learner_id,date' } 
+          : (payload?.onConflict ? { onConflict: payload.onConflict } : undefined);
+        let { error } = await supabase.from(item.table).upsert(rows, upsertOpts);
 
         // Self-heal: If schema error / unknown column (PGRST204), extract column name, strip and retry
         if (error && (error.code === 'PGRST204' || String(error.message || '').includes('schema cache') || String(error.message || '').includes('Could not find the'))) {
@@ -753,7 +756,7 @@ async function processSingleItem(item) {
               delete copy[badCol];
               return copy;
             });
-            const retryRes = await supabase.from(item.table).upsert(cleanedRows);
+            const retryRes = await supabase.from(item.table).upsert(cleanedRows, upsertOpts);
             error = retryRes.error;
           }
         }

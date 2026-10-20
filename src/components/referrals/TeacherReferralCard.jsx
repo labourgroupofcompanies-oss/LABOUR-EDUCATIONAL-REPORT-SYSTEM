@@ -86,35 +86,36 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div
             style={{
-              width: '46px',
-              height: '46px',
-              borderRadius: '12px',
-              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-              color: '#ffffff',
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              background: '#F4F4F5',
+              border: '1px solid #E4E4E7',
+              color: '#09090B',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '1.25rem',
-              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
+              fontSize: '1.05rem',
+              flexShrink: 0
             }}
           >
             <i className="fas fa-share-nodes" />
           </div>
           <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#059669', marginBottom: '2px' }}>
-              <i className="fas fa-check-circle" /> {activeSchoolName} Referral Link
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#71717A', marginBottom: '2px' }}>
+              <i className="fas fa-check" style={{ fontSize: '0.65rem' }} /> {activeSchoolName} Referral Link
             </div>
-            <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 900, color: '#09090b', fontFamily: 'Outfit, sans-serif' }}>
+            <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#09090b', fontFamily: 'Outfit, sans-serif' }}>
               Refer Other Schools
             </h2>
-            <p style={{ margin: '2px 0 0', fontSize: '0.85rem', color: '#71717a' }}>
+            <p style={{ margin: '2px 0 0', fontSize: '0.82rem', color: '#71717a' }}>
               Invite teachers and headteachers in other schools. When they register using your link, their school receives their First Term Free.
             </p>
           </div>
         </div>
 
         {referralCode && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#F4F4F5', padding: '0.35rem 0.75rem', borderRadius: '10px', border: '1px solid #E4E4E7' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#F4F4F5', padding: '0.35rem 0.75rem', borderRadius: '8px', border: '1px solid #E4E4E7' }}>
             <span style={{ fontSize: '0.75rem', color: '#71717a', fontWeight: 700 }}>Code:</span>
             <strong style={{ fontFamily: 'monospace', fontSize: '0.92rem', color: '#18181b', letterSpacing: '0.05em' }}>
               {referralCode}
@@ -124,8 +125,8 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
               onClick={handleCopyCode}
               title="Copy Referral Code"
               style={{
-                background: copiedCode ? '#10B981' : '#FFFFFF',
-                color: copiedCode ? '#FFFFFF' : '#18181b',
+                background: copiedCode ? '#09090B' : '#FFFFFF',
+                color: copiedCode ? '#FFFFFF' : '#09090B',
                 border: '1px solid #E4E4E7',
                 borderRadius: '6px',
                 padding: '2px 8px',
@@ -144,16 +145,16 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
       {/* ── Share URL Box ── */}
       <div
         style={{
-          background: '#F8FAFC',
+          background: '#FAFAFA',
           borderRadius: '12px',
           padding: '1.1rem',
-          border: '1px solid #E2E8F0',
+          border: '1px solid #E4E4E7',
           display: 'flex',
           flexDirection: 'column',
           gap: '0.85rem'
         }}
       >
-        <label style={{ fontSize: '0.78rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+        <label style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
           Your School's Direct Invite Link
         </label>
 
@@ -167,10 +168,10 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
               minWidth: '240px',
               padding: '0.65rem 0.85rem',
               borderRadius: '8px',
-              border: '1px solid #CBD5E1',
+              border: '1px solid #E4E4E7',
               background: '#FFFFFF',
-              color: '#0F172A',
-              fontSize: '0.88rem',
+              color: '#09090B',
+              fontSize: '0.85rem',
               fontWeight: 600,
               fontFamily: 'monospace',
               outline: 'none'
@@ -182,19 +183,18 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
             onClick={handleCopyLink}
             disabled={loading}
             style={{
-              background: copiedLink ? '#10B981' : '#2563EB',
+              background: '#09090B',
               color: '#FFFFFF',
-              border: 'none',
+              border: '1px solid #09090B',
               borderRadius: '8px',
-              padding: '0.65rem 1.25rem',
-              fontSize: '0.85rem',
-              fontWeight: 700,
+              padding: '0.65rem 1.15rem',
+              fontSize: '0.82rem',
+              fontWeight: 600,
               cursor: loading ? 'not-allowed' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 2px 8px rgba(37, 99, 235, 0.25)',
-              transition: 'all 0.2s',
+              transition: 'all 0.15s',
               flexShrink: 0
             }}
           >
@@ -207,54 +207,53 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
             onClick={handleWhatsAppShare}
             disabled={loading}
             style={{
-              background: '#25D366',
-              color: '#FFFFFF',
-              border: 'none',
+              background: '#FFFFFF',
+              color: '#09090B',
+              border: '1px solid #E4E4E7',
               borderRadius: '8px',
-              padding: '0.65rem 1.25rem',
-              fontSize: '0.85rem',
-              fontWeight: 700,
+              padding: '0.65rem 1.15rem',
+              fontSize: '0.82rem',
+              fontWeight: 600,
               cursor: loading ? 'not-allowed' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              boxShadow: '0 2px 8px rgba(37, 211, 102, 0.25)',
-              transition: 'all 0.2s',
+              transition: 'all 0.15s',
               flexShrink: 0
             }}
           >
-            <i className="fab fa-whatsapp" style={{ fontSize: '1rem' }} />
+            <i className="fab fa-whatsapp" style={{ fontSize: '0.95rem' }} />
             <span>Share on WhatsApp</span>
           </button>
         </div>
       </div>
 
-      {/* ── How It Works (Zero financial mentions) ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-        <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.9rem', border: '1px solid #F4F4F5' }}>
+      {/* ── How It Works ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.85rem' }}>
+        <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.85rem 1rem', border: '1px solid #E4E4E7' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#2563EB', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
-            <strong style={{ fontSize: '0.82rem', color: '#18181b' }}>Copy or Share</strong>
+            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#09090B', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>1</span>
+            <strong style={{ fontSize: '0.82rem', color: '#09090B' }}>Copy or Share</strong>
           </div>
           <p style={{ margin: 0, fontSize: '0.78rem', color: '#71717a', lineHeight: 1.45 }}>
             Send the invite link to colleague teachers, headteachers, or educational WhatsApp groups.
           </p>
         </div>
 
-        <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.9rem', border: '1px solid #F4F4F5' }}>
+        <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.85rem 1rem', border: '1px solid #E4E4E7' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#10B981', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</span>
-            <strong style={{ fontSize: '0.82rem', color: '#18181b' }}>Instant Setup</strong>
+            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#09090B', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>2</span>
+            <strong style={{ fontSize: '0.82rem', color: '#09090B' }}>Instant Setup</strong>
           </div>
           <p style={{ margin: 0, fontSize: '0.78rem', color: '#71717a', lineHeight: 1.45 }}>
             When they click your link, your school's code is applied automatically with no manual typing needed.
           </p>
         </div>
 
-        <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.9rem', border: '1px solid #F4F4F5' }}>
+        <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.85rem 1rem', border: '1px solid #E4E4E7' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#F59E0B', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
-            <strong style={{ fontSize: '0.82rem', color: '#18181b' }}>First Term Free</strong>
+            <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#09090B', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
+            <strong style={{ fontSize: '0.82rem', color: '#09090B' }}>First Term Free</strong>
           </div>
           <p style={{ margin: 0, fontSize: '0.78rem', color: '#71717a', lineHeight: 1.45 }}>
             The new school immediately unlocks their first academic term free of charge to create report cards.

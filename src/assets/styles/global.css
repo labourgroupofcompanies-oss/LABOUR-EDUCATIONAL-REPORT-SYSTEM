@@ -965,81 +965,57 @@ tr:hover td {
 }
 
 .learner-card {
-  background: var(--surface);
-  border-radius: 18px;
+  background: #FFFFFF;
+  border-radius: 16px;
   padding: 1.25rem;
   display: flex;
   flex-direction: column;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 18px rgba(9, 9, 11, 0.04);
-  border: 1px solid var(--border);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  border: 1px solid #E4E4E7;
   position: relative;
   overflow: hidden;
 }
 
-.learner-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 4px;
-  background: linear-gradient(90deg, #09090b 0%, #2563eb 100%);
-  opacity: 0.9;
-  transition: opacity 0.3s ease;
-}
-
 .learner-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 16px 36px rgba(9, 9, 11, 0.08);
-  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -4px rgba(9, 9, 11, 0.08);
+  border-color: #09090b;
 }
 
 .lc-header {
   display: flex;
-  gap: 1rem;
+  gap: 0.85rem;
   align-items: center;
-  margin-bottom: 1.1rem;
+  margin-bottom: 1rem;
 }
 
 .lc-photo-wrap {
-  width: 58px;
-  height: 58px;
-  border-radius: 16px;
-  padding: 2px;
-  background: #FFFFFF;
-  border: 2px solid var(--primary);
-  box-shadow: 0 4px 12px rgba(9, 9, 11, 0.12);
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  padding: 1px;
+  background: #FAFAFA;
+  border: 1px solid #E4E4E7;
   flex-shrink: 0;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .lc-photo {
   width: 100%;
   height: 100%;
-  border-radius: 12px;
+  border-radius: 10px;
   object-fit: cover;
-}
-
-.lc-photo-placeholder {
-  width: 58px;
-  height: 58px;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  background: var(--accent-light);
-  color: var(--accent);
-  border: 2px solid var(--accent);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.12);
 }
 
 .lc-name {
   font-weight: 800;
-  color: var(--text);
-  font-size: 1.05rem;
-  margin-bottom: 0.25rem;
+  color: #09090b;
+  font-size: 1rem;
+  margin-bottom: 0.2rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1048,104 +1024,117 @@ tr:hover td {
 
 .lc-reg {
   font-size: 0.72rem;
-  background: var(--accent-light);
-  color: var(--accent);
-  padding: 0.22rem 0.6rem;
+  background: #F4F4F5;
+  color: #52525B;
+  padding: 0.15rem 0.55rem;
   border-radius: 6px;
-  font-weight: 800;
+  font-weight: 700;
   display: inline-block;
-  letter-spacing: 0.04em;
-  border: 1px solid rgba(37, 99, 235, 0.2);
+  letter-spacing: 0.03em;
+  border: 1px solid #E4E4E7;
+  font-family: monospace;
 }
 
 .lc-details {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.85rem 1rem;
-  background: var(--background);
-  border-radius: 12px;
-  margin-bottom: 1.1rem;
-  border: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+  padding: 0.75rem 0.85rem;
+  background: #FAFAFA;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  border: 1px solid #E4E4E7;
 }
 
 .lc-detail-item {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .lc-detail-lbl {
-  font-size: 0.64rem;
-  color: var(--text-muted);
+  font-size: 0.65rem;
+  color: #71717a;
   text-transform: uppercase;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
 }
 
 .lc-detail-val {
-  font-size: 0.86rem;
-  color: var(--text);
+  font-size: 0.82rem;
+  color: #09090b;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .lc-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.45rem;
   margin-top: auto;
-  flex-wrap: wrap;
+  align-items: center;
 }
 
 .lc-btn {
-  padding: 0.65rem 0.85rem;
-  border-radius: 10px;
-  font-size: 0.82rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  transition: all 0.2s ease;
-  border: none;
+  gap: 5px;
+  transition: all 0.15s ease;
+  border: 1px solid #E4E4E7;
+  background: #FFFFFF;
+  color: #09090b;
   font-family: inherit;
 }
 
+.lc-btn:hover {
+  background: #F4F4F5;
+  border-color: #D4D4D8;
+}
+
 .lc-btn-view {
-  flex: 1 1 100%;
-  background: var(--primary);
+  flex: 2;
+  background: #09090b;
   color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(9, 9, 11, 0.2);
+  border-color: #09090b;
 }
 
 .lc-btn-view:hover {
   background: #18181b;
   color: #FFFFFF;
-  box-shadow: 0 6px 16px rgba(9, 9, 11, 0.3);
-  transform: translateY(-1px);
+  border-color: #18181b;
 }
 
 .lc-btn-edit {
-  flex: 1 1 calc(50% - 0.25rem);
-  background: var(--accent-light);
-  color: var(--accent);
-  border: 1px solid rgba(37, 99, 235, 0.25);
+  flex: 1.5;
+  background: #FFFFFF;
+  color: #09090b;
+  border: 1px solid #E4E4E7;
 }
 
 .lc-btn-edit:hover {
-  background: var(--accent);
-  color: #FFFFFF;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+  background: #F4F4F5;
+  border-color: #09090b;
 }
 
 .lc-btn-delete {
-  flex: 1 1 calc(50% - 0.25rem);
-  background: var(--error-bg);
-  color: var(--error);
-  border: 1px solid var(--error-border);
+  width: 34px;
+  padding: 0.55rem 0;
+  background: #FFFFFF;
+  color: #71717a;
+  border: 1px solid #E4E4E7;
+}
+
+.lc-btn-delete:hover {
+  background: #FEF2F2;
+  color: #EF4444;
+  border-color: #FECACA;
 }
 
 .lc-btn-delete:hover {

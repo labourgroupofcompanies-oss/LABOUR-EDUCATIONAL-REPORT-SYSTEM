@@ -129,6 +129,13 @@ async function runAdminSync(user) {
         finalLogoUrl = remoteLogo;
       }
 
+      let cachedLogoBlob = existing?.logoBlob instanceof Blob ? existing.logoBlob : null;
+      if (finalLogoUrl && typeof finalLogoUrl === 'string' && finalLogoUrl.startsWith('http') && (!cachedLogoBlob || finalLogoUrl !== existing?.logoUrl)) {
+        try {
+          cachedLogoBlob = await downloadImageAsBlob(finalLogoUrl, 400);
+        } catch (_) {}
+      }
+
       const mapped = {
         ...existing,
         id: schoolId,
@@ -146,7 +153,7 @@ async function runAdminSync(user) {
         initial_term: remoteSchool.initial_term || existing?.initial_term || '',
         first_term_free_terminated: remoteSchool.first_term_free_terminated !== undefined ? remoteSchool.first_term_free_terminated : (existing?.first_term_free_terminated || false),
         logoUrl: finalLogoUrl,
-        logoBlob: existing?.logoBlob || null,
+        logoBlob: cachedLogoBlob || existing?.logoBlob || null,
         currentAcademicYear: remoteSchool.current_academic_year || existing?.currentAcademicYear || '',
         currentTerm: remoteSchool.current_term || existing?.currentTerm || 'Term 1',
         vacationDate: remoteSchool.vacation_date || existing?.vacationDate || '',
@@ -157,7 +164,7 @@ async function runAdminSync(user) {
         walletBalance: remoteSchool.wallet_balance !== undefined ? Number(remoteSchool.wallet_balance) : (existing?.walletBalance || 0),
         is_first_term_free: remoteSchool.is_first_term_free !== undefined ? remoteSchool.is_first_term_free : existing?.is_first_term_free
       };
-      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'school_category', 'per_learner_rate_override', 'perLearnerRateOverride', 'initial_academic_year', 'initial_term', 'first_term_free_terminated', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'district', 'region', 'circuit', 'phone', 'email', 'wallet_balance', 'walletBalance', 'is_first_term_free'])) {
+      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'school_category', 'per_learner_rate_override', 'perLearnerRateOverride', 'initial_academic_year', 'initial_term', 'first_term_free_terminated', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'logoBlob', 'district', 'region', 'circuit', 'phone', 'email', 'wallet_balance', 'walletBalance', 'is_first_term_free'])) {
         await db.schools.put(mapped);
       }
     }
@@ -1049,6 +1056,13 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
       const isLocalValid = existing?.logoUrl && typeof existing.logoUrl === 'string' && !existing.logoUrl.startsWith('blob:');
       const finalLogoUrl = isRemoteValid ? remoteLogo : (isLocalValid ? existing.logoUrl : '');
 
+      let cachedLogoBlob = existing?.logoBlob instanceof Blob ? existing.logoBlob : null;
+      if (finalLogoUrl && typeof finalLogoUrl === 'string' && finalLogoUrl.startsWith('http') && (!cachedLogoBlob || finalLogoUrl !== existing?.logoUrl)) {
+        try {
+          cachedLogoBlob = await downloadImageAsBlob(finalLogoUrl, 400);
+        } catch (_) {}
+      }
+
       const mapped = {
         ...existing,
         id: schoolId,
@@ -1060,6 +1074,7 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
         motto: remoteSchool.motto || existing?.motto || '',
         schoolType: remoteSchool.school_type || remoteSchool.schoolType || existing?.schoolType || 'private',
         logoUrl: finalLogoUrl,
+        logoBlob: cachedLogoBlob || existing?.logoBlob || null,
         currentAcademicYear: remoteSchool.current_academic_year || existing?.currentAcademicYear || '',
         currentTerm: remoteSchool.current_term || existing?.currentTerm || 'Term 1',
         vacationDate: remoteSchool.vacation_date || existing?.vacationDate || '',
@@ -1067,7 +1082,7 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
         phone: remoteSchool.phone || existing?.phone || '',
         email: remoteSchool.email || existing?.email || ''
       };
-      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl'])) {
+      if (!existing || hasChanged(existing, mapped, ['name', 'schoolType', 'currentAcademicYear', 'currentTerm', 'vacationDate', 'nextTermBegins', 'motto', 'logoUrl', 'logoBlob'])) {
         await db.schools.put(mapped);
       }
     }
@@ -1344,6 +1359,56 @@ async function runParentSync({ parent, schoolId, activeSibling, siblings }) {
       console.error('[SyncDown] Parent payments RPC failed:', error);
     }
   } catch (err) { console.error('[SyncDown] Parent payments sync failed:', err); }
+
+  // ── 10. Daily Logs (L Update / P Update) ───────────────────────────────────
+  try {
+    const siblingLearnerIds = [...new Set((siblings || []).map(s => s.supabaseId || s.id || String(s.id)).filter(Boolean))];
+    if (siblingLearnerIds.length > 0) {
+      const { data: remoteLogs, error } = await supabase
+        .from('report_daily_logs')
+        .select('*')
+        .eq('school_id', schoolId)
+        .in('learner_id', siblingLearnerIds)
+        .order('date', { ascending: false })
+        .limit(60);
+
+      if (remoteLogs && !error) {
+        for (const rl of remoteLogs) {
+          const lId = String(rl.learner_id);
+          let existing;
+          try {
+            existing = await db.dailyLogs
+              .where('[schoolId+learnerId+date]')
+              .equals([schoolId, lId, rl.date])
+              .first();
+          } catch {
+            existing = await db.dailyLogs
+              .filter(l => l.schoolId === schoolId && String(l.learnerId) === lId && l.date === rl.date)
+              .first();
+          }
+
+          const entry = {
+            schoolId,
+            classId: Number(rl.class_id),
+            learnerId: lId,
+            date: rl.date,
+            teacherId: rl.teacher_id,
+            notice: rl.notice || null,
+            entries: rl.entries || [],
+            supabaseId: rl.id,
+            updatedAt: rl.updated_at,
+            synced: true
+          };
+
+          if (!existing) {
+            await db.dailyLogs.add(entry);
+          } else if (hasChanged(existing, entry, ['notice', 'entries', 'teacherId', 'updatedAt', 'classId'])) {
+            await db.dailyLogs.update(existing.id, entry);
+          }
+        }
+      }
+    }
+  } catch (err) { console.warn('[SyncDown] Parent daily logs sync failed:', err); }
 
   console.log('[SyncDown] Parent sync complete.');
 }

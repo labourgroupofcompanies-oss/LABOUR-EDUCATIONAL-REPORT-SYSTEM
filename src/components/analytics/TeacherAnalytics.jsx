@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
 
 const GRADE_COLORS = {
-  'A': '#10B981', 'A+': '#10B981', 'A-': '#10B981',
-  'B': '#2563eb', 'B+': '#2563eb', 'B-': '#2563eb',
-  'C': '#F59E0B', 'C+': '#F59E0B', 'C-': '#F59E0B',
-  'D': '#71717a', 'D+': '#71717a', 'D-': '#71717a',
-  'F': '#EF4444', 'E': '#EF4444',
+  'A': '#09090B', 'A+': '#09090B', 'A-': '#09090B',
+  'B': '#27272A', 'B+': '#27272A', 'B-': '#27272A',
+  'C': '#52525B', 'C+': '#52525B', 'C-': '#52525B',
+  'D': '#71717A', 'D+': '#71717A', 'D-': '#71717A',
+  'F': '#A1A1AA', 'E': '#A1A1AA',
 };
-const getGradeColor = (g) => GRADE_COLORS[g] || '#A1A1AA';
+const getGradeColor = (g) => GRADE_COLORS[g] || '#D4D4D8';
 
 const MiniDonut = ({ gradeDist, total }) => {
   const R = 36;
@@ -76,7 +76,7 @@ const TeacherAnalytics = ({ progressList = [], allScores = [], allLearners = [],
         .sort((a, b) => b.count - a.count);
 
       const classAvg = itemScores.length > 0 ? Math.round(totalScore / itemScores.length) : null;
-      const avgColor = classAvg === null ? '#71717a' : classAvg >= 70 ? '#10B981' : classAvg >= 50 ? '#F59E0B' : '#EF4444';
+      const avgColor = '#09090B';
 
       return { ...item, gradeDist, gradedCount: itemScores.length, classAvg, avgColor };
     });
@@ -105,7 +105,7 @@ const TeacherAnalytics = ({ progressList = [], allScores = [], allLearners = [],
 
       {!hasAnyScores ? (
         <div style={{ padding: '1.5rem', background: '#FAFAFA', borderRadius: '12px', border: '1px dashed #E4E4E7', textAlign: 'center', color: '#71717a' }}>
-          <i className="fas fa-pencil-alt" style={{ fontSize: '1.5rem', color: '#2563eb', opacity: 0.4, marginBottom: '0.5rem', display: 'block' }} />
+          <i className="fas fa-pencil-alt" style={{ fontSize: '1.5rem', color: '#A1A1AA', opacity: 0.6, marginBottom: '0.5rem', display: 'block' }} />
           <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 600 }}>Enter scores to see grade analytics appear here.</p>
         </div>
       ) : (
@@ -114,11 +114,8 @@ const TeacherAnalytics = ({ progressList = [], allScores = [], allLearners = [],
             <div
               key={`${item.classId}-${item.subjectId}`}
               className="card"
-              style={{ padding: '1rem', position: 'relative', overflow: 'hidden' }}
+              style={{ padding: '1rem', position: 'relative', overflow: 'hidden', border: '1px solid #E4E4E7', borderRadius: '12px', background: '#FFFFFF' }}
             >
-              {/* Accent bar */}
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: '3px', background: '#2563eb' }} />
-
               {/* Header */}
               <div style={{ marginBottom: '0.75rem' }}>
                 <div style={{ fontWeight: 800, fontSize: '0.9rem', color: '#09090b' }}>{item.className}</div>
@@ -127,7 +124,7 @@ const TeacherAnalytics = ({ progressList = [], allScores = [], allLearners = [],
 
               {item.gradedCount === 0 ? (
                 <div style={{ textAlign: 'center', padding: '1rem', color: '#71717a', fontSize: '0.78rem' }}>
-                  <i className="fas fa-clock" style={{ display: 'block', marginBottom: '4px', color: '#2563eb', opacity: 0.5 }} />
+                  <i className="fas fa-clock" style={{ display: 'block', marginBottom: '4px', color: '#A1A1AA', opacity: 0.6 }} />
                   No scores entered yet
                 </div>
               ) : (

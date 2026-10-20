@@ -3,13 +3,39 @@ import Layout from '../../components/layout/Layout';
 import { db } from '../../lib/db';
 import { supabase } from '../../lib/supabase';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade } from '../../lib/grading';
+import { calculateCaTotal, calculateExamTotal, calculateTotal, calculateGrade, DEFAULT_GRADING_SCALE } from '../../lib/grading';
 import { useAuth } from '../../store/AuthContext';
 import { useSearchParams } from 'react-router-dom';
 import { enqueueSync } from '../../services/syncEngine';
 import { filterLearnersForSubject, getLanguageLabel } from '../../utils/languageUtils';
 import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../../utils/teacherUtils';
 import LogoPreloader from '../../components/common/LogoPreloader';
+
+const DEFAULT_CA_BREAKDOWN = [
+  { id: 'tests', label: 'Class Tests', count: 2, maxScore: 15, enabled: true },
+  { id: 'assignments', label: 'Group work', count: 2, maxScore: 10, enabled: true },
+  { id: 'projects', label: 'Project Work', count: 1, maxScore: 10, enabled: true }
+];
+
+const DEFAULT_SETTINGS = {
+  id: 'global',
+  caWeight: 30,
+  examWeight: 70,
+  caModel: 'simple_mean',
+  caBestNCount: '',
+  caBreakdown: DEFAULT_CA_BREAKDOWN,
+  gradingScale: DEFAULT_GRADING_SCALE || [
+    { min: 80, max: 100, grade: '1', remark: 'HIGHEST' },
+    { min: 70, max: 79,  grade: '2', remark: 'HIGHER' },
+    { min: 60, max: 69,  grade: '3', remark: 'HIGH' },
+    { min: 55, max: 59,  grade: '4', remark: 'HIGH AVERAGE' },
+    { min: 50, max: 54,  grade: '5', remark: 'AVERAGE' },
+    { min: 40, max: 49,  grade: '6', remark: 'LOW AVERAGE' },
+    { min: 35, max: 39,  grade: '7', remark: 'LOW' },
+    { min: 30, max: 34,  grade: '8', remark: 'LOWER' },
+    { min: 0,  max: 29,  grade: '9', remark: 'LOWEST' }
+  ]
+};
 
 const ScoreEntry = () => {
   const [searchParams] = useSearchParams();
@@ -63,20 +89,38 @@ const ScoreEntry = () => {
 
   const schoolId = user?.schoolId;
   const allClasses = useLiveQuery(
-    () => schoolId ? db.classes.where('schoolId').equals(schoolId).toArray() : [], 
+    () => schoolId ? db.classes.filter(c => String(c.schoolId) === String(schoolId) || String(c.school_id || '') === String(schoolId)).toArray() : [], 
     [schoolId]
   );
   const allSubjects = useLiveQuery(
-    () => schoolId ? db.subjects.where('schoolId').equals(schoolId).toArray() : [], 
+    () => schoolId ? db.subjects.filter(s => !s.schoolId || String(s.schoolId) === String(schoolId) || String(s.school_id || '') === String(schoolId)).toArray() : [], 
     [schoolId]
   );
   const settings = useLiveQuery(() => db.settings.get('global'), []);
+
+  // Effective settings: never null/undefined, provides immediate offline fallback
+  const effectiveSettings = useMemo(() => {
+    if (settings && Array.isArray(settings.caBreakdown) && settings.caBreakdown.length > 0) {
+      return settings;
+    }
+    return DEFAULT_SETTINGS;
+  }, [settings]);
+
+  // Seed default settings into Dexie if not yet present
+  useEffect(() => {
+    db.settings.get('global').then(existing => {
+      if (!existing || !Array.isArray(existing.caBreakdown) || existing.caBreakdown.length === 0) {
+        db.settings.put(DEFAULT_SETTINGS).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
+
   const classSubjects = useLiveQuery(
-    () => schoolId ? db.classSubjects.where('schoolId').equals(schoolId).toArray() : [], 
+    () => schoolId ? db.classSubjects.filter(cs => String(cs.schoolId) === String(schoolId) || String(cs.school_id || '') === String(schoolId)).toArray() : [], 
     [schoolId]
   );
   const schoolInfo = useLiveQuery(
-    () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
+    () => user?.schoolId ? db.schools.filter(s => String(s.id) === String(user.schoolId)).first() : null, [user?.schoolId]
   );
   
   const teacherIdTokens = useLiveQuery(
@@ -400,13 +444,14 @@ const ScoreEntry = () => {
   const learners = useLiveQuery(
     async () => {
       if (!selectedClass || !schoolId) return [];
-      const targetClassId = Number(selectedClass);
+      const targetClassIdStr = String(selectedClass);
+      const targetClassIdNum = Number(selectedClass);
       
       // 1. Fetch currently active learners in this class (strictly for THIS school)
       const activeLearners = await db.learners
         .filter(l => 
           (String(l.schoolId) === String(schoolId) || String(l.school_id || '') === String(schoolId)) &&
-          Number(l.currentClassId) === targetClassId
+          (String(l.currentClassId) === targetClassIdStr || (!isNaN(targetClassIdNum) && Number(l.currentClassId) === targetClassIdNum))
         )
         .toArray();
       
@@ -416,7 +461,7 @@ const ScoreEntry = () => {
         const summaries = await db.reportSummaries
           .filter(s => 
             (String(s.schoolId) === String(schoolId) || String(s.school_id || '') === String(schoolId)) &&
-            Number(s.classId) === targetClassId &&
+            (String(s.classId) === targetClassIdStr || (!isNaN(targetClassIdNum) && Number(s.classId) === targetClassIdNum)) &&
             s.academicYear === selectedAcademicYear &&
             s.term === selectedTerm
           )
@@ -429,7 +474,7 @@ const ScoreEntry = () => {
         const classScores = await db.scores
           .filter(s => 
             (String(s.schoolId) === String(schoolId) || String(s.school_id || '') === String(schoolId)) &&
-            Number(s.classId) === targetClassId &&
+            (String(s.classId) === targetClassIdStr || (!isNaN(targetClassIdNum) && Number(s.classId) === targetClassIdNum)) &&
             s.academicYear === selectedAcademicYear &&
             s.term === selectedTerm
           )
@@ -487,81 +532,40 @@ const ScoreEntry = () => {
     return filterLearnersForSubject(learners, activeSubjectObj);
   }, [learners, activeSubjectObj]);
 
-  // Load existing scores from local Dexie, with a cloud refresh guard.
-  // We fetch from cloud first to ensure teachers on fresh devices see the latest data.
-  // IMPORTANT GUARD: We never overwrite a local score that has synced:false — those are
-  // unsaved edits that haven't reached Supabase yet. Overwriting them with stale cloud data
-  // was the root cause of blank exam scores (race condition after save).
+  // Load existing scores from local Dexie immediately (0ms offline load),
+  // with a non-blocking background cloud check when online.
   useEffect(() => {
     if (isDirty) return; // Protect unsaved inputs from being overwritten by reloads
 
     const loadScores = async () => {
       if (selectedClass && selectedSubject && selectedAcademicYear && selectedTerm) {
-        // 1. Pull latest from cloud (ensures fresh device / first load sees real data)
-        if (navigator.onLine && user?.schoolId) {
-          try {
-            const { data: cloudScores, error } = await supabase
-              .from('report_scores')
-              .select('*')
-              .eq('school_id', user.schoolId)
-              .eq('class_id', Number(selectedClass))
-              .eq('subject_id', Number(selectedSubject))
-              .eq('academic_year', selectedAcademicYear)
-              .eq('term', selectedTerm);
+        const currentSid = user?.schoolId;
+        const targetClassStr = String(selectedClass);
+        const targetClassNum = Number(selectedClass);
+        const targetSubjectStr = String(selectedSubject);
+        const targetSubjectNum = Number(selectedSubject);
 
-            if (cloudScores && !error) {
-              for (const cs of cloudScores) {
-                const existing = await db.scores
-                  .where('learnerId').equals(cs.learner_id)
-                  .filter(s => s.classId === cs.class_id && s.subjectId === cs.subject_id && s.term === cs.term && s.academicYear === cs.academic_year)
-                  .first();
-
-                const entry = {
-                  learnerId:    cs.learner_id,
-                  classId:      cs.class_id,
-                  subjectId:    cs.subject_id,
-                  caScores:     cs.ca_scores || [],
-                  // Use nullish coalescing: preserves 0 scores, only replaces null/undefined with ''
-                  examScore:    cs.exam_score ?? '',
-                  classScore:   cs.class_score ?? 0,
-                  totalScore:   cs.total_score ?? 0,
-                  grade:        cs.grade || '',
-                  remark:       cs.remark || '',
-                  isSubmitted:  cs.is_submitted || false,
-                  termId:       null,
-                  term:         cs.term || '',
-                  academicYear: cs.academic_year || '',
-                  updatedAt:    cs.updated_at,
-                  synced:       true, // This record came from the cloud — it is synced
-                };
-
-                if (existing) {
-                  // CRITICAL: Only update from cloud if the local record has no pending edits.
-                  // If synced:false, the teacher has saved changes not yet in Supabase —
-                  // overwriting would silently discard their exam/CA scores.
-                  if (existing.synced !== false) {
-                    await db.scores.update(existing.id, entry);
-                  }
-                } else {
-                  // No local record exists — safe to add cloud version directly
-                  await db.scores.add(entry);
-                }
-              }
-            }
-          } catch (err) {
-            console.error('[ScoreEntry] Cloud fetch failed (will use local Dexie):', err);
-          }
+        // 1. FIRST: Instantly load and render from local Dexie IndexedDB (0ms offline load)
+        let localExisting = [];
+        try {
+          localExisting = await db.scores
+            .filter(s =>
+              (String(s.schoolId) === String(currentSid) || String(s.school_id || '') === String(currentSid)) &&
+              (String(s.classId) === targetClassStr || (!isNaN(targetClassNum) && Number(s.classId) === targetClassNum)) &&
+              (String(s.subjectId) === targetSubjectStr || (!isNaN(targetSubjectNum) && Number(s.subjectId) === targetSubjectNum)) &&
+              s.term === selectedTerm &&
+              s.academicYear === selectedAcademicYear
+            )
+            .toArray();
+        } catch (dbErr) {
+          console.error('[ScoreEntry] Failed to read local scores from Dexie:', dbErr);
+          setScores({});
+          return;
         }
 
-        // 2. Load from Dexie to display (always the source of truth for the UI)
-        const currentSid = user?.schoolId;
-        const existing = await db.scores
-          .filter(s => (String(s.schoolId) === String(currentSid) || String(s.school_id || '') === String(currentSid)) && Number(s.classId) === Number(selectedClass) && Number(s.subjectId) === Number(selectedSubject) && s.term === selectedTerm && s.academicYear === selectedAcademicYear)
-          .toArray();
-
-        if (existing.length > 0) {
-          const submittedScores = existing.filter(s => s.isSubmitted);
-          setIsBatchSubmitted(submittedScores.length > 0 && submittedScores.length === existing.length);
+        if (localExisting.length > 0) {
+          const submittedScores = localExisting.filter(s => s.isSubmitted);
+          setIsBatchSubmitted(submittedScores.length > 0 && submittedScores.length === localExisting.length);
         } else {
           setIsBatchSubmitted(false);
         }
@@ -572,7 +576,7 @@ const ScoreEntry = () => {
           .toArray();
 
         const scoreMap = {};
-        for (const s of existing) {
+        for (const s of localExisting) {
           let resolvedLearnerId = s.learnerId;
 
           // Self-healing: if learnerId is not a UUID, try to resolve it via supabaseId
@@ -581,23 +585,98 @@ const ScoreEntry = () => {
             const matchedLearner = localLearners.find(l => String(l.id) === String(s.learnerId));
             if (matchedLearner && matchedLearner.supabaseId) {
               resolvedLearnerId = matchedLearner.supabaseId;
-              try {
-                await db.scores.update(s.id, { learnerId: resolvedLearnerId });
-                console.log(`[Score Sync] Self-healed score for learner ${matchedLearner.fullName}: migrated ID from ${s.learnerId} to ${resolvedLearnerId}`);
-              } catch (updErr) {
-                console.warn('Failed to update local score learnerId:', updErr);
-              }
             }
           }
 
           scoreMap[resolvedLearnerId] = {
             caScores: s.caScores || [],
-            // Use ?? '' so exam score 0 is shown as 0, not converted to '' (which uploads as null)
             examScore: s.examScore ?? '',
             isSubmitted: s.isSubmitted || false,
           };
         }
         setScores(scoreMap);
+
+        // 2. SECOND: Quiet background check from cloud (non-blocking, only if online)
+        if (navigator.onLine && user?.schoolId) {
+          try {
+            const { data: cloudScores, error } = await supabase
+              .from('report_scores')
+              .select('*')
+              .eq('school_id', user.schoolId)
+              .eq('class_id', !isNaN(targetClassNum) ? targetClassNum : selectedClass)
+              .eq('subject_id', !isNaN(targetSubjectNum) ? targetSubjectNum : selectedSubject)
+              .eq('academic_year', selectedAcademicYear)
+              .eq('term', selectedTerm);
+
+            if (cloudScores && !error) {
+              let updatedAny = false;
+              for (const cs of cloudScores) {
+                const existing = await db.scores
+                  .where('learnerId').equals(cs.learner_id)
+                  .filter(s => 
+                    (String(s.classId) === String(cs.class_id) || Number(s.classId) === Number(cs.class_id)) && 
+                    (String(s.subjectId) === String(cs.subject_id) || Number(s.subjectId) === Number(cs.subject_id)) && 
+                    s.term === cs.term && 
+                    s.academicYear === cs.academic_year
+                  )
+                  .first();
+
+                const entry = {
+                  learnerId:    cs.learner_id,
+                  schoolId:     user.schoolId,
+                  classId:      cs.class_id,
+                  subjectId:    cs.subject_id,
+                  caScores:     cs.ca_scores || [],
+                  examScore:    cs.exam_score ?? '',
+                  classScore:   cs.class_score ?? 0,
+                  totalScore:   cs.total_score ?? 0,
+                  grade:        cs.grade || '',
+                  remark:       cs.remark || '',
+                  isSubmitted:  cs.is_submitted || false,
+                  termId:       null,
+                  term:         cs.term || '',
+                  academicYear: cs.academic_year || '',
+                  updatedAt:    cs.updated_at,
+                  synced:       true,
+                };
+
+                if (existing) {
+                  if (existing.synced !== false) {
+                    await db.scores.update(existing.id, entry);
+                    updatedAny = true;
+                  }
+                } else {
+                  await db.scores.add(entry);
+                  updatedAny = true;
+                }
+              }
+
+              if (updatedAny) {
+                const refreshed = await db.scores
+                  .filter(s => 
+                    (String(s.schoolId) === String(currentSid) || String(s.school_id || '') === String(currentSid)) && 
+                    (String(s.classId) === targetClassStr || (!isNaN(targetClassNum) && Number(s.classId) === targetClassNum)) && 
+                    (String(s.subjectId) === targetSubjectStr || (!isNaN(targetSubjectNum) && Number(s.subjectId) === targetSubjectNum)) && 
+                    s.term === selectedTerm && 
+                    s.academicYear === selectedAcademicYear
+                  )
+                  .toArray();
+
+                const refreshedMap = {};
+                for (const s of refreshed) {
+                  refreshedMap[s.learnerId] = {
+                    caScores: s.caScores || [],
+                    examScore: s.examScore ?? '',
+                    isSubmitted: s.isSubmitted || false,
+                  };
+                }
+                setScores(prev => ({ ...refreshedMap, ...prev }));
+              }
+            }
+          } catch (err) {
+            console.warn('[ScoreEntry] Background cloud check completed (local Dexie active):', err);
+          }
+        }
       }
     };
     loadScores();
@@ -874,7 +953,7 @@ const ScoreEntry = () => {
   const isSavingAny = Boolean(savingAction);
 
   const handleSave = async (submitFinal = true, actionKey = 'top-submit') => {
-    if (!selectedClass || !selectedSubject || !settings || !user?.schoolId || !selectedAcademicYear || !selectedTerm) {
+    if (!selectedClass || !selectedSubject || !user?.schoolId || !selectedAcademicYear || !selectedTerm) {
       alert('Please select Class, Subject, Term, and Academic Year.');
       return;
     }
@@ -888,10 +967,10 @@ const ScoreEntry = () => {
       const caScoresArray = data.caScores || [];
       const examRaw = data.examScore || 0;
       
-      const caTotal = calculateCaTotal(caScoresArray, settings);
-      const examTotal = calculateExamTotal(examRaw, settings);
+      const caTotal = calculateCaTotal(caScoresArray, effectiveSettings);
+      const examTotal = calculateExamTotal(examRaw, effectiveSettings);
       const total = calculateTotal(caTotal, examTotal);
-      const { grade, remark } = calculateGrade(total, settings.gradingScale);
+      const { grade, remark } = calculateGrade(total, effectiveSettings.gradingScale);
       const now = new Date().toISOString();
 
       scoreEntries.push({
@@ -914,152 +993,131 @@ const ScoreEntry = () => {
       });
     }
 
-    // Bulk put into Dexie
-    for (const entry of scoreEntries) {
-      const existing = await db.scores
-        .where('learnerId').equals(entry.learnerId)
-        .filter(s => (String(s.schoolId) === String(user.schoolId) || !s.schoolId) && s.classId === entry.classId && s.subjectId === entry.subjectId && s.term === entry.term && s.academicYear === entry.academicYear)
-        .first();
-      
-      if (existing) {
-        await db.scores.update(existing.id, entry);
-      } else {
-        await db.scores.add(entry);
+    try {
+      // Bulk put into Dexie
+      for (const entry of scoreEntries) {
+        const existing = await db.scores
+          .where('learnerId').equals(entry.learnerId)
+          .filter(s => (String(s.schoolId) === String(user.schoolId) || !s.schoolId) && s.classId === entry.classId && s.subjectId === entry.subjectId && s.term === entry.term && s.academicYear === entry.academicYear)
+          .first();
+
+        if (existing) {
+          await db.scores.update(existing.id, entry);
+        } else {
+          await db.scores.add(entry);
+        }
       }
-    }
 
-    setIsDirty(false);
-    setIsBatchSubmitted(submitFinal);
+      setIsDirty(false);
+      setIsBatchSubmitted(submitFinal);
 
-    if (submitFinal) {
-      try {
-        const clsObj = (classes || []).find(c => String(c.id) === String(selectedClass) || String(c.supabaseId) === String(selectedClass));
-        const subObj = (subjects || []).find(s => String(s.id) === String(selectedSubject) || String(s.supabaseId) === String(selectedSubject));
-        const className = clsObj?.name || `Class ${selectedClass}`;
-        const subjectName = subObj?.name || `Subject ${selectedSubject}`;
+      if (submitFinal) {
+        try {
+          const clsObj = (classes || []).find(c => String(c.id) === String(selectedClass) || String(c.supabaseId) === String(selectedClass));
+          const subObj = (subjects || []).find(s => String(s.id) === String(selectedSubject) || String(s.supabaseId) === String(selectedSubject));
+          const className = clsObj?.name || `Class ${selectedClass}`;
+          const subjectName = subObj?.name || `Subject ${selectedSubject}`;
 
-        window.dispatchEvent(new CustomEvent('school-scores-submitted', {
-          detail: {
-            schoolId: user.schoolId,
-            teacherId: user.id,
-            teacherName: user.name || user.fullName || 'Teacher',
-            classId: selectedClass,
-            className,
-            subjectId: selectedSubject,
-            subjectName,
-            term: selectedTerm,
-            academicYear: selectedAcademicYear
-          }
-        }));
-      } catch (evtErr) {
-        console.warn('[ScoreEntry] Failed to dispatch score submission event:', evtErr);
+          window.dispatchEvent(new CustomEvent('school-scores-submitted', {
+            detail: {
+              schoolId: user.schoolId,
+              teacherId: user.id,
+              teacherName: user.name || user.fullName || 'Teacher',
+              classId: selectedClass,
+              className,
+              subjectId: selectedSubject,
+              subjectName,
+              term: selectedTerm,
+              academicYear: selectedAcademicYear
+            }
+          }));
+        } catch (evtErr) {
+          console.warn('[ScoreEntry] Failed to dispatch score submission event:', evtErr);
+        }
       }
+
+      alert(submitFinal
+        ? '✓ Scores saved and submitted successfully! Status is now Submitted.'
+        : '✎ Scores saved as Draft successfully!'
+      );
+
+      // Trigger background sync immediately if online
+      if (navigator.onLine) {
+        syncUnsyncedScores().catch(err => console.warn('Failed to sync after save:', err));
+      }
+    } catch (err) {
+      console.error('[ScoreEntry] handleSave failed:', err);
+      alert('Failed to save scores. Please try again.');
+    } finally {
+      setSavingAction(null);
     }
-
-    alert(submitFinal 
-      ? '✓ Scores saved and submitted successfully! Status is now Submitted.'
-      : '✎ Scores saved as Draft successfully!'
-    );
-
-    // Trigger background sync immediately if online
-    if (navigator.onLine) {
-      syncUnsyncedScores().catch(err => console.warn('Failed to sync after save:', err));
-    }
-
-    setSavingAction(null);
   };
 
-  if (!settings || !settings.caBreakdown) {
-    // If we are offline, the settings were simply never seeded — show a meaningful message.
-    if (!isOnline) {
-      return (
-        <Layout title="Score Entry System">
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh', flexDirection: 'column', color: 'var(--text-muted)', textAlign: 'center', padding: '2rem' }}>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'linear-gradient(135deg, #fef3c7, #fde68a)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem', boxShadow: '0 8px 20px rgba(245,158,11,0.2)' }}>
-              <i className="fas fa-wifi-slash" style={{ fontSize: '2rem', color: '#d97706' }}></i>
-            </div>
-            <h2 style={{ color: '#92400e', marginBottom: '0.75rem', fontWeight: 800 }}>You're Offline</h2>
-            <p style={{ color: '#b45309', maxWidth: '420px', lineHeight: 1.6 }}>
-              Score entry configuration hasn't been downloaded yet. Please connect to the internet once to sync your school's grading rules, then scores will work offline.
-            </p>
-            <div style={{ marginTop: '1.5rem', padding: '0.75rem 1.25rem', background: 'rgba(245,158,11,0.1)', border: '1px solid #fde68a', borderRadius: '12px', fontSize: '0.85rem', color: '#92400e' }}>
-              <i className="fas fa-info-circle" style={{ marginRight: '6px' }}></i>
-              Once connected, data syncs automatically in the background.
-            </div>
-          </div>
-        </Layout>
-      );
-    }
-    // Online — still loading from Supabase
-    return (
-      <Layout title="Score Entry System">
-        <LogoPreloader fullScreen={false} size="md" />
-      </Layout>
-    );
-  }
+  // Generate flat array of columns based on effectiveSettings (instant offline support)
+  // Memoized so it only recomputes when settings change, not on every keystroke
+  const caCols = useMemo(() => {
+    const cols = [];
+    // Use strictly the breakdown defined in effectiveSettings (falls back to DEFAULT_CA_BREAKDOWN)
+    const activeBreakdown = Array.isArray(effectiveSettings.caBreakdown) ? effectiveSettings.caBreakdown : DEFAULT_CA_BREAKDOWN;
 
-  // Generate flat array of columns based on EXACTLY what is enabled in settings
-  const caCols = [];
-  
-  // Use strictly the breakdown defined in settings (from the cloud)
-  const activeBreakdown = Array.isArray(settings.caBreakdown) ? settings.caBreakdown : [];
+    // Filter components strictly based on whether they have a count > 0.
+    // We ignore the "enabled: false" flag to prevent accidental hiding if a headteacher enters a count but forgets to click "Enable".
+    const enabledComponents = activeBreakdown.filter(c => c && Number(c.count) > 0);
 
-  // Filter components strictly based on whether they have a count > 0.
-  // We ignore the "enabled: false" flag to prevent accidental hiding if a headteacher enters a count but forgets to click "Enable".
-  const enabledComponents = activeBreakdown.filter(c => c && Number(c.count) > 0);
-  
-  enabledComponents.forEach(component => {
-    let prefix = 'CA';
-    const labelLower = (component.label || '').toLowerCase();
-    
-    if (labelLower.includes('exercise')) {
-      prefix = 'EX';
-    } else if (labelLower.includes('test')) {
-      prefix = 'TS';
-    } else if (labelLower.includes('assignment')) {
-      prefix = 'AS';
-    } else if (labelLower.includes('project')) {
-      prefix = 'PW';
-    } else {
-      prefix = (component.label || 'CA').substring(0, 2).toUpperCase();
-    }
+    enabledComponents.forEach(component => {
+      let prefix = 'CA';
+      const labelLower = (component.label || '').toLowerCase();
 
-    // Use the exact count specified by the headteacher. If it's missing or 0, we don't render it.
-    const count = Number(component.count) || 0;
-    
-    for (let i = 0; i < count; i++) {
-      caCols.push({
-        id: `${component.id}-${i}`,
-        label: `${prefix}${i + 1}`,
-        maxScore: component.maxScore || 100
-      });
-    }
-  });
+      if (labelLower.includes('exercise')) {
+        prefix = 'EX';
+      } else if (labelLower.includes('test')) {
+        prefix = 'TS';
+      } else if (labelLower.includes('assignment')) {
+        prefix = 'AS';
+      } else if (labelLower.includes('project')) {
+        prefix = 'PW';
+      } else {
+        prefix = (component.label || 'CA').substring(0, 2).toUpperCase();
+      }
+
+      // Use the exact count specified by the headteacher. If it's missing or 0, we don't render it.
+      const count = Number(component.count) || 0;
+
+      for (let i = 0; i < count; i++) {
+        cols.push({
+          id: `${component.id}-${i}`,
+          label: `${prefix}${i + 1}`,
+          maxScore: component.maxScore || 100
+        });
+      }
+    });
+    return cols;
+  }, [effectiveSettings]);
 
   const getCardTheme = (isFilled) => {
     if (isFilled) {
       return {
-        cardBg: 'linear-gradient(180deg, #ffffff 0%, #f0fdf4 100%)',
-        cardBorder: '#86efac',
-        topBar: '#10b981',
-        avatarBg: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-        bannerBg: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-        bannerBorder: '#86efac',
-        bannerColor: '#065f46',
-        tagBg: '#059669',
-        tagColor: '#ffffff'
+        cardBg: '#FFFFFF',
+        cardBorder: '#09090B',
+        topBar: '#09090B',
+        avatarBg: '#09090B',
+        bannerBg: '#F4F4F5',
+        bannerBorder: '#E4E4E7',
+        bannerColor: '#09090B',
+        tagBg: '#09090B',
+        tagColor: '#FFFFFF'
       };
     }
     return {
-      cardBg: '#ffffff',
-      cardBorder: '#e2e8f0',
-      topBar: '#e2e8f0',
-      avatarBg: 'linear-gradient(135deg, #94a3b8 0%, #cbd5e1 100%)',
-      bannerBg: '#f8fafc',
-      bannerBorder: '#e2e8f0',
-      bannerColor: '#64748b',
-      tagBg: '#94a3b8',
-      tagColor: '#ffffff'
+      cardBg: '#FFFFFF',
+      cardBorder: '#E4E4E7',
+      topBar: '#E4E4E7',
+      avatarBg: '#71717A',
+      bannerBg: '#FAFAFA',
+      bannerBorder: '#E4E4E7',
+      bannerColor: '#71717A',
+      tagBg: '#E4E4E7',
+      tagColor: '#52525B'
     };
   };
 
@@ -1088,185 +1146,161 @@ const ScoreEntry = () => {
           </div>
         </div>
 
-        {/* Active Session Verification Pill */}
-        <div style={{
-          background: '#F0FDF4',
-          border: '1.5px solid #BBF7D0',
-          borderRadius: '12px',
-          padding: '0.65rem 1rem',
-          marginBottom: '1.25rem',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: '8px'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-            <i className="fas fa-calendar-check" style={{ color: '#16A34A', fontSize: '1rem' }}></i>
-            <span style={{ color: '#15803D', fontWeight: 800 }}>Recording Scores For:</span>
-            <span style={{ color: '#09090b', fontWeight: 800 }}>
-              {selectedAcademicYear || schoolInfo?.currentAcademicYear || '2025/2026'} &bull; {selectedTerm || schoolInfo?.currentTerm || 'Term 1'}
-            </span>
-          </div>
-          {user?.role === 'super_admin' && (
-            <button 
-              type="button"
-              onClick={() => window.location.href = '/settings'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', color: '#16A34A', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px', padding: 0 }}
-            >
-              <i className="fas fa-sliders"></i> Change School Term in Settings &rarr;
-            </button>
-          )}
-        </div>
-
-        <div className="card" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
-            <label className="form-label">Select Class</label>
-            <select 
-              className="form-input" 
-              value={selectedClass} 
-              onChange={(e) => {
-                const val = e.target.value;
-                if (isDirty && !window.confirm('You have unsaved changes. Changing class will discard them. Do you want to proceed?')) {
-                  return;
-                }
-                setSelectedClass(val);
-                setIsDirty(false);
-              }}
-            >
-              <option value="">-- Choose Class --</option>
-              {classes?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
-            <label className="form-label">Select Subject</label>
-            <select 
-              className="form-input" 
-              value={selectedSubject} 
-              onChange={(e) => {
-                const val = e.target.value;
-                if (isDirty && !window.confirm('You have unsaved changes. Changing subject will discard them. Do you want to proceed?')) {
-                  return;
-                }
-                setSelectedSubject(val);
-                setIsDirty(false);
-              }}
-            >
-              <option value="">-- Choose Subject --</option>
-              {subjects?.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
-          <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
-            <label className="form-label">Term</label>
-            <select 
-              className="form-input" 
-              value={selectedTerm} 
-              onChange={(e) => {
-                const val = e.target.value;
-                if (isDirty && !window.confirm('You have unsaved changes. Changing term will discard them. Do you want to proceed?')) {
-                  return;
-                }
-                setSelectedTerm(val);
-                setIsDirty(false);
-              }}
-            >
-              <option value="Term 1">Term 1</option>
-              <option value="Term 2">Term 2</option>
-              <option value="Term 3">Term 3</option>
-            </select>
-          </div>
-          <div className="form-group" style={{ flex: '1 1 120px', marginBottom: 0 }}>
-            <label className="form-label">Academic Year</label>
-            <input 
-              type="text" 
-              className="form-input" 
-              placeholder="e.g. 2025/2026"
-              value={selectedAcademicYear} 
-              onChange={(e) => {
-                const val = e.target.value;
-                if (isDirty && !window.confirm('You have unsaved changes. Changing academic year will discard them. Do you want to proceed?')) {
-                  return;
-                }
-                setSelectedAcademicYear(val);
-                setIsDirty(false);
-              }} 
-            />
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', flex: '0 0 auto' }}>
-            {selectedClass && selectedSubject && Object.keys(scores).length > 0 && (
-              <span style={{
-                padding: '0.45rem 0.85rem',
-                borderRadius: '8px',
-                fontSize: '0.8rem',
-                fontWeight: 700,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: isBatchSubmitted ? '#DCFCE7' : '#FEF9C3',
-                color: isBatchSubmitted ? '#15803D' : '#A16207',
-                border: `1px solid ${isBatchSubmitted ? '#BBF7D0' : '#FEF08A'}`
-              }}>
-                <i className={`fas ${isBatchSubmitted ? 'fa-check-circle' : 'fa-pencil-alt'}`}></i>
-                {isBatchSubmitted ? 'Status: Submitted' : 'Status: Draft'}
+        {/* ── UNIFIED ACADEMIC COCKPIT (Clean Desk Layout) ── */}
+        <div 
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #E4E4E7',
+            borderRadius: '16px',
+            padding: '1.25rem 1.4rem',
+            marginBottom: '1.5rem',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '1rem'
+          }}
+        >
+          {/* Top Row: Context Title, Academic Session, and Rule Briefing */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', borderBottom: '1px solid #F4F4F5', paddingBottom: '0.85rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', background: '#09090B', color: '#FFFFFF', padding: '0.2rem 0.6rem', borderRadius: '6px' }}>
+                Assessment Sheet
               </span>
-            )}
-            <button 
-              type="button"
-              className="btn" 
-              onClick={() => handleSave(false, 'top-draft')} 
-              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny} 
-              style={{ 
-                background: '#f8fafc', 
-                border: '1.5px solid #cbd5e1', 
-                color: '#475569', 
-                fontWeight: 600,
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                opacity: isSavingAny && savingAction !== 'top-draft' ? 0.6 : 1
-              }}
-              title="Save work offline as Draft without officially submitting"
-            >
-              {savingAction === 'top-draft' ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : (
-                <i className="fas fa-save"></i>
+              <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#09090B' }}>
+                {selectedAcademicYear || schoolInfo?.currentAcademicYear || '2025/2026'} &bull; {selectedTerm || schoolInfo?.currentTerm || 'Term 1'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.76rem', color: '#71717A', fontWeight: 600 }}>
+              <i className="far fa-circle-question" style={{ color: '#09090B' }}></i>
+              <span>CA: {settings?.caWeight}% ({settings?.caModel === 'simple_mean' ? 'Simple Mean' : `Best ${settings?.caBestNCount}`}) &bull; Exam: {settings?.examWeight}%</span>
+            </div>
+          </div>
+
+          {/* Bottom Row: Class & Subject Selectors + Save Actions */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flex: '1 1 360px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 170px' }}>
+                <select 
+                  className="form-input" 
+                  value={selectedClass} 
+                  style={{ height: '38px', borderRadius: '9px', fontSize: '0.84rem', border: '1px solid #E4E4E7', fontWeight: 600, background: '#FFFFFF', padding: '0 0.75rem', width: '100%' }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (isDirty && !window.confirm('You have unsaved changes. Changing class will discard them. Do you want to proceed?')) {
+                      return;
+                    }
+                    setSelectedClass(val);
+                    setIsDirty(false);
+                  }}
+                >
+                  <option value="">-- Select Class --</option>
+                  {classes?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
+              <div style={{ flex: '1 1 170px' }}>
+                <select 
+                  className="form-input" 
+                  value={selectedSubject} 
+                  style={{ height: '38px', borderRadius: '9px', fontSize: '0.84rem', border: '1px solid #E4E4E7', fontWeight: 600, background: '#FFFFFF', padding: '0 0.75rem', width: '100%' }}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (isDirty && !window.confirm('You have unsaved changes. Changing subject will discard them. Do you want to proceed?')) {
+                      return;
+                    }
+                    setSelectedSubject(val);
+                    setIsDirty(false);
+                  }}
+                >
+                  <option value="">-- Select Subject --</option>
+                  {subjects?.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {selectedClass && selectedSubject && Object.keys(scores).length > 0 && (
+                <span style={{
+                  padding: '0.35rem 0.65rem',
+                  borderRadius: '8px',
+                  fontSize: '0.74rem',
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  background: isBatchSubmitted ? '#F4F4F5' : '#FAFAFA',
+                  color: isBatchSubmitted ? '#09090b' : '#71717a',
+                  border: '1px solid #E4E4E7'
+                }}>
+                  <i className={`fas ${isBatchSubmitted ? 'fa-check' : 'fa-pen'}`}></i>
+                  {isBatchSubmitted ? 'Submitted' : 'Draft'}
+                </span>
               )}
-              <span>{savingAction === 'top-draft' ? 'Saving...' : 'Save Draft'}</span>
-            </button>
-            <button 
-              type="button"
-              className="btn btn-primary" 
-              onClick={() => handleSave(true, 'top-submit')} 
-              disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny} 
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.4rem',
-                fontWeight: 700,
-                opacity: isSavingAny && savingAction !== 'top-submit' ? 0.6 : 1
-              }}
-              title="Save and mark as Submitted"
-            >
-              {savingAction === 'top-submit' ? (
-                <i className="fas fa-spinner fa-spin"></i>
-              ) : (
-                <i className="fas fa-cloud-upload-alt"></i>
-              )}
-              <span>{savingAction === 'top-submit' ? 'Submitting...' : 'Save & Sync (Submit)'}</span>
-            </button>
+              <button 
+                type="button"
+                className="btn" 
+                onClick={() => handleSave(false, 'top-draft')} 
+                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny} 
+                style={{ 
+                  background: '#FFFFFF', 
+                  border: '1px solid #E4E4E7', 
+                  color: '#09090B', 
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                  borderRadius: '9px',
+                  height: '36px',
+                  padding: '0 0.85rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  opacity: isSavingAny && savingAction !== 'top-draft' ? 0.6 : 1
+                }}
+                title="Save work offline as Draft without officially submitting"
+              >
+                {savingAction === 'top-draft' ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : (
+                  <i className="far fa-save"></i>
+                )}
+                <span>{savingAction === 'top-draft' ? 'Saving...' : 'Save Draft'}</span>
+              </button>
+              <button 
+                type="button"
+                className="btn" 
+                onClick={() => handleSave(true, 'top-submit')} 
+                disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny} 
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.4rem',
+                  fontWeight: 800,
+                  fontSize: '0.8rem',
+                  borderRadius: '9px',
+                  height: '36px',
+                  padding: '0 1rem',
+                  background: '#09090B',
+                  color: '#FFFFFF',
+                  border: '1px solid #09090B',
+                  boxShadow: '0 2px 8px rgba(9, 9, 11, 0.18)',
+                  opacity: isSavingAny && savingAction !== 'top-submit' ? 0.6 : 1
+                }}
+                title="Submit scores"
+              >
+                {savingAction === 'top-submit' ? (
+                  <i className="fas fa-spinner fa-spin"></i>
+                ) : (
+                  <i className="fas fa-check-circle"></i>
+                )}
+                <span>{savingAction === 'top-submit' ? 'Submitting...' : 'Submit'}</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {selectedClass && selectedSubject ? (
           <div>
-            {/* Legend for CA Calculation */}
-            <div className="card" style={{ padding: '1rem 1.5rem', marginBottom: '1.5rem', background: 'var(--accent-light)', border: '1px solid var(--border)', fontSize: '0.85rem', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.5rem', borderRadius: '12px' }}>
-               <i className="fas fa-info-circle" style={{ color: 'var(--accent)', fontSize: '1.1rem' }}></i>
-               <div>
-                 <strong>Assessment Rule:</strong> All scores are raw. CA is calculated using <strong>{settings.caModel === 'simple_mean' ? 'Simple Mean' : `Best ${settings.caBestNCount}`}</strong> and scaled to {settings.caWeight}%. Exam is scaled to {settings.examWeight}%.
-               </div>
-            </div>
 
             <style>{`
               .student-card {
@@ -1276,13 +1310,22 @@ const ScoreEntry = () => {
                 transform: translateY(-5px);
                 box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.03) !important;
               }
+              /* Hide spin buttons / up & down arrows for Chrome, Safari, Edge, Opera */
+              .score-input::-webkit-outer-spin-button,
+              .score-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+              }
+              /* Hide spin buttons for Firefox */
               .score-input {
-                transition: all 0.2s ease !important;
+                -moz-appearance: textfield;
+                appearance: textfield;
+                text-align: center !important;
+                transition: all 0.15s ease !important;
               }
               .score-input:focus {
-                border-color: var(--accent) !important;
-                box-shadow: 0 0 0 3px var(--accent-light) !important;
-                transform: scale(1.03);
+                border-color: #09090b !important;
+                box-shadow: 0 0 0 2px rgba(9, 9, 11, 0.15) !important;
                 background: #ffffff !important;
               }
             `}</style>
@@ -1308,80 +1351,52 @@ const ScoreEntry = () => {
 
                 return (
                   <div key={learner.id} className="card student-card" style={{ 
-                    borderRadius: '16px', 
+                    borderRadius: '14px', 
                     border: `1px solid ${perf.cardBorder}`, 
-                    padding: '1.25rem', 
+                    padding: '1.1rem 1.25rem', 
                     background: perf.cardBg, 
-                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -2px rgba(0,0,0,0.05)',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
-                    position: 'relative',
-                    overflow: 'hidden'
+                    gap: '0.85rem',
+                    position: 'relative'
                   }}>
-                    {/* Top Decorative bar */}
-                    <div style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: '4px',
-                      background: perf.topBar
-                    }}></div>
-
-                    {/* Header: Avatar, Name and ID */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', borderBottom: '1px solid #f1f5f9', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
-                      <div style={{
-                        width: '38px',
-                        height: '38px',
-                        borderRadius: '10px',
-                        background: perf.avatarBg,
-                        color: '#ffffff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        boxShadow: '0 3px 6px -1px rgba(0,0,0,0.1)',
-                        transition: 'all 0.3s ease'
-                      }}>
-                        {initials}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <h4 style={{ margin: 0, fontSize: '0.9rem', color: '#0f172a', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.02em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {/* Header: Student Name & Meta Info */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', borderBottom: '1px solid #F4F4F5', paddingBottom: '0.65rem' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <h4 style={{ margin: 0, fontSize: '0.92rem', color: '#09090b', fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {learner.fullName}
                         </h4>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: '0.68rem', color: '#64748b', fontFamily: 'monospace' }}>
-                            Reg: {learner.regNumber || 'N/A'}
-                          </span>
-                          <span style={{ fontSize: '0.65rem', background: '#eff6ff', color: '#2563eb', border: '1px solid #dbeafe', borderRadius: '4px', padding: '1px 5px', fontWeight: 700 }}>
-                            {getLanguageLabel(learner.ghanaianLanguage || learner.ghanaian_language)}
-                          </span>
+                        <div style={{ fontSize: '0.72rem', color: '#71717a', marginTop: '2px', fontFamily: 'monospace' }}>
+                          {learner.regNumber || 'No Reg'}
                         </div>
                       </div>
+                      <span style={{ fontSize: '0.65rem', background: '#F4F4F5', color: '#52525B', border: '1px solid #E4E4E7', borderRadius: '4px', padding: '1px 6px', fontWeight: 700, flexShrink: 0 }}>
+                        {getLanguageLabel(learner.ghanaianLanguage || learner.ghanaian_language)}
+                      </span>
                     </div>
 
-                    {/* CA Inputs Grid */}
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(68px, 1fr))', gap: '0.5rem', marginBottom: '1rem' }}>
+                    {/* CA & Exam Inputs Row */}
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${caCols.length}, 1fr) 1.2fr`, gap: '0.45rem', alignItems: 'flex-end' }}>
                       {caCols.map((col, i) => (
                         <div key={col.id} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                          <label style={{ fontSize: '0.62rem', fontWeight: 700, color: '#64748b', textAlign: 'center', textTransform: 'uppercase' }}>
-                            {col.label} <span style={{ color: '#94a3b8', fontWeight: 500 }}>({col.maxScore})</span>
+                          <label style={{ fontSize: '0.6rem', fontWeight: 700, color: '#71717a', textAlign: 'center', textTransform: 'uppercase' }}>
+                            {col.label}
                           </label>
                           <input 
                             type="number" 
                             className="score-input"
                             style={{ 
                               width: '100%', 
-                              height: '35px', 
-                              borderRadius: '8px', 
-                              border: '1.5px solid #e2e8f0', 
+                              height: '34px', 
+                              borderRadius: '7px', 
+                              border: '1px solid #E4E4E7', 
                               textAlign: 'center', 
                               fontSize: '0.85rem',
                               fontWeight: '600',
-                              color: '#1e293b',
-                              background: '#f8fafc',
+                              color: '#09090b',
+                              background: '#FAFAFA',
                               outline: 'none'
                             }}
                             max={col.maxScore}
@@ -1394,21 +1409,21 @@ const ScoreEntry = () => {
 
                       {/* Exam Input */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        <label style={{ fontSize: '0.62rem', fontWeight: 800, color: '#1d4ed8', textAlign: 'center', textTransform: 'uppercase' }}>
-                          Exam <span style={{ color: '#60a5fa', fontWeight: 500 }}>(100)</span>
+                        <label style={{ fontSize: '0.6rem', fontWeight: 800, color: '#09090b', textAlign: 'center', textTransform: 'uppercase' }}>
+                          Exam (100)
                         </label>
                         <input 
                           type="number" 
                           className="score-input"
                           style={{ 
                             width: '100%', 
-                            height: '35px', 
-                            borderRadius: '8px', 
-                            border: '1.5px solid #bfdbfe', 
+                            height: '34px', 
+                            borderRadius: '7px', 
+                            border: '1.5px solid #09090b', 
                             textAlign: 'center', 
                             fontSize: '0.85rem',
-                            color: '#1d4ed8',
-                            background: '#eff6ff',
+                            color: '#09090b',
+                            background: '#FFFFFF',
                             fontWeight: 700,
                             outline: 'none'
                           }}
@@ -1420,55 +1435,52 @@ const ScoreEntry = () => {
                       </div>
                     </div>
 
-                    {/* Sub-Totals Display */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '0.4rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6rem', color: '#166534', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>CA ({settings.caWeight}%)</span>
-                        <strong style={{ fontSize: '0.9rem', color: '#15803d', fontWeight: 800, marginTop: '1px' }}>{caScaled > 0 ? caScaled : '0'}</strong>
-                      </div>
-                      <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '0.4rem', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.6rem', color: '#1e40af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Exam ({settings.examWeight}%)</span>
-                        <strong style={{ fontSize: '0.9rem', color: '#1d4ed8', fontWeight: 800, marginTop: '1px' }}>{examScaled > 0 ? examScaled : '0'}</strong>
-                      </div>
-                    </div>
-
-                    {/* Unified Grade & Remarks Banner */}
-                    <div style={{
-                      background: perf.bannerBg,
-                      border: `1px solid ${perf.bannerBorder}`,
-                      borderRadius: '10px',
-                      padding: '0.65rem 0.75rem',
+                    {/* Integrated Bottom Summary Ledger */}
+                    <div style={{ 
+                      background: '#FAFAFA', 
+                      border: '1px solid #E4E4E7', 
+                      borderRadius: '8px', 
+                      padding: '0.55rem 0.75rem',
                       display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.35rem',
-                      color: perf.bannerColor,
-                      transition: 'all 0.3s ease'
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: '0.74rem'
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>Total Score:</span>
-                        <span style={{ fontSize: '1.15rem', fontWeight: 900, fontFamily: 'Outfit, sans-serif' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#52525B' }}>
+                        <span>CA: <strong style={{ color: '#09090b' }}>{caScaled > 0 ? caScaled : '0'}</strong></span>
+                        <span>&bull;</span>
+                        <span>Exam: <strong style={{ color: '#09090b' }}>{examScaled > 0 ? examScaled : '0'}</strong></span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span style={{ fontWeight: 800, color: '#09090b', fontSize: '0.82rem' }}>
                           {total > 0 ? total : '0'}
                         </span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: `1px solid ${perf.bannerBorder}`, paddingTop: '0.35rem', marginTop: '0.15rem' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                          <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Grade:</span>
+                        <span style={{ 
+                          background: total > 0 ? '#09090B' : '#E4E4E7', 
+                          color: total > 0 ? '#FFFFFF' : '#71717A',
+                          fontWeight: 800,
+                          fontSize: '0.68rem',
+                          padding: '1px 5px',
+                          borderRadius: '4px'
+                        }}>
+                          {total > 0 ? grade : '-'}
+                        </span>
+                        {total > 0 && remark && (
                           <span style={{
-                            background: perf.tagBg,
-                            color: perf.tagColor,
-                            fontSize: '0.7rem',
-                            fontWeight: 800,
-                            padding: '1.5px 6px',
-                            borderRadius: '5px',
-                            minWidth: '20px',
-                            textAlign: 'center'
+                            fontSize: '0.63rem',
+                            fontWeight: 700,
+                            color: '#52525B',
+                            background: '#F4F4F5',
+                            border: '1px solid #E4E4E7',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            textTransform: 'capitalize',
+                            whiteSpace: 'nowrap'
                           }}>
-                            {total > 0 ? grade : '-'}
+                            {remark.toLowerCase()}
                           </span>
-                        </div>
-                        <div style={{ fontSize: '0.7rem', fontWeight: 700, fontStyle: 'italic', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>
-                          {total > 0 ? remark : 'No Entry'}
-                        </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1493,37 +1505,40 @@ const ScoreEntry = () => {
                 onClick={() => handleSave(false, 'bottom-draft')} 
                 disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny}
                 style={{ 
-                  padding: '0.8rem 1.8rem', 
-                  fontSize: '0.95rem', 
-                  borderRadius: '12px', 
+                  padding: '0.65rem 1.4rem', 
+                  fontSize: '0.88rem', 
+                  borderRadius: '10px', 
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
-                  background: '#f8fafc',
-                  border: '1.5px solid #cbd5e1',
-                  color: '#334155',
-                  fontWeight: 600,
+                  background: '#FFFFFF',
+                  border: '1px solid #E4E4E7',
+                  color: '#09090B',
+                  fontWeight: 700,
                   opacity: isSavingAny && savingAction !== 'bottom-draft' ? 0.6 : 1
                 }}
               >
                 {savingAction === 'bottom-draft' ? (
                   <i className="fas fa-spinner fa-spin"></i>
                 ) : (
-                  <i className="fas fa-save"></i>
+                  <i className="far fa-save"></i>
                 )}
-                <span>{savingAction === 'bottom-draft' ? 'Saving Draft...' : 'Save as Draft'}</span>
+                <span>{savingAction === 'bottom-draft' ? 'Saving...' : 'Save as Draft'}</span>
               </button>
 
               <button 
                 type="button"
-                className="btn btn-primary" 
+                className="btn" 
                 onClick={() => handleSave(true, 'bottom-submit')} 
                 disabled={!selectedClass || !selectedSubject || !selectedAcademicYear || !selectedTerm || isSavingAny}
                 style={{ 
-                  padding: '0.8rem 2.5rem', 
-                  fontSize: '1rem', 
-                  borderRadius: '12px', 
-                  boxShadow: '0 10px 15px -3px rgba(37, 99, 235, 0.3), 0 4px 6px -4px rgba(37, 99, 235, 0.3)',
+                  padding: '0.65rem 1.75rem', 
+                  fontSize: '0.9rem', 
+                  borderRadius: '10px', 
+                  background: '#09090B',
+                  color: '#FFFFFF',
+                  border: '1px solid #09090B',
+                  boxShadow: '0 2px 8px rgba(9, 9, 11, 0.2)',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '0.5rem',
@@ -1534,9 +1549,9 @@ const ScoreEntry = () => {
                 {savingAction === 'bottom-submit' ? (
                   <i className="fas fa-spinner fa-spin"></i>
                 ) : (
-                  <i className="fas fa-cloud-upload-alt"></i>
+                  <i className="fas fa-check-circle"></i>
                 )}
-                <span>{savingAction === 'bottom-submit' ? 'Submitting Scores...' : 'Save & Sync (Submit)'}</span>
+                <span>{savingAction === 'bottom-submit' ? 'Submitting...' : 'Submit'}</span>
               </button>
             </div>
           </div>

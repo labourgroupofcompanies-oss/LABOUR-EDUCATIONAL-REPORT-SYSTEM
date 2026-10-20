@@ -423,6 +423,52 @@ export const authService = {
       }
     }
 
+    // 4. Pre-cache sibling schools & logos into Dexie for instant offline rendering
+    if (navigator.onLine && matchedLearners.length > 0) {
+      try {
+        const uniqueSchoolIds = [...new Set(matchedLearners.map(l => l.schoolId).filter(Boolean))];
+        for (const sId of uniqueSchoolIds) {
+          const existingSchool = await db.schools.get(sId);
+          if (!existingSchool || !existingSchool.logoBlob) {
+            const { data: remoteSchool } = await supabase
+              .from('report_schools')
+              .select('*')
+              .eq('id', sId)
+              .maybeSingle();
+
+            if (remoteSchool) {
+              const remoteLogo = remoteSchool.logo_url;
+              let logoBlob = existingSchool?.logoBlob || null;
+              if (remoteLogo && typeof remoteLogo === 'string' && remoteLogo.startsWith('http') && !logoBlob) {
+                logoBlob = await downloadImageAsBlob(remoteLogo, 400).catch(() => null);
+              }
+
+              await db.schools.put({
+                ...existingSchool,
+                id: sId,
+                name: remoteSchool.name || existingSchool?.name || '',
+                location: remoteSchool.location || existingSchool?.location || '',
+                district: remoteSchool.district || existingSchool?.district || '',
+                region: remoteSchool.region || existingSchool?.region || '',
+                circuit: remoteSchool.circuit || existingSchool?.circuit || '',
+                motto: remoteSchool.motto || existingSchool?.motto || '',
+                logoUrl: remoteLogo || existingSchool?.logoUrl || '',
+                logoBlob: logoBlob,
+                currentAcademicYear: remoteSchool.current_academic_year || existingSchool?.currentAcademicYear || '',
+                currentTerm: remoteSchool.current_term || existingSchool?.currentTerm || 'Term 1',
+                vacationDate: remoteSchool.vacation_date || existingSchool?.vacationDate || '',
+                nextTermBegins: remoteSchool.next_term_begins || existingSchool?.nextTermBegins || '',
+                phone: remoteSchool.phone || existingSchool?.phone || '',
+                email: remoteSchool.email || existingSchool?.email || ''
+              });
+            }
+          }
+        }
+      } catch (schoolErr) {
+        console.warn('[authService] Pre-syncing schools failed non-critically:', schoolErr);
+      }
+    }
+
     return {
       phoneNumber: cleanInput,
       guardianName,

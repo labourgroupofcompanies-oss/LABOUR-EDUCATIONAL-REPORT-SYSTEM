@@ -7,7 +7,7 @@ DROP FUNCTION IF EXISTS public.get_scores_by_guardian_contact(TEXT);
 
 CREATE OR REPLACE FUNCTION public.get_scores_by_guardian_contact(p_contact TEXT)
 RETURNS TABLE (
-  id BIGINT,
+  id UUID,
   school_id TEXT,
   learner_id UUID,
   class_id INTEGER,

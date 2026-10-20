@@ -274,6 +274,76 @@ db.version(16).stores({
   payments: '++id, schoolId, learnerId, academicYear, term, synced, supabaseId, amount, paymentDate, paymentMethod, reference'
 });
 
+// v17 — stub: closes the migration gap between v16 and v19 (prevents VersionError for any device on v17)
+db.version(17).stores({
+  schools: 'id, name, location, district, region, circuit, referralCode, referredBySchoolId, referralLocked, is_first_term_free, first_term_free_terminated, initial_academic_year, initial_term',
+  settings: 'id',
+  academicYears: '++id, schoolId, name, isCurrent, [schoolId+isCurrent]',
+  terms: '++id, academicYearId, name, status',
+  classes: '++id, schoolId, name, category, [schoolId+name]',
+  subjects: '++id, name, schoolId, [schoolId+name]',
+  profiles: 'id, schoolId, fullName, role, email, [schoolId+role]',
+  learners: '++id, schoolId, currentClassId, learnerId, regNumber, fullName, synced, supabaseId, status, photoUrl, [schoolId+status], [schoolId+currentClassId]',
+  teacherAssignments: '++id, teacherId, classId, subjectId, termId, schoolId, [schoolId+teacherId]',
+  scores: '++id, learnerId, classId, subjectId, termId, term, academicYear, isSubmitted, lastSyncedAt, schoolId, [schoolId+academicYear+term], [schoolId+learnerId], [schoolId+classId+subjectId]',
+  classSubjects: '++id, classId, subjectId, schoolId, [schoolId+classId]',
+  reportSummaries: '++id, schoolId, learnerId, classId, academicYear, term, synced, supabaseId, promotionStatus, isReleased, [schoolId+academicYear+term], [schoolId+learnerId]',
+  parentAccounts: 'phone_number, password_hash, synced',
+  announcements: '++id, title, content, synced, supabaseId, schoolId, created_at, [schoolId+created_at]',
+  messages: '++id, schoolId, parentPhone, senderRole, content, created_at, isRead, supabaseId, synced, [schoolId+parentPhone]',
+  notifications: '++id, schoolId, parentPhone, title, content, created_at, isRead, supabaseId, [schoolId+parentPhone]',
+  outbox: '++id, operation, table, schoolId, status, createdAt, [schoolId+status]',
+  payments: '++id, schoolId, learnerId, academicYear, term, synced, supabaseId, amount, paymentDate, paymentMethod, reference, [schoolId+learnerId]',
+  feeStructure: 'id, schoolId, academicYear, term, className, feeCategory, [schoolId+academicYear+term]',
+  feeTransactions: 'id, clientTxId, schoolId, learnerId, receiptNumber, receiptStatus, transactionType, createdAt, [schoolId+learnerId]',
+  paymentAllocations: 'id, transactionId, feeCategory',
+  cashbookClosings: 'id, schoolId, closingDate, status, [schoolId+closingDate]',
+  financialAuditLogs: 'id, schoolId, staffId, action, performedAt, [schoolId+performedAt]',
+  auditLogs: 'id, schoolId, timestamp, userId, action, [schoolId+action]',
+  referrals: 'id, referrerSchoolId, referredSchoolId, referralCodeUsed, status, rewardAmount, welcomeBonusAmount, fraudScore, fraudFlag, createdAt, [referrerSchoolId+status], [referredSchoolId]',
+  walletLedger: 'id, schoolId, type, amount, reference, sourceSchoolId, status, createdAt, [schoolId+type], [reference]',
+  referralConfigs: 'id',
+  referralAuditLogs: 'id, referralId, action, createdAt',
+  fraudAnalysis: 'id, referralId, fraudScore, createdAt',
+  systemEvents: '++id, eventName, processed, createdAt',
+  recycleBin: '++id, schoolId, entityType, entityId, entityName, deletedAt, expiresAt, synced, supabaseId, [schoolId+entityType]'
+});
+
+// v18 — stub: closes the migration gap between v16 and v19 (prevents VersionError for any device on v18)
+db.version(18).stores({
+  schools: 'id, name, location, district, region, circuit, referralCode, referredBySchoolId, referralLocked, is_first_term_free, first_term_free_terminated, initial_academic_year, initial_term',
+  settings: 'id',
+  academicYears: '++id, schoolId, name, isCurrent, [schoolId+isCurrent]',
+  terms: '++id, academicYearId, name, status',
+  classes: '++id, schoolId, name, category, [schoolId+name]',
+  subjects: '++id, name, schoolId, [schoolId+name]',
+  profiles: 'id, schoolId, fullName, role, email, [schoolId+role]',
+  learners: '++id, schoolId, currentClassId, learnerId, regNumber, fullName, synced, supabaseId, status, photoUrl, [schoolId+status], [schoolId+currentClassId]',
+  teacherAssignments: '++id, teacherId, classId, subjectId, termId, schoolId, [schoolId+teacherId]',
+  scores: '++id, learnerId, classId, subjectId, termId, term, academicYear, isSubmitted, lastSyncedAt, schoolId, [schoolId+academicYear+term], [schoolId+learnerId], [schoolId+classId+subjectId]',
+  classSubjects: '++id, classId, subjectId, schoolId, [schoolId+classId]',
+  reportSummaries: '++id, schoolId, learnerId, classId, academicYear, term, synced, supabaseId, promotionStatus, isReleased, [schoolId+academicYear+term], [schoolId+learnerId]',
+  parentAccounts: 'phone_number, password_hash, synced',
+  announcements: '++id, title, content, synced, supabaseId, schoolId, created_at, [schoolId+created_at]',
+  messages: '++id, schoolId, parentPhone, senderRole, content, created_at, isRead, supabaseId, synced, [schoolId+parentPhone]',
+  notifications: '++id, schoolId, parentPhone, title, content, created_at, isRead, supabaseId, [schoolId+parentPhone]',
+  outbox: '++id, operation, table, schoolId, status, createdAt, [schoolId+status]',
+  payments: '++id, schoolId, learnerId, academicYear, term, synced, supabaseId, amount, paymentDate, paymentMethod, reference, [schoolId+learnerId]',
+  feeStructure: 'id, schoolId, academicYear, term, className, feeCategory, [schoolId+academicYear+term]',
+  feeTransactions: 'id, clientTxId, schoolId, learnerId, receiptNumber, receiptStatus, transactionType, createdAt, [schoolId+learnerId]',
+  paymentAllocations: 'id, transactionId, feeCategory',
+  cashbookClosings: 'id, schoolId, closingDate, status, [schoolId+closingDate]',
+  financialAuditLogs: 'id, schoolId, staffId, action, performedAt, [schoolId+performedAt]',
+  auditLogs: 'id, schoolId, timestamp, userId, action, [schoolId+action]',
+  referrals: 'id, referrerSchoolId, referredSchoolId, referralCodeUsed, status, rewardAmount, welcomeBonusAmount, fraudScore, fraudFlag, createdAt, [referrerSchoolId+status], [referredSchoolId]',
+  walletLedger: 'id, schoolId, type, amount, reference, sourceSchoolId, status, createdAt, [schoolId+type], [reference]',
+  referralConfigs: 'id',
+  referralAuditLogs: 'id, referralId, action, createdAt',
+  fraudAnalysis: 'id, referralId, fraudScore, createdAt',
+  systemEvents: '++id, eventName, processed, createdAt',
+  recycleBin: '++id, schoolId, entityType, entityId, entityName, deletedAt, expiresAt, synced, supabaseId, [schoolId+entityType]'
+});
+
 // v19 — Enterprise Multi-Tenant composite indexes & audit logs
 db.version(19).stores({
   schools: 'id, name, location, district, region, circuit',
@@ -404,6 +474,47 @@ db.version(22).stores({
   fraudAnalysis: 'id, referralId, fraudScore, createdAt',
   systemEvents: '++id, eventName, processed, createdAt',
   recycleBin: '++id, schoolId, entityType, entityId, entityName, deletedAt, expiresAt, synced, supabaseId, [schoolId+entityType]'
+});
+
+// v23 — initial dailyLogs store
+db.version(23).stores({
+  schools: 'id, name, location, district, region, circuit, referralCode, referredBySchoolId, referralLocked, is_first_term_free, first_term_free_terminated, initial_academic_year, initial_term',
+  settings: 'id',
+  academicYears: '++id, schoolId, name, isCurrent, [schoolId+isCurrent]',
+  terms: '++id, academicYearId, name, status',
+  classes: '++id, schoolId, name, category, [schoolId+name]',
+  subjects: '++id, name, schoolId, [schoolId+name]',
+  profiles: 'id, schoolId, fullName, role, email, [schoolId+role]',
+  learners: '++id, schoolId, currentClassId, learnerId, regNumber, fullName, synced, supabaseId, status, photoUrl, [schoolId+status], [schoolId+currentClassId]',
+  teacherAssignments: '++id, teacherId, classId, subjectId, termId, schoolId, [schoolId+teacherId]',
+  scores: '++id, learnerId, classId, subjectId, termId, term, academicYear, isSubmitted, lastSyncedAt, schoolId, [schoolId+academicYear+term], [schoolId+learnerId], [schoolId+classId+subjectId]',
+  classSubjects: '++id, classId, subjectId, schoolId, [schoolId+classId]',
+  reportSummaries: '++id, schoolId, learnerId, classId, academicYear, term, synced, supabaseId, promotionStatus, isReleased, [schoolId+academicYear+term], [schoolId+learnerId]',
+  parentAccounts: 'phone_number, password_hash, synced',
+  announcements: '++id, title, content, synced, supabaseId, schoolId, created_at, [schoolId+created_at]',
+  messages: '++id, schoolId, parentPhone, senderRole, content, created_at, isRead, supabaseId, synced, [schoolId+parentPhone]',
+  notifications: '++id, schoolId, parentPhone, title, content, created_at, isRead, supabaseId, [schoolId+parentPhone]',
+  outbox: '++id, operation, table, schoolId, status, createdAt, [schoolId+status]',
+  payments: '++id, schoolId, learnerId, academicYear, term, synced, supabaseId, amount, paymentDate, paymentMethod, reference, [schoolId+learnerId]',
+  feeStructure: 'id, schoolId, academicYear, term, className, feeCategory, [schoolId+academicYear+term]',
+  feeTransactions: 'id, clientTxId, schoolId, learnerId, receiptNumber, receiptStatus, transactionType, createdAt, [schoolId+learnerId]',
+  paymentAllocations: 'id, transactionId, feeCategory',
+  cashbookClosings: 'id, schoolId, closingDate, status, [schoolId+closingDate]',
+  financialAuditLogs: 'id, schoolId, staffId, action, performedAt, [schoolId+performedAt]',
+  auditLogs: 'id, schoolId, timestamp, userId, action, [schoolId+action]',
+  referrals: 'id, referrerSchoolId, referredSchoolId, referralCodeUsed, status, rewardAmount, welcomeBonusAmount, fraudScore, fraudFlag, createdAt, [referrerSchoolId+status], [referredSchoolId]',
+  walletLedger: 'id, schoolId, type, amount, reference, sourceSchoolId, status, createdAt, [schoolId+type], [reference]',
+  referralConfigs: 'id',
+  referralAuditLogs: 'id, referralId, action, createdAt',
+  fraudAnalysis: 'id, referralId, fraudScore, createdAt',
+  systemEvents: '++id, eventName, processed, createdAt',
+  recycleBin: '++id, schoolId, entityType, entityId, entityName, deletedAt, expiresAt, synced, supabaseId, [schoolId+entityType]',
+  dailyLogs: '++id, schoolId, classId, date, teacherId, synced, supabaseId, updatedAt, [schoolId+classId+date]'
+});
+
+// v24 — adds learnerId and [schoolId+learnerId+date] index for per-learner daily performance logs
+db.version(24).stores({
+  dailyLogs: '++id, schoolId, classId, learnerId, date, teacherId, synced, supabaseId, updatedAt, [schoolId+learnerId+date], [schoolId+classId+date]'
 });
 
 export default db;

@@ -122,8 +122,8 @@ export const PORTAL_GUIDES = {
       id: 5,
       target: '[data-tour="sidebar-settings"], [data-tour="mobile-nav-settings"], [data-tour="nav-settings"]',
       fallback: '.sidebar, .app-header',
-      title: '5. Save & Sync Work',
-      description: 'Make sure your marks are saved and sent to the cloud so the headteacher can prepare report cards.',
+      title: '5. Submit Work',
+      description: 'Make sure your marks are saved and submitted so the headteacher can prepare report cards.',
       route: '/settings',
       icon: 'fa-cloud-arrow-up',
       color: '#6366f1'

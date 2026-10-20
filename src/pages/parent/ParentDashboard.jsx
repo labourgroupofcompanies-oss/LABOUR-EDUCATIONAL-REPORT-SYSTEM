@@ -2157,6 +2157,32 @@ const ParentDashboard = () => {
           color: #2563eb;
         }
 
+        .qa-btn-lupdate {
+          background: #FAFAFA;
+          border-color: #E4E4E7;
+        }
+
+        .qa-btn-lupdate:hover {
+          transform: translateY(-4px);
+          background: #09090b;
+          border-color: #09090b;
+          box-shadow: 0 12px 30px rgba(9, 9, 11, 0.2);
+        }
+
+        .qa-btn-lupdate .qa-btn-icon {
+          background: rgba(9, 9, 11, 0.08);
+          color: #09090b;
+        }
+
+        .qa-btn-lupdate:hover .qa-btn-icon {
+          background: rgba(255, 255, 255, 0.2);
+          color: #fff;
+        }
+
+        .qa-btn-lupdate .qa-btn-action-indicator {
+          color: #09090b;
+        }
+
         .qa-btn-text {
           flex: 1;
         }
@@ -2656,6 +2682,233 @@ const ParentDashboard = () => {
             font-size: 0.72rem;
           }
         }
+
+        /* ── Empty Siblings State ── */
+        .empty-siblings-state {
+          background: #fff;
+          border: 1.5px dashed #cbd5e1;
+          border-radius: 20px;
+          padding: 3rem 1.5rem;
+          text-align: center;
+          max-width: 480px;
+          margin: 1.5rem auto;
+        }
+
+        .empty-siblings-icon {
+          width: 60px;
+          height: 60px;
+          border-radius: 16px;
+          background: rgba(100, 116, 139, 0.1);
+          color: #64748b;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 1.5rem;
+          margin: 0 auto 1rem;
+        }
+
+        .empty-siblings-title {
+          font-size: 1.1rem;
+          font-weight: 800;
+          color: #0f172a;
+          margin: 0 0 0.5rem;
+        }
+
+        .empty-siblings-desc {
+          font-size: 0.82rem;
+          color: #64748b;
+          line-height: 1.5;
+          margin: 0;
+        }
+
+        /* ── Mobile Screen Optimization for All Learners & Dashboard ── */
+        @media (max-width: 768px) {
+          .selector-landing-container {
+            margin: 1rem auto 0 !important;
+            padding: 0 1rem 3rem !important;
+          }
+
+          .selector-landing-card {
+            padding: 0.5rem 0 !important;
+          }
+
+          .landing-title {
+            font-size: 1.45rem !important;
+            margin-bottom: 0.35rem !important;
+            letter-spacing: -0.02em !important;
+          }
+
+          .landing-subtitle {
+            font-size: 0.82rem !important;
+            margin-bottom: 1.25rem !important;
+            line-height: 1.5 !important;
+            color: #64748b !important;
+            padding: 0 0.5rem !important;
+          }
+
+          .sibling-grid {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 0.85rem !important;
+            margin-top: 0.5rem !important;
+          }
+
+          .sibling-card {
+            padding: 1.15rem 1rem !important;
+            border-radius: 18px !important;
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12) !important;
+            transition: transform 0.2s, box-shadow 0.2s !important;
+          }
+
+          .sibling-card:active {
+            transform: scale(0.98) !important;
+          }
+
+          .sib-card-header {
+            margin-bottom: 0.75rem !important;
+          }
+
+          .sib-avatar {
+            width: 54px !important;
+            height: 54px !important;
+            border-radius: 14px !important;
+          }
+
+          .sib-avatar-ph {
+            width: 54px !important;
+            height: 54px !important;
+            border-radius: 14px !important;
+            font-size: 1.4rem !important;
+          }
+
+          .sib-badge {
+            font-size: 0.6rem !important;
+            padding: 0.25rem 0.55rem !important;
+          }
+
+          .sib-fullname {
+            font-size: 1.15rem !important;
+            margin: 0.25rem 0 0.65rem !important;
+          }
+
+          .sib-meta-row {
+            padding: 0.45rem 0.75rem !important;
+            font-size: 0.75rem !important;
+            border-radius: 10px !important;
+            margin-bottom: 0.35rem !important;
+          }
+
+          .sib-school-info {
+            margin-top: 0.75rem !important;
+            padding: 0.45rem 0.75rem !important;
+            font-size: 0.75rem !important;
+            border-radius: 10px !important;
+          }
+
+          .btn-sib-enter {
+            padding: 0.7rem 1rem !important;
+            font-size: 0.82rem !important;
+            border-radius: 12px !important;
+          }
+
+          /* Active child dashboard on mobile */
+          .dashboard-body {
+            margin: 1rem auto 0 !important;
+            padding: 0 1rem 3rem !important;
+            gap: 1.25rem !important;
+          }
+
+          .btn-back-selection {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 0.65rem 1rem !important;
+            font-size: 0.82rem !important;
+            border-radius: 12px !important;
+            margin-bottom: 0.75rem !important;
+          }
+
+          .sibling-selector-card {
+            padding: 0.85rem !important;
+            border-radius: 16px !important;
+            margin-bottom: 1rem !important;
+          }
+
+          .sibling-pills {
+            display: flex !important;
+            gap: 8px !important;
+            overflow-x: auto !important;
+            white-space: nowrap !important;
+            -webkit-overflow-scrolling: touch !important;
+            scrollbar-width: none !important;
+            padding-bottom: 4px !important;
+          }
+
+          .sibling-pills::-webkit-scrollbar {
+            display: none !important;
+          }
+
+          .sibling-pill {
+            flex-shrink: 0 !important;
+            padding: 0.45rem 0.85rem !important;
+            font-size: 0.78rem !important;
+          }
+
+          .id-card {
+            padding: 1.25rem 1rem !important;
+            border-radius: 18px !important;
+            margin-bottom: 1rem !important;
+          }
+
+          .id-body {
+            flex-direction: column !important;
+            align-items: center !important;
+            text-align: center !important;
+            gap: 1rem !important;
+          }
+
+          .id-meta-grid {
+            grid-template-columns: 1fr 1fr !important;
+            gap: 0.75rem !important;
+            text-align: left !important;
+          }
+
+          .metrics-grid {
+            grid-template-columns: 1fr !important;
+            gap: 0.75rem !important;
+          }
+
+          .metric-card {
+            padding: 1.15rem 1rem !important;
+            border-radius: 16px !important;
+            gap: 1rem !important;
+          }
+
+          .metric-val {
+            font-size: 1.25rem !important;
+          }
+
+          .quick-actions-grid {
+            gap: 0.75rem !important;
+          }
+
+          .qa-grid-btn {
+            padding: 1.15rem 1rem !important;
+            border-radius: 18px !important;
+          }
+
+          .qa-btn-title {
+            font-size: 0.95rem !important;
+          }
+
+          .qa-btn-desc {
+            font-size: 0.75rem !important;
+          }
+
+          .contact-card {
+            border-radius: 18px !important;
+            padding: 1rem !important;
+          }
+        }
       `}</style>
 
       {/* â”€â”€ Change Password Modal â”€â”€ */}
@@ -3036,54 +3289,72 @@ const ParentDashboard = () => {
       <PlatformBroadcastBanner isParentPortal={true} />
 
       {selectedIdx === null ? (
-        /* â”€â”€ SIBLING CARDS GRID VIEW â”€â”€ */
+        /* ── SIBLING CARDS GRID VIEW ── */
         <div className="selector-landing-container" data-tour="parent-children">
           <div className="selector-landing-card">
             <h3 className="landing-title">Registered Learners</h3>
-            <p className="landing-subtitle">Please select a student below to access their academic performance profiles and financial ledger details.</p>
-            <div className="sibling-grid">
-              {siblings.map((sib, idx) => (
-                <div key={sib.id} className={`sibling-card ${sib.gender === 'Female' ? 'card-female' : 'card-male'}`} onClick={() => setSelectedIdx(idx)}>
-                  <div className="sib-card-header">
-                    <div className="sib-avatar-wrapper">
-                      <LearnerPhoto
-                        photo={sib.photo || sib.photoUrl || null}
-                        alt={sib.fullName}
-                        gender={sib.gender}
-                        className="sib-avatar"
-                      />
-                    </div>
-                    <span className="sib-badge">Student</span>
-                  </div>
-                  <div className="sib-card-body">
-                    <h4 className="sib-fullname" title={sib.fullName}>{sib.fullName}</h4>
-                    <div className="sib-meta-row">
-                      <span className="sib-meta-lbl">Reg No:</span>
-                      <span className="sib-meta-val">{sib.regNumber}</span>
-                    </div>
-                    <div className="sib-meta-row">
-                      <span className="sib-meta-lbl">Current Grade:</span>
-                      <span className="sib-meta-val">{getClassName(sib.currentClassId)}</span>
-                    </div>
-                    <div className="sib-school-info">
-                      {getSchoolLogo(sib.schoolId) ? (
-                        <img src={getSchoolLogo(sib.schoolId)} alt="School Logo" className="sib-school-logo" />
-                      ) : (
-                        <div className="sib-school-logo-ph">
-                          <i className="fas fa-school"></i>
-                        </div>
-                      )}
-                      <span>{getSchoolName(sib.schoolId)}</span>
-                    </div>
-                  </div>
-                  <div className="sib-card-footer">
-                    <button className="btn-sib-enter">
-                      Access Dashboard <i className="fas fa-arrow-right"></i>
-                    </button>
-                  </div>
+            <p className="landing-subtitle">
+              {siblings.length > 0 
+                ? `Select a student below to access their academic performance profiles and financial details.`
+                : `We are searching for learners linked to your registered phone number.`}
+            </p>
+
+            {siblings.length === 0 ? (
+              <div className="empty-siblings-state">
+                <div className="empty-siblings-icon">
+                  <i className="fas fa-user-graduate" />
                 </div>
-              ))}
-            </div>
+                <h4 className="empty-siblings-title">No Registered Learners Found</h4>
+                <p className="empty-siblings-desc">
+                  We could not find any learner records linked to phone number <strong>{parent?.phone_number || ''}</strong>.
+                  Please confirm with your school administration that your contact number is registered correctly.
+                </p>
+              </div>
+            ) : (
+              <div className="sibling-grid">
+                {siblings.map((sib, idx) => (
+                  <div key={sib.id} className={`sibling-card ${sib.gender === 'Female' ? 'card-female' : 'card-male'}`} onClick={() => setSelectedIdx(idx)}>
+                    <div className="sib-card-header">
+                      <div className="sib-avatar-wrapper">
+                        <LearnerPhoto
+                          photo={sib.photo || sib.photoUrl || null}
+                          alt={sib.fullName}
+                          gender={sib.gender}
+                          className="sib-avatar"
+                        />
+                      </div>
+                      <span className="sib-badge">{sib.gender || 'Student'}</span>
+                    </div>
+                    <div className="sib-card-body">
+                      <h4 className="sib-fullname" title={sib.fullName}>{sib.fullName}</h4>
+                      <div className="sib-meta-row">
+                        <span className="sib-meta-lbl">Reg No:</span>
+                        <span className="sib-meta-val">{sib.regNumber || '—'}</span>
+                      </div>
+                      <div className="sib-meta-row">
+                        <span className="sib-meta-lbl">Current Grade:</span>
+                        <span className="sib-meta-val">{getClassName(sib.currentClassId)}</span>
+                      </div>
+                      <div className="sib-school-info">
+                        {getSchoolLogo(sib.schoolId) ? (
+                          <img src={getSchoolLogo(sib.schoolId)} alt="School Logo" className="sib-school-logo" />
+                        ) : (
+                          <div className="sib-school-logo-ph">
+                            <i className="fas fa-school"></i>
+                          </div>
+                        )}
+                        <span>{getSchoolName(sib.schoolId)}</span>
+                      </div>
+                    </div>
+                    <div className="sib-card-footer">
+                      <button className="btn-sib-enter">
+                        Access Dashboard <i className="fas fa-arrow-right"></i>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       ) : (
@@ -3229,7 +3500,25 @@ const ParentDashboard = () => {
                           {!isReportReleased ? <>Locked <i className="fas fa-lock" /></> : <>Enter Portal <i className="fas fa-arrow-right" /></>}
                         </div>
                       </button>
-                      {/* â”€â”€ Chat with Head Teacher â”€â”€ */}
+                      {/* ── L Update (Daily Performance Feed) ── */}
+                      <button 
+                        className="qa-grid-btn qa-btn-lupdate"
+                        onClick={() => navigate('/parent/l-update')}
+                      >
+                        <div className="qa-btn-main">
+                          <div className="qa-btn-icon">
+                            <i className="fas fa-calendar-day"></i>
+                          </div>
+                          <div className="qa-btn-text">
+                            <div className="qa-btn-title">L Update</div>
+                            <div className="qa-btn-desc">Daily class activities, exercises, scores, homework, and class notices.</div>
+                          </div>
+                        </div>
+                        <div className="qa-btn-action-indicator">
+                          View Feed <i className="fas fa-arrow-right"></i>
+                        </div>
+                      </button>
+                      {/* ── Chat with Head Teacher ── */}
                       <button
                         className="qa-grid-btn qa-btn-chat"
                         onClick={() => { setChatOpen(true); setNotifOpen(false); }}

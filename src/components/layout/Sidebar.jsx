@@ -47,6 +47,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       links: [
         { to: '/learners', icon: 'fa-user-graduate', label: 'Learners' },
         { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
+        { to: '/p-update', icon: 'fa-clipboard-list', label: 'P Update' },
         { to: '/reports', icon: 'fa-file-invoice', label: 'Reports' },
         { to: '/promotions', icon: 'fa-level-up-alt', label: 'Promotions' },
         { to: '/all-scores', icon: 'fa-list-check', label: 'Audit' }
@@ -84,7 +85,8 @@ const Sidebar = ({ isOpen, onClose }) => {
       title: 'Classroom',
       links: [
         { to: '/scores', icon: 'fa-pen-to-square', label: 'Score Entry' },
-        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Remarks' }
+        { to: '/class-remarks', icon: 'fa-clipboard-user', label: 'Remarks' },
+        { to: '/p-update', icon: 'fa-clipboard-list', label: 'P Update' }
       ]
     },
     {
@@ -280,33 +282,6 @@ const Sidebar = ({ isOpen, onClose }) => {
             className={`fas ${isSyncing ? 'fa-arrows-rotate' : 'fa-cloud-arrow-up'}`}
             style={{ fontSize: '0.8rem', color: isSyncing ? '#2563eb' : hasFailed ? '#EF4444' : hasPending ? '#F59E0B' : 'rgba(255,255,255,0.4)', transition: 'color 0.3s' }}
           />
-        </button>
-
-        {/* Install PWA App Button */}
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('open-pwa-install'))}
-          style={{
-            width: '100%',
-            padding: '0.55rem',
-            marginBottom: '0.5rem',
-            background: 'rgba(37, 99, 235, 0.15)',
-            border: '1px solid rgba(37, 99, 235, 0.3)',
-            borderRadius: 'var(--radius-md)',
-            color: '#60A5FA',
-            cursor: 'pointer',
-            fontSize: '0.8rem',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            transition: 'var(--transition)',
-            fontFamily: 'inherit'
-          }}
-          title="Install Labour Edu App on your device"
-        >
-          <i className="fas fa-download"></i>
-          <span>Install App</span>
         </button>
 
         <button

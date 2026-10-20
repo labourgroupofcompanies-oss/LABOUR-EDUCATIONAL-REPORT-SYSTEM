@@ -57,16 +57,24 @@ window.alert = (rawMessage) => {
     progressBg = '#EF4444';
   }
 
+  // HTML-escape the message before injecting into innerHTML (prevents XSS from server-provided strings)
+  const safeMessage = message
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
   // Create toast DOM element
   const container = document.createElement('div');
   container.className = 'custom-alert-toast';
   container.style.cssText = `
     position: fixed;
-    top: 24px;
-    right: 24px;
+    top: max(24px, env(safe-area-inset-top, 24px));
+    right: max(24px, env(safe-area-inset-right, 24px));
     z-index: 999999;
     width: 360px;
-    max-width: calc(100vw - 48px);
+    max-width: calc(100vw - max(48px, env(safe-area-inset-left, 24px) + env(safe-area-inset-right, 24px)));
     background: ${bgGradient};
     border: 1px solid ${accentColor}40;
     border-left: 5px solid ${accentColor};
@@ -91,7 +99,7 @@ window.alert = (rawMessage) => {
           ${title}
         </h5>
         <p style="margin: 4px 0 0 0; font-size: 0.85rem; font-weight: 600; line-height: 1.45; color: ${textColor}; word-break: break-word;">
-          ${message}
+          ${safeMessage}
         </p>
       </div>
       <button class="custom-alert-close" style="background: none; border: none; font-size: 1.2rem; color: ${accentColor}; cursor: pointer; padding: 0 4px; opacity: 0.7; line-height: 1; font-weight: bold; transition: opacity 0.2s;">

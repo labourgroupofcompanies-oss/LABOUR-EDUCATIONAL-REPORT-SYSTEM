@@ -12,13 +12,16 @@ const PortalToastContainer = () => {
     <div style={{
       position: 'fixed',
       top: '72px',
-      right: '20px',
+      /* Anchor to both sides with safe margins so nothing clips on mobile */
+      left: '8px',
+      right: '8px',
       zIndex: 9999,
       display: 'flex',
       flexDirection: 'column',
       gap: '10px',
-      maxWidth: '360px',
-      width: 'calc(100vw - 40px)',
+      /* Cap width on larger screens and keep it in the top-right corner */
+      maxWidth: '380px',
+      marginLeft: 'auto',
       pointerEvents: 'none'
     }}>
       {toasts.map((toast) => {

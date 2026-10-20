@@ -13,74 +13,100 @@ import subscriptionService from '../services/subscriptionService';
 import broadcastService from '../services/broadcastService';
 import { getTeacherIdentifierSet, isAssignmentForTeacher } from '../utils/teacherUtils';
 
-// Premium Green-Themed Stat Card with Micro-Animations
-const StatCard = ({ icon, iconColor, value, label, badge, badgeColor, onClick, isFeatured }) => (
+// Clean, Well-Proportioned Metric Stat Card
+const StatCard = ({ icon, value, label, badge, badgeColor, onClick, isPrimary = false }) => (
   <div 
-    className={`card stat-card-responsive ${isFeatured ? 'stat-card-featured' : ''}`}
     onClick={onClick}
     style={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      gap: '0.65rem', 
-      position: 'relative', 
-      overflow: 'hidden',
-      borderLeft: `4px solid ${iconColor || 'var(--accent)'}`,
-      transition: 'var(--transition)',
+      background: '#FFFFFF',
+      border: isPrimary ? '1.5px solid #09090b' : '1px solid #E4E4E7',
+      borderRadius: '14px',
+      padding: isPrimary ? '1.25rem 1.4rem' : '0.95rem 1.15rem',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      gap: '0.65rem',
       cursor: onClick ? 'pointer' : 'default',
-      padding: '1.1rem 1.25rem',
-      borderRadius: '16px'
+      transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+      boxShadow: isPrimary 
+        ? '0 3px 12px -2px rgba(9, 9, 11, 0.06)' 
+        : '0 1px 2px rgba(0, 0, 0, 0.02)',
+      position: 'relative',
+      height: '100%',
+      boxSizing: 'border-box'
+    }}
+    onMouseEnter={e => {
+      if (onClick) {
+        e.currentTarget.style.borderColor = '#09090b';
+        e.currentTarget.style.boxShadow = isPrimary
+          ? '0 6px 18px -4px rgba(9, 9, 11, 0.1)'
+          : '0 4px 12px -2px rgba(9, 9, 11, 0.05)';
+        e.currentTarget.style.transform = 'translateY(-2px)';
+      }
+    }}
+    onMouseLeave={e => {
+      if (onClick) {
+        e.currentTarget.style.borderColor = isPrimary ? '#09090b' : '#E4E4E7';
+        e.currentTarget.style.boxShadow = isPrimary 
+          ? '0 3px 12px -2px rgba(9, 9, 11, 0.06)' 
+          : '0 1px 2px rgba(0, 0, 0, 0.02)';
+        e.currentTarget.style.transform = 'translateY(0)';
+      }
     }}
   >
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-      <div 
-        style={{ 
-          width: '38px', 
-          height: '38px', 
-          borderRadius: '10px', 
-          background: `${iconColor}15`, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          flexShrink: 0
-        }}
-      >
-        <i className={`fas ${icon}`} style={{ color: iconColor, fontSize: '1rem' }}></i>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+        {icon && (
+          <i 
+            className={`fas ${icon}`} 
+            style={{ 
+              fontSize: isPrimary ? '0.95rem' : '0.8rem', 
+              color: isPrimary ? '#09090b' : '#71717a' 
+            }}
+          />
+        )}
+        <span style={{ 
+          fontSize: isPrimary ? '0.8rem' : '0.74rem', 
+          fontWeight: 700, 
+          color: isPrimary ? '#09090b' : '#71717a',
+          textTransform: 'uppercase',
+          letterSpacing: '0.04em'
+        }}>
+          {label}
+        </span>
       </div>
+
       {badge && (
         <span 
           style={{ 
-            fontSize: '0.68rem', 
+            fontSize: '0.65rem', 
             color: badgeColor || '#059669', 
             fontWeight: 800, 
-            background: `${badgeColor ? badgeColor + '15' : 'rgba(16, 185, 129, 0.1)'}`, 
-            padding: '0.2rem 0.55rem', 
+            background: `${badgeColor ? badgeColor + '14' : 'rgba(16, 185, 129, 0.1)'}`, 
+            border: `1px solid ${badgeColor ? badgeColor + '28' : 'rgba(16, 185, 129, 0.22)'}`,
+            padding: '0.18rem 0.5rem', 
             borderRadius: '999px',
             textTransform: 'uppercase',
-            letterSpacing: '0.03em'
+            letterSpacing: '0.04em'
           }}
         >
           {badge}
         </span>
       )}
     </div>
+
     <div>
       <div 
-        className="stat-card-value"
         style={{ 
-          fontSize: 'clamp(1.2rem, 3.5vw, 1.75rem)', 
+          fontSize: isPrimary ? 'clamp(2.1rem, 3.8vw, 2.75rem)' : 'clamp(1.5rem, 2.4vw, 1.85rem)', 
           fontWeight: 900, 
           fontFamily: 'Outfit, sans-serif', 
-          color: 'var(--primary)', 
-          lineHeight: 1.15,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis'
+          color: '#09090b', 
+          lineHeight: 1,
+          letterSpacing: '-0.03em'
         }}
       >
         {value}
-      </div>
-      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>
-        {label}
       </div>
     </div>
   </div>
@@ -436,35 +462,91 @@ const Dashboard = () => {
   return (
     <Layout title="Dashboard">
       <div className="fade-in">
-        {/* Welcome Banner */}
-        <div className="welcome-banner">
-          <div className="welcome-banner-left">
-            {/* School Logo in banner */}
-            <div className="welcome-banner-logo">
-              {currentSchool?.logoUrl && !logoError && !currentSchool.logoUrl.startsWith('blob:')
-                ? <img
-                    src={currentSchool.logoUrl}
-                    alt="School Logo"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    onError={() => setLogoError(true)}
-                  />
-                : <i className="fas fa-school" style={{ fontSize: '1.6rem', color: 'rgba(255,255,255,0.7)' }} />
-              }
-            </div>
-            <div className="welcome-banner-text">
-              <h1>
-                Welcome back, {user?.fullName?.split(' ')[0]}
-              </h1>
-              <p>
-                {isAdmin ? `Headteacher Portal` : `Teacher Portal`}
-                {currentSchool?.name && <span style={{ opacity: 0.7 }}> &bull; {currentSchool.name}</span>}
-                {currentSchool?.motto && <span style={{ display: 'block', fontStyle: 'italic', fontSize: '0.75rem', opacity: 0.65, marginTop: '2px' }}>&ldquo;{currentSchool.motto}&rdquo;</span>}
-              </p>
+        {/* Academic Briefing Bar (Human & Editorial) */}
+        <div 
+          style={{
+            background: '#FFFFFF',
+            border: '1px solid #E4E4E7',
+            borderRadius: '16px',
+            padding: '1.25rem 1.5rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '1rem',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', minWidth: '220px' }}>
+            {currentSchool?.logoUrl && !logoError && !currentSchool.logoUrl.startsWith('blob:') ? (
+              <div 
+                style={{
+                  width: '46px',
+                  height: '46px',
+                  borderRadius: '12px',
+                  overflow: 'hidden',
+                  border: '1px solid #E4E4E7',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: '#FAFAFA'
+                }}
+              >
+                <img
+                  src={currentSchool.logoUrl}
+                  alt="School Logo"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={() => setLogoError(true)}
+                />
+              </div>
+            ) : null}
+
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h1 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 900, color: '#09090b', letterSpacing: '-0.02em' }}>
+                  {isAdmin ? 'School Overview' : 'Teacher Workspace'}
+                </h1>
+                <span 
+                  style={{
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    padding: '0.15rem 0.55rem',
+                    borderRadius: '6px',
+                    background: '#F4F4F5',
+                    color: '#52525B',
+                    border: '1px solid #E4E4E7'
+                  }}
+                >
+                  {isAdmin ? 'Administration' : 'Faculty'}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.8rem', color: '#71717a', fontWeight: 500, marginTop: '2px' }}>
+                {currentSchool?.currentAcademicYear ? `${currentSchool.currentAcademicYear} Academic Year` : 'Current Session'}
+                {currentSchool?.currentTerm && <span> &bull; {currentSchool.currentTerm}</span>}
+              </div>
             </div>
           </div>
-          <div className="welcome-banner-right">
-            <i className="fas fa-calendar-day"></i>
-            <span>{new Date().toLocaleDateString('en-GH', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div 
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                color: '#52525B',
+                background: '#F8FAFC',
+                padding: '0.5rem 0.85rem',
+                borderRadius: '10px',
+                border: '1px solid #E2E8F0'
+              }}
+            >
+              <i className="far fa-calendar-alt" style={{ color: '#09090b' }}></i>
+              <span>{new Date().toLocaleDateString('en-GH', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            </div>
           </div>
         </div>
 
@@ -472,59 +554,58 @@ const Dashboard = () => {
         {platformBroadcasts && platformBroadcasts.length > 0 && (
           <div
             style={{
-              marginBottom: '1.25rem',
-              borderRadius: '16px',
-              background: 'linear-gradient(135deg, #18181B 0%, #09090B 100%)',
-              color: '#FFFFFF',
+              marginBottom: '1.5rem',
+              borderRadius: '14px',
+              background: '#FFFFFF',
+              color: '#09090b',
               padding: '1rem 1.25rem',
-              boxShadow: '0 8px 24px -4px rgba(0, 0, 0, 0.18)',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               gap: '14px',
               flexWrap: 'wrap',
-              border: '1px solid rgba(255, 255, 255, 0.12)'
+              border: '1px solid #E4E4E7'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '240px' }}>
               <div style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #007AFF 0%, #5856D6 100%)',
+                width: '36px',
+                height: '36px',
+                borderRadius: '8px',
+                background: '#F4F4F5',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 4px 12px rgba(0, 122, 255, 0.35)'
+                flexShrink: 0
               }}>
-                <i className="fas fa-bullhorn" style={{ color: '#FFFFFF', fontSize: '0.92rem' }}></i>
+                <i className="fas fa-bullhorn" style={{ color: '#09090b', fontSize: '0.85rem' }}></i>
               </div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '2px' }}>
                   <span style={{
-                    fontSize: '0.65rem',
-                    fontWeight: 800,
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
                     textTransform: 'uppercase',
-                    letterSpacing: '0.05em',
-                    background: 'rgba(0, 122, 255, 0.22)',
-                    color: '#60A5FA',
+                    letterSpacing: '0.04em',
+                    background: '#EFF6FF',
+                    color: '#2563EB',
                     padding: '0.12rem 0.45rem',
-                    borderRadius: '5px'
+                    borderRadius: '4px'
                   }}>
-                    Platform Announcement
+                    Official Bulletin
                   </span>
-                  <span style={{ fontSize: '0.72rem', color: '#A1A1AA' }}>
-                    {platformBroadcasts.length > 1 ? `${platformBroadcasts.length} Active Directives` : 'Official Notice'}
+                  <span style={{ fontSize: '0.72rem', color: '#71717A' }}>
+                    {platformBroadcasts.length > 1 ? `${platformBroadcasts.length} Active Bulletins` : 'School Notice'}
                   </span>
                 </div>
-                <h4 style={{ margin: '0 0 2px 0', fontSize: '0.92rem', fontWeight: 800, color: '#FFFFFF', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <h4 style={{ margin: '0 0 2px 0', fontSize: '0.9rem', fontWeight: 800, color: '#09090b', letterSpacing: '-0.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {platformBroadcasts[0].title}
                 </h4>
                 <p style={{
                   margin: 0,
                   fontSize: '0.78rem',
-                  color: '#CBD5E1',
+                  color: '#52525B',
                   lineHeight: 1.4,
                   display: '-webkit-box',
                   WebkitLineClamp: 1,
@@ -543,23 +624,22 @@ const Dashboard = () => {
                   window.dispatchEvent(new CustomEvent('open-platform-broadcast-modal', { detail: platformBroadcasts[0] }));
                 }}
                 style={{
-                  background: '#2563EB',
+                  background: '#09090b',
                   color: '#FFFFFF',
                   border: 'none',
-                  padding: '0.45rem 1rem',
-                  borderRadius: '10px',
+                  padding: '0.45rem 0.9rem',
+                  borderRadius: '8px',
                   fontWeight: 700,
-                  fontSize: '0.8rem',
+                  fontSize: '0.78rem',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
-                  boxShadow: '0 3px 10px rgba(37, 99, 235, 0.3)',
                   transition: 'all 0.15s ease'
                 }}
               >
-                <i className="fas fa-book-open" style={{ fontSize: '0.72rem' }}></i>
-                <span>Read Notice</span>
+                <span>Read Bulletin</span>
+                <i className="fas fa-arrow-right" style={{ fontSize: '0.7rem' }}></i>
               </button>
             </div>
           </div>
@@ -625,11 +705,41 @@ const Dashboard = () => {
               </div>
             )}
 
-            <div className="stats-grid">
-              <StatCard icon="fa-user-graduate" iconColor="#2563eb" value={totalLearnerCount ?? '—'} label="Total Learners" badge="Active" onClick={() => navigate('/learners')} />
-              <StatCard icon="fa-chalkboard-teacher" iconColor="#10B981" value={teacherCount ?? '—'} label="Active Teachers" badge="Staff" badgeColor="#10B981" onClick={() => navigate('/teachers')} />
-              <StatCard icon="fa-book" iconColor="#F59E0B" value={subjectCount ?? '—'} label="Subjects Registered" onClick={() => navigate('/setup')} />
-              <StatCard icon="fa-school" iconColor="#09090b" value={classCount ?? '—'} label="School Classes" onClick={() => navigate('/setup')} />
+            {/* Balanced Human Metric Cards Grid: Prominent Primary + 3 Compact Counterparts */}
+            <div 
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '1rem',
+                marginBottom: '1.75rem',
+                alignItems: 'stretch'
+              }}
+            >
+              <StatCard 
+                icon="fa-user-graduate" 
+                value={totalLearnerCount ?? '—'} 
+                label="Enrolled Learners" 
+                onClick={() => navigate('/learners')} 
+                isPrimary={true}
+              />
+              <StatCard 
+                icon="fa-chalkboard-user" 
+                value={teacherCount ?? '—'} 
+                label="Teaching Staff" 
+                onClick={() => navigate('/teachers')} 
+              />
+              <StatCard 
+                icon="fa-book" 
+                value={subjectCount ?? '—'} 
+                label="Active Subjects" 
+                onClick={() => navigate('/setup')} 
+              />
+              <StatCard 
+                icon="fa-school" 
+                value={classCount ?? '—'} 
+                label="School Classes" 
+                onClick={() => navigate('/setup')} 
+              />
             </div>
 
             {/* Quick Actions (Admin) */}
@@ -679,18 +789,36 @@ const Dashboard = () => {
              TEACHER PORTAL DASHBOARD VIEW
              ========================================== */
           <>
-            {/* Stat Cards tailored to the active teacher */}
-            <div className="stats-grid">
-              <StatCard icon="fa-chalkboard-user" iconColor="#2563eb" value={teacherClasses.length} label="My Assigned Classes" badge="Active" />
-              <StatCard icon="fa-book-open" iconColor="#10B981" value={teacherSubjectsCount} label="Assigned Subjects" />
-              <StatCard icon="fa-user-graduate" iconColor="#09090b" value={teacherStudentsCount} label="My Total Learners" />
+            {/* Balanced Human Metric Cards Grid for Teachers */}
+            <div 
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '1rem',
+                marginBottom: '1.75rem',
+                alignItems: 'stretch'
+              }}
+            >
               <StatCard 
                 icon="fa-chart-pie" 
-                iconColor="#10B981" 
                 value={`${overallCompletion}%`} 
-                label="Overall Record Progress" 
-                badge={overallCompletion === 100 ? "Completed" : "In Progress"} 
-                badgeColor={overallCompletion === 100 ? "#10B981" : "#F59E0B"}
+                label="Scores Submitted" 
+                isPrimary={true}
+              />
+              <StatCard 
+                icon="fa-user-graduate" 
+                value={teacherStudentsCount} 
+                label="Assigned Students" 
+              />
+              <StatCard 
+                icon="fa-chalkboard-user" 
+                value={teacherClasses.length} 
+                label="Classes Handled" 
+              />
+              <StatCard 
+                icon="fa-book-open" 
+                value={teacherSubjectsCount} 
+                label="Subjects Taught" 
               />
             </div>
 
@@ -700,93 +828,75 @@ const Dashboard = () => {
               {/* Assigned Subjects with Completion Progress */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                  <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--primary)', margin: 0 }}>
+                  <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#09090B', margin: 0 }}>
                     My Assigned Classes & Subjects
                   </h2>
-                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb', background: 'rgba(37, 99, 235, 0.08)', padding: '0.2rem 0.6rem', borderRadius: '999px', border: '1px solid rgba(37, 99, 235, 0.2)' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#52525B', background: '#F4F4F5', padding: '0.2rem 0.6rem', borderRadius: '6px', border: '1px solid #E4E4E7' }}>
                     {progressList.length} Total Assignments
                   </span>
                 </div>
 
                 {progressList.length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
                     {progressList.map((item) => (
                       <div 
                         key={`${item.classId}-${item.subjectId}`}
                         className="card" 
                         style={{ 
-                          borderRadius: 'var(--radius-xl)', 
-                          border: '1px solid var(--border)', 
-                          background: 'var(--surface)', 
-                          padding: '1.25rem', 
+                          borderRadius: '12px', 
+                          border: '1px solid #E4E4E7', 
+                          background: '#FFFFFF', 
+                          padding: '1.15rem', 
                           display: 'flex', 
                           flexDirection: 'column', 
                           justifyContent: 'space-between', 
-                          gap: '1.2rem',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          boxShadow: 'var(--shadow-sm)',
-                          transition: 'var(--transition)'
+                          gap: '1rem',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
                         }}
                       >
-                        {/* Status Accent Bar at top */}
-                        <div 
-                          style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            height: '4px',
-                            background: item.progressPercent === 100 
-                              ? '#10B981' 
-                              : '#2563eb'
-                          }} 
-                        />
-                        
                         <div>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                             <div>
-                              <h4 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--primary)', fontWeight: 800 }}>
+                              <h4 style={{ margin: 0, fontSize: '0.98rem', color: '#09090B', fontWeight: 700 }}>
                                 {item.className}
                               </h4>
-                              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'block', marginTop: '2px', fontWeight: 500 }}>
+                              <span style={{ fontSize: '0.78rem', color: '#71717A', display: 'block', marginTop: '2px', fontWeight: 500 }}>
                                 {item.subjectName}
                               </span>
                             </div>
                             <div 
                               style={{ 
-                                width: '38px', 
-                                height: '38px', 
-                                borderRadius: 'var(--radius-md)', 
-                                background: 'rgba(37, 99, 235, 0.08)', 
+                                width: '34px', 
+                                height: '34px', 
+                                borderRadius: '8px', 
+                                background: '#F4F4F5', 
+                                border: '1px solid #E4E4E7',
                                 display: 'flex', 
                                 alignItems: 'center', 
                                 justifyContent: 'center' 
                               }}
                             >
-                              <i className="fas fa-book-reader" style={{ color: '#2563eb', fontSize: '1rem' }} />
+                              <i className="fas fa-book-reader" style={{ color: '#09090B', fontSize: '0.85rem' }} />
                             </div>
                           </div>
                           
                           {/* Progress Section */}
-                          <div style={{ marginTop: '1.25rem' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                          <div style={{ marginTop: '1rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', fontWeight: 700, color: '#71717A', marginBottom: '6px' }}>
                               <span>Score Entry Status</span>
-                              <span style={{ color: item.progressPercent === 100 ? '#10B981' : '#2563eb' }}>
+                              <span style={{ color: '#09090B', fontWeight: 700 }}>
                                 {item.recordedCount} / {item.learnersCount} Students ({item.progressPercent}%)
                               </span>
                             </div>
                             
                             {/* Progress bar track */}
-                            <div style={{ width: '100%', height: '8px', background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '999px', overflow: 'hidden' }}>
+                            <div style={{ width: '100%', height: '6px', background: '#F4F4F5', border: '1px solid #E4E4E7', borderRadius: '999px', overflow: 'hidden' }}>
                               <div 
                                 style={{ 
                                   width: `${item.progressPercent}%`, 
                                   height: '100%', 
                                   borderRadius: '999px',
-                                  background: item.progressPercent === 100 
-                                    ? '#10B981' 
-                                    : '#2563eb',
+                                  background: '#09090B',
                                   transition: 'width 0.4s ease-out'
                                 }} 
                               />
@@ -802,28 +912,28 @@ const Dashboard = () => {
                             alignItems: 'center',
                             justifyContent: 'center',
                             gap: '0.5rem',
-                            padding: '0.625rem',
-                            borderRadius: 'var(--radius-md)',
-                            background: item.progressPercent === 100 ? '#ECFDF5' : '#FAFAFA',
-                            border: `1px solid ${item.progressPercent === 100 ? '#A7F3D0' : '#E4E4E7'}`,
-                            color: item.progressPercent === 100 ? '#10B981' : '#2563eb',
-                            fontWeight: 700,
+                            padding: '0.55rem',
+                            borderRadius: '8px',
+                            background: '#FFFFFF',
+                            border: '1px solid #E4E4E7',
+                            color: '#09090B',
+                            fontWeight: 600,
                             fontSize: '0.8rem',
                             cursor: 'pointer',
-                            transition: 'var(--transition)'
+                            transition: 'all 0.15s ease'
                           }}
                           onMouseEnter={e => {
-                            e.currentTarget.style.background = item.progressPercent === 100 ? '#D1FAE5' : 'rgba(37, 99, 235, 0.08)';
-                            e.currentTarget.style.borderColor = '#2563eb';
+                            e.currentTarget.style.background = '#F4F4F5';
+                            e.currentTarget.style.borderColor = '#09090B';
                           }}
                           onMouseLeave={e => {
-                            e.currentTarget.style.background = item.progressPercent === 100 ? '#ECFDF5' : '#FAFAFA';
-                            e.currentTarget.style.borderColor = item.progressPercent === 100 ? '#A7F3D0' : '#E4E4E7';
+                            e.currentTarget.style.background = '#FFFFFF';
+                            e.currentTarget.style.borderColor = '#E4E4E7';
                           }}
                         >
-                          <i className="fas fa-edit" />
+                          <i className="fas fa-edit" style={{ fontSize: '0.75rem' }} />
                           <span>{item.progressPercent === 100 ? 'Edit Scores' : 'Enter Scores'}</span>
-                          <i className="fas fa-chevron-right" style={{ marginLeft: 'auto', fontSize: '0.7rem' }} />
+                          <i className="fas fa-chevron-right" style={{ marginLeft: 'auto', fontSize: '0.65rem', color: '#71717A' }} />
                         </div>
                       </div>
                     ))}
@@ -834,17 +944,17 @@ const Dashboard = () => {
                     className="card" 
                     style={{ 
                       textAlign: 'center', 
-                      padding: '3.5rem 1.5rem', 
+                      padding: '3rem 1.5rem', 
                       background: '#FAFAFA', 
                       border: '1px dashed #E4E4E7',
-                      borderRadius: 'var(--radius-xl)' 
+                      borderRadius: '12px' 
                     }}
                   >
-                    <i className="fas fa-chalkboard-user" style={{ fontSize: '2.5rem', color: '#2563eb', marginBottom: '1rem', opacity: 0.5 }}></i>
-                    <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#09090b', margin: '0 0 0.5rem 0' }}>
+                    <i className="fas fa-chalkboard-user" style={{ fontSize: '2rem', color: '#A1A1AA', marginBottom: '0.75rem', display: 'block' }}></i>
+                    <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#09090B', margin: '0 0 0.35rem 0' }}>
                       No Class Assignments Set
                     </h3>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0, maxWidth: '380px', marginLeft: 'auto', marginRight: 'auto' }}>
+                    <p style={{ fontSize: '0.78rem', color: '#71717A', margin: 0, maxWidth: '380px', marginLeft: 'auto', marginRight: 'auto' }}>
                       You haven't been assigned to any class or subject yet. Please contact the Headteacher or School Administrator to configure your subject teaching assignments.
                     </p>
                   </div>
@@ -852,27 +962,27 @@ const Dashboard = () => {
               </div>
 
               {/* Sidebar Quick Console */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
                 {/* Academic Calendar dates card */}
                 {currentSchool && (currentSchool.vacationDate || currentSchool.nextTermBegins) && (
-                  <div className="card">
-                    <h3 style={{ marginBottom: '1.25rem', fontSize: '1.05rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--primary)' }}>
-                      <i className="fas fa-calendar-alt" style={{ color: 'var(--accent)' }}></i>
+                  <div className="card" style={{ background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', padding: '1.15rem' }}>
+                    <h3 style={{ marginBottom: '1rem', fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: '#09090B' }}>
+                      <i className="fas fa-calendar-alt" style={{ color: '#09090B' }}></i>
                       Academic Calendar
                     </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {currentSchool.vacationDate && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', paddingBottom: '0.6rem' }}>
-                          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>Vacation Date:</span>
-                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #F4F4F5', paddingBottom: '0.5rem' }}>
+                          <span style={{ fontSize: '0.78rem', color: '#71717A', fontWeight: 500 }}>Vacation Date:</span>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#09090B' }}>
                             {formatDateSafe(currentSchool.vacationDate)}
                           </span>
                         </div>
                       )}
                       {currentSchool.nextTermBegins && (
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 500 }}>Next Term Begins:</span>
-                          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#2563eb' }}>
+                          <span style={{ fontSize: '0.78rem', color: '#71717A', fontWeight: 500 }}>Next Term Begins:</span>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#09090B' }}>
                             {formatDateSafe(currentSchool.nextTermBegins)}
                           </span>
                         </div>
@@ -882,86 +992,86 @@ const Dashboard = () => {
                 )}
 
                 {/* Console card */}
-                <div className="card">
-                  <h3 style={{ marginBottom: '1.25rem', fontSize: '1.05rem', fontWeight: 800, color: '#09090b' }}>Portal Dashboard Quick Links</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div className="card" style={{ background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', padding: '1.15rem' }}>
+                  <h3 style={{ marginBottom: '1rem', fontSize: '0.95rem', fontWeight: 700, color: '#09090B' }}>Portal Dashboard Quick Links</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
                     {[
-                      { icon: 'fa-keyboard', label: 'Score Recording Terminal', sub: 'Input test, assignments, projects & exam scores', link: '/scores', color: '#2563eb' }
+                      { icon: 'fa-keyboard', label: 'Score Recording Terminal', sub: 'Input test, assignments, projects & exam scores', link: '/scores' }
                     ].map((action) => (
                       <div key={action.label} 
                         onClick={() => navigate(action.link)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', transition: 'var(--transition)', background: 'var(--surface)', cursor: 'pointer' }}
-                        onMouseEnter={e => { e.currentTarget.style.borderColor = action.color; e.currentTarget.style.background = `${action.color}08`; }}
-                        onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface)'; }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '8px', border: '1px solid #E4E4E7', transition: 'all 0.15s ease', background: '#FFFFFF', cursor: 'pointer' }}
+                        onMouseEnter={e => { e.currentTarget.style.borderColor = '#09090B'; e.currentTarget.style.background = '#F4F4F5'; }}
+                        onMouseLeave={e => { e.currentTarget.style.borderColor = '#E4E4E7'; e.currentTarget.style.background = '#FFFFFF'; }}
                       >
-                        <div style={{ width: '40px', height: '40px', minWidth: '40px', borderRadius: 'var(--radius-md)', background: `${action.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <i className={`fas ${action.icon}`} style={{ color: action.color }}></i>
+                        <div style={{ width: '34px', height: '34px', minWidth: '34px', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <i className={`fas ${action.icon}`} style={{ color: '#09090B', fontSize: '0.85rem' }}></i>
                         </div>
                         <div>
-                          <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--text)' }}>{action.label}</div>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{action.sub}</div>
+                          <div style={{ fontWeight: 600, fontSize: '0.85rem', color: '#09090B' }}>{action.label}</div>
+                          <div style={{ fontSize: '0.72rem', color: '#71717A' }}>{action.sub}</div>
                         </div>
-                        <i className="fas fa-chevron-right" style={{ marginLeft: 'auto', color: 'var(--text-muted)', fontSize: '0.75rem' }}></i>
+                        <i className="fas fa-chevron-right" style={{ marginLeft: 'auto', color: '#71717A', fontSize: '0.7rem' }}></i>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {/* Local Sync Monitor Card */}
-                <div className="card" style={{ padding: '1.25rem', background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: 'var(--radius-lg)' }}>
-                  <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.875rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px', color: '#09090b' }}>
-                    <i className="fas fa-sync" style={{ color: '#2563eb', fontSize: '0.85rem' }}></i>
+                <div className="card" style={{ padding: '1.15rem', background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '12px' }}>
+                  <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: '#09090B' }}>
+                    <i className="fas fa-sync" style={{ color: '#09090B', fontSize: '0.8rem' }}></i>
                     <span>Offline &amp; Cloud Sync Status</span>
                   </h4>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.74rem', color: '#71717A', fontWeight: 500 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>Internet Connection:</span>
-                      <strong style={{ color: navigator.onLine ? '#10B981' : '#F59E0B' }}>
+                      <strong style={{ color: '#09090B' }}>
                         {navigator.onLine ? "Connected to Cloud" : "Working Offline (Safe on Device)"}
                       </strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>Device Storage:</span>
-                      <strong style={{ color: '#10B981' }}>Safe &amp; Active</strong>
+                      <strong style={{ color: '#09090B' }}>Safe &amp; Active</strong>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #E4E4E7', paddingTop: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #E4E4E7', paddingTop: '6px' }}>
                       <span>Saved Work Waiting to Upload:</span>
-                      <strong style={{ color: pendingCount > 0 ? '#2563eb' : '#71717a' }}>{pendingCount}</strong>
+                      <strong style={{ color: '#09090B' }}>{pendingCount}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>Items Currently Uploading:</span>
-                      <strong style={{ color: processingCount > 0 ? '#2563eb' : '#71717a' }}>{processingCount}</strong>
+                      <strong style={{ color: '#09090B' }}>{processingCount}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span>Uploads to Retry:</span>
-                      <strong style={{ color: failedCount > 0 ? '#EF4444' : '#71717a' }}>{failedCount}</strong>
+                      <strong style={{ color: '#09090B' }}>{failedCount}</strong>
                     </div>
 
                     {(pendingCount > 0 || failedCount > 0 || processingCount > 0) && (
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+                      <div style={{ display: 'flex', gap: '6px', marginTop: '4px' }}>
                         <button 
                           onClick={async () => {
-                            if (window.confirm('Force re-sync of all pending and failed items?')) {
+                            if (await window.confirm('Force re-sync of all pending and failed items?')) {
                               await forceDrain();
                               alert('Sync started!');
                             }
                           }}
                           className="btn" 
-                          style={{ padding: '0.3rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, flex: 1, background: '#EFF6FF', color: '#2563eb', border: '1px solid rgba(37, 99, 235, 0.25)' }}
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.72rem', fontWeight: 600, flex: 1, background: '#09090B', color: '#FFFFFF', border: '1px solid #09090B', borderRadius: '6px' }}
                         >
-                          <i className="fas fa-play" style={{ marginRight: '4px' }}></i> Force Sync
+                          <i className="fas fa-play" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i> Force Sync
                         </button>
                         <button 
                           onClick={async () => {
-                            if (window.confirm('Clear all pending changes? WARNING: This will discard all unsynced local drafts!')) {
+                            if (await window.confirm('Clear all pending changes? WARNING: This will discard all unsynced local drafts!')) {
                               await db.outbox.clear();
                               alert('Sync queue cleared.');
                             }
                           }}
                           className="btn" 
-                          style={{ padding: '0.3rem 0.6rem', fontSize: '0.68rem', fontWeight: 700, flex: 1, background: '#FEF2F2', color: '#EF4444', border: '1px solid #FECACA' }}
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.72rem', fontWeight: 600, flex: 1, background: '#FFFFFF', color: '#09090B', border: '1px solid #E4E4E7', borderRadius: '6px' }}
                         >
-                          <i className="fas fa-trash-can" style={{ marginRight: '4px' }}></i> Clear Queue
+                          <i className="fas fa-trash-can" style={{ marginRight: '4px', fontSize: '0.65rem' }}></i> Clear Queue
                         </button>
                       </div>
                     )}

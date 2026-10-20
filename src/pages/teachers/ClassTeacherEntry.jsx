@@ -20,7 +20,6 @@ const ClassTeacherEntry = () => {
 
   // ── Online / Offline tracking ────────────────────────────────────────────────
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
   useEffect(() => {
     const handleOnline  = () => setIsOnline(true);
@@ -46,14 +45,6 @@ const ClassTeacherEntry = () => {
   const schoolInfo = useLiveQuery(
     () => user?.schoolId ? db.schools.get(user.schoolId) : null, [user]
   );
-
-  // Live count of pending outbox items for sync status display
-  const outboxItems = useLiveQuery(() => db.outbox.toArray(), []);
-  useEffect(() => {
-    if (!outboxItems) return;
-    const count = outboxItems.filter(i => i.status === 'pending' || i.status === 'failed' || i.status === 'processing').length;
-    setPendingSyncCount(count);
-  }, [outboxItems]);
 
   const formatDateSafe = (dateStr) => {
     if (!dateStr) return '—';
@@ -270,71 +261,28 @@ const ClassTeacherEntry = () => {
   return (
     <Layout title="Class Remarks & Attendance">
       <style>{`
-        .entry-modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,0.6);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;overflow-y:auto;}
-        .entry-modal{background:#fff;border-radius:20px;width:100%;max-width:580px;box-shadow:0 25px 60px rgba(0,0,0,0.2);animation:modalIn .25s cubic-bezier(.34,1.56,.64,1) both;margin:auto;}
-        @keyframes modalIn{from{opacity:0;transform:scale(.94) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
-        .entry-modal-header{padding:1.5rem 1.5rem 1rem;display:flex;justify-content:space-between;align-items:center; border-bottom: 1px solid var(--border); }
-        .entry-modal-body{padding:1.5rem;}
-        .close-btn { background: #f1f5f9; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; color: #64748b; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-        .close-btn:hover { background: #e2e8f0; color: #0f172a; transform: rotate(90deg); }
+        .entry-modal-backdrop{position:fixed;inset:0;background:rgba(9,9,11,0.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:9999;padding:1rem;overflow-y:auto;}
+        .entry-modal{background:#fff;border-radius:16px;width:100%;max-width:580px;border:1px solid #E4E4E7;box-shadow:0 20px 50px rgba(0,0,0,0.12);animation:modalIn .22s cubic-bezier(.34,1.56,.64,1) both;margin:auto;}
+        @keyframes modalIn{from{opacity:0;transform:scale(.95) translateY(16px)}to{opacity:1;transform:scale(1) translateY(0)}}
+        .entry-modal-header{padding:1.25rem 1.5rem 1rem;display:flex;justify-content:space-between;align-items:center; border-bottom: 1px solid #E4E4E7; }
+        .entry-modal-body{padding:1.25rem 1.5rem 1.5rem;}
+        .close-btn { background: #F4F4F5; border: 1px solid #E4E4E7; width: 30px; height: 30px; border-radius: 8px; cursor: pointer; color: #71717A; display: flex; align-items: center; justify-content: center; transition: all 0.15s; font-size: 0.85rem; }
+        .close-btn:hover { background: #E4E4E7; color: #09090B; }
+        .lc-status { margin-top: auto; font-size: 0.74rem; font-weight: 600; padding: 0.45rem 0.75rem; border-radius: 8px; text-align: center; display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+        .status-filled { background: #09090B; color: #FFFFFF; border: 1px solid #09090B; }
+        .status-empty { background: #F4F4F5; color: #52525B; border: 1px solid #E4E4E7; }
       `}</style>
       <div className="fade-in">
-
-        {/* ── Offline / Sync status banner ────────────────────────────────── */}
-        {!isOnline && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: '#FFFBEB',
-            border: '1px solid #FEF3C7', borderRadius: '12px',
-            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
-            fontSize: '0.88rem', color: '#92400e', fontWeight: 600,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-          }}>
-            <i className="fas fa-wifi-slash" style={{ fontSize: '1.1rem', color: '#F59E0B', flexShrink: 0 }}></i>
-            <div>
-              <strong>You are offline.</strong> Remarks you save will be stored locally and synced automatically when you reconnect.
-            </div>
-          </div>
-        )}
-        {isOnline && pendingSyncCount > 0 && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: '#EFF6FF',
-            border: '1px solid #DBEAFE', borderRadius: '12px',
-            padding: '0.75rem 1.25rem', marginBottom: '1.25rem',
-            fontSize: '0.88rem', color: '#1e40af', fontWeight: 600,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-          }}>
-            <i className="fas fa-rotate fa-spin" style={{ fontSize: '1rem', color: '#2563eb', flexShrink: 0 }}></i>
-            <div>
-              Syncing {pendingSyncCount} pending record{pendingSyncCount !== 1 ? 's' : ''} to the cloud…
-            </div>
-          </div>
-        )}
-        {isOnline && pendingSyncCount === 0 && outboxItems !== undefined && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '0.75rem',
-            background: '#ECFDF5',
-            border: '1px solid #D1FAE5', borderRadius: '12px',
-            padding: '0.65rem 1.25rem', marginBottom: '1.25rem',
-            fontSize: '0.85rem', color: '#065f46', fontWeight: 600,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-          }}>
-            <i className="fas fa-cloud-check" style={{ fontSize: '1rem', color: '#10B981', flexShrink: 0 }}></i>
-            <div>All remarks synced to the cloud.</div>
-          </div>
-        )}
-
-        <div className="card" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div style={{ background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1rem', boxShadow: '0 1px 3px rgba(0,0,0,0.03)', display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div className="form-group" style={{ flex: '1 1 200px', marginBottom: 0 }}>
-            <label className="form-label">Select Assigned Class</label>
+            <label className="form-label" style={{ fontSize: '0.72rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Select Assigned Class</label>
             <select className="form-input" value={selectedClass} onChange={(e) => { setSelectedClass(e.target.value); setActiveLearnerId(null); }}>
               <option value="">-- Choose Class --</option>
               {classTeacherClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
-            <label className="form-label">Term</label>
+            <label className="form-label" style={{ fontSize: '0.72rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Term</label>
             <select className="form-input" value={selectedTerm} onChange={(e) => setSelectedTerm(e.target.value)}>
               <option value="Term 1">Term 1</option>
               <option value="Term 2">Term 2</option>
@@ -342,7 +290,7 @@ const ClassTeacherEntry = () => {
             </select>
           </div>
           <div className="form-group" style={{ flex: '1 1 150px', marginBottom: 0 }}>
-            <label className="form-label">Academic Year</label>
+            <label className="form-label" style={{ fontSize: '0.72rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Academic Year</label>
             <input 
               type="text" 
               className="form-input" 
@@ -358,20 +306,19 @@ const ClassTeacherEntry = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'var(--surface)',
-            border: '1px solid var(--border)',
-            borderRadius: '12px',
-            padding: '0.85rem 1.25rem',
-            marginBottom: '1.5rem',
-            boxShadow: 'var(--shadow-sm)',
-            fontSize: '0.85rem',
-            color: 'var(--text)',
+            background: '#FAFAFA',
+            border: '1px solid #E4E4E7',
+            borderRadius: '10px',
+            padding: '0.7rem 1.1rem',
+            marginBottom: '1rem',
+            fontSize: '0.82rem',
+            color: '#52525B',
             gap: '1rem',
             flexWrap: 'wrap'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <i className="fas fa-calendar-alt" style={{ color: 'var(--accent)', fontSize: '1rem' }} />
-              <span style={{ fontWeight: 600 }}>Official School Dates:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="fas fa-calendar-alt" style={{ color: '#09090B', fontSize: '0.85rem' }} />
+              <span style={{ fontWeight: 700, color: '#09090B' }}>Official School Dates:</span>
             </div>
             <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
               {schoolInfo.vacationDate && (
@@ -415,9 +362,9 @@ const ClassTeacherEntry = () => {
                   </div>
                   <div className={`lc-status ${hasRemarks ? 'status-filled' : 'status-empty'}`}>
                     {hasRemarks ? (
-                      <><i className="fas fa-check-circle"></i> Remarks Saved</>
+                      <><i className="fas fa-check" style={{ fontSize: '0.68rem' }}></i> Remarks Saved</>
                     ) : (
-                      <><i className="fas fa-exclamation-circle"></i> Needs Remarks</>
+                      <><i className="fas fa-clock" style={{ fontSize: '0.68rem' }}></i> Needs Remarks</>
                     )}
                   </div>
                 </div>
@@ -439,11 +386,11 @@ const ClassTeacherEntry = () => {
           <div className="entry-modal">
             <div className="entry-modal-header">
               <div>
-                <h3 style={{ margin: 0, color: 'var(--primary)', fontSize: '1.25rem' }}>
+                <h3 style={{ margin: 0, color: '#09090B', fontSize: '1.05rem', fontWeight: 700 }}>
                   Remarks Entry
                 </h3>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                  {activeLearner?.fullName} ({activeLearner?.regNumber})
+                <div style={{ fontSize: '0.8rem', color: '#71717A', marginTop: '3px' }}>
+                  {activeLearner?.fullName} &bull; {activeLearner?.regNumber}
                 </div>
               </div>
               <button className="close-btn" onClick={() => setActiveLearnerId(null)}>
@@ -633,8 +580,8 @@ const ClassTeacherEntry = () => {
                     );
                   })()}
 
-                  <button type="submit" className="btn btn-primary" disabled={isSaving} style={{ width: '100%', marginTop: '1rem', padding: '0.85rem' }}>
-                    {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
+                  <button type="submit" disabled={isSaving} style={{ width: '100%', marginTop: '1rem', height: '40px', background: '#09090B', color: '#FFFFFF', border: '1px solid #09090B', borderRadius: '8px', fontWeight: 600, fontSize: '0.85rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: isSaving ? 'wait' : 'pointer' }}>
+                    {isSaving ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check"></i>}
                     <span>{isSaving ? 'Saving...' : 'Save Remarks & Attendance'}</span>
                   </button>
                 </form>

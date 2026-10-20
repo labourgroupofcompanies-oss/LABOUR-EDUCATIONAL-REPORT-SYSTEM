@@ -1126,7 +1126,7 @@ const LearnerList = () => {
     }
 
     const confirmMsg = `Are you sure you want to sequentially reassign registration numbers to all ${filtered.length} currently displayed learners in their alphabetical name order?\n\nThis will modify records locally and immediately sync updates to the cloud.`;
-    if (!window.confirm(confirmMsg)) return;
+    if (!await window.confirm(confirmMsg)) return;
 
     setIsReassigning(true);
     setReassignStatus('Step 1 of 3: Releasing current registration numbers in local database...');
@@ -1494,72 +1494,62 @@ const LearnerList = () => {
         .stat-badge-warning{background:#FFFBEB;color:#F59E0B;border:1px solid #FDE68A;}
         .stat-badge-valid{background:#ECFDF5;color:#10B981;border:1px solid #A7F3D0;}
 
-        /* Responsive Action Button Bar */
+        /* Responsive Action Button Bar (Clean Black & White / Compact & Ergonomic) */
         .learners-action-bar {
           display: flex;
-          gap: .5rem;
+          gap: .45rem;
           flex-wrap: wrap;
           align-items: center;
         }
         .learner-act-btn {
-          border-radius: 12px;
-          padding: 0 1.1rem;
-          height: 42px;
+          border-radius: 9px;
+          padding: 0 0.85rem;
+          height: 36px;
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: .5rem;
+          gap: .4rem;
           font-weight: 700;
-          font-size: .84rem;
+          font-size: .8rem;
           font-family: inherit;
           white-space: nowrap;
           cursor: pointer;
-          border: none;
-          transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+          border: 1px solid #E4E4E7;
+          background: #FFFFFF;
+          color: #09090B;
+          transition: all .15s ease;
           text-decoration: none;
           user-select: none;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
         }
         .learner-act-btn:hover {
+          background: #F4F4F5;
+          border-color: #09090B;
           transform: translateY(-1px);
-          filter: brightness(1.04);
         }
         .learner-act-btn:active {
           transform: translateY(0);
+          background: #E4E4E7;
         }
-        .learner-act-btn.btn-template {
-          background: #FFFFFF;
-          color: #0D9488;
-          border: 1.5px solid #0D9488;
-          box-shadow: 0 2px 8px rgba(13, 148, 136, 0.1);
+        .learner-act-btn i {
+          font-size: .8rem;
+          color: #52525B;
         }
-        .learner-act-btn.btn-template:hover {
-          background: #F0FDFA;
-          border-color: #0F766E;
-        }
-        .learner-act-btn.btn-import {
-          background: #0D9488;
-          color: #FFFFFF;
-          box-shadow: 0 4px 12px rgba(13, 148, 136, 0.25);
-        }
-        .learner-act-btn.btn-sync-refresh {
-          background: #FFFFFF;
-          color: #2563EB;
-          border: 1.5px solid #2563EB;
-          box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
-        }
-        .learner-act-btn.btn-sync-refresh:hover {
-          background: #EFF6FF;
-          border-color: #1D4ED8;
-        }
-        .learner-act-btn.btn-reassign {
-          background: #2563EB;
-          color: #FFFFFF;
-          box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+        .learner-act-btn:hover i {
+          color: #09090B;
         }
         .learner-act-btn.btn-register {
           background: #09090B;
           color: #FFFFFF;
-          box-shadow: 0 4px 12px rgba(9, 9, 11, 0.25);
+          border-color: #09090B;
+          box-shadow: 0 2px 8px rgba(9, 9, 11, 0.18);
+        }
+        .learner-act-btn.btn-register i {
+          color: #FFFFFF;
+        }
+        .learner-act-btn.btn-register:hover {
+          background: #18181B;
+          border-color: #18181B;
         }
 
         @media (max-width: 900px) {
@@ -1567,22 +1557,37 @@ const LearnerList = () => {
             width: 100%;
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: .5rem;
+            gap: 6px;
           }
           .learner-act-btn {
             width: 100%;
-            height: 44px;
+            height: 38px;
             padding: 0 .65rem;
-            font-size: .8rem;
+            font-size: .78rem;
+          }
+          .learner-act-btn.btn-register {
+            grid-column: span 2;
+            height: 40px;
           }
         }
         @media (max-width: 480px) {
           .learners-action-bar {
-            grid-template-columns: 1fr;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
           }
           .learner-act-btn {
-            height: 44px;
-            font-size: .85rem;
+            height: 36px;
+            font-size: .75rem;
+            padding: 0 6px;
+            border-radius: 8px;
+          }
+          .learner-act-btn i {
+            font-size: .75rem;
+          }
+          .learner-act-btn.btn-register {
+            grid-column: span 2;
+            height: 40px;
+            font-size: .82rem;
           }
         }
       `}</style>
@@ -1706,20 +1711,18 @@ const LearnerList = () => {
                 <div className="lc-detail-item">
                   <span className="lc-detail-lbl">Class</span>
                   <span className="lc-detail-val">
-                    <i className="fas fa-chalkboard" style={{ color: '#2563eb', fontSize: '.75rem' }}></i>
                     {getClass(l.currentClassId)}
                   </span>
                 </div>
-                <div className="lc-detail-item" style={{ alignItems: 'center' }}>
+                <div className="lc-detail-item">
                   <span className="lc-detail-lbl">Language</span>
-                  <span className="lc-detail-val" style={{ fontSize: '.72rem', fontWeight: 700, color: '#1e293b' }}>
+                  <span className="lc-detail-val">
                     {getLanguageLabel(l.ghanaianLanguage || l.ghanaian_language)}
                   </span>
                 </div>
-                <div className="lc-detail-item" style={{ alignItems: 'flex-end' }}>
+                <div className="lc-detail-item">
                   <span className="lc-detail-lbl">Gender</span>
                   <span className="lc-detail-val">
-                    {l.gender === 'Female' ? <i className="fas fa-venus" style={{ color: '#ec4899', fontSize: '.8rem' }}></i> : <i className="fas fa-mars" style={{ color: '#3b82f6', fontSize: '.8rem' }}></i>}
                     {l.gender}
                   </span>
                 </div>
@@ -1734,13 +1737,15 @@ const LearnerList = () => {
                     setProfileTab('personal');
                   }}
                 >
-                  <i className="fas fa-eye"></i> View Profile
+                  <i className="far fa-user"></i>
+                  <span>Profile</span>
                 </button>
                 <button className="lc-btn lc-btn-edit" title="Edit details" onClick={() => openEditModal(l)}>
-                  <i className="fas fa-edit"></i> Edit
+                  <i className="far fa-edit"></i>
+                  <span>Edit</span>
                 </button>
                 <button className="lc-btn lc-btn-delete" title="Delete Learner" onClick={() => handleDeleteLearner(l)}>
-                  <i className="fas fa-trash-alt"></i> Delete
+                  <i className="far fa-trash-alt"></i>
                 </button>
               </div>
             </div>

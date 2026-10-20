@@ -472,7 +472,7 @@ export const useSchoolSetup = () => {
   };
 
   const deleteClass = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this class? All learners in this class will be unlinked, and associated subject and teacher allocations will be removed.')) return;
+    if (!await window.confirm('Are you sure you want to delete this class? All learners in this class will be unlinked, and associated subject and teacher allocations will be removed.')) return;
     try {
       await deletionManager.deleteClass(user?.schoolId, id, user);
     } catch (err) {
@@ -526,7 +526,7 @@ export const useSchoolSetup = () => {
   };
 
   const deleteSubject = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this subject? All associated teacher assignments and class-subject allocations will be removed.')) return;
+    if (!await window.confirm('Are you sure you want to delete this subject? All associated teacher assignments and class-subject allocations will be removed.')) return;
     try {
       await deletionManager.deleteSubject(user?.schoolId, id, user);
     } catch (err) {

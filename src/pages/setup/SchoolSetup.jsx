@@ -104,7 +104,7 @@ const SchoolSetup = () => {
 
   // 1-Click Fast Complete Ghanaian School Setup
   const handleRunFullFastSetup = async () => {
-    if (!window.confirm('⚡ Auto-Setup Ghanaian School:\n\n1. Standard Levels (KG 1 – JHS 3)\n2. 11 GES Curriculum Subjects\n3. Enable all subjects across classes\n\nContinue?')) {
+    if (!await window.confirm('⚡ Auto-Setup Ghanaian School:\n\n1. Standard Levels (KG 1 – JHS 3)\n2. 11 GES Curriculum Subjects\n3. Enable all subjects across classes\n\nContinue?')) {
       return;
     }
     setRunningFastSetup(true);

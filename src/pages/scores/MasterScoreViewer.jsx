@@ -370,17 +370,17 @@ const MasterScoreViewer = () => {
             gap: 8px !important;
           }
           .audit-metric-card {
-            padding: 0.85rem !important;
+            padding: 0.75rem 0.85rem !important;
             gap: 0.65rem !important;
           }
           .audit-metric-icon {
-            width: 38px !important;
-            height: 38px !important;
-            font-size: 1rem !important;
-            border-radius: 10px !important;
+            width: 30px !important;
+            height: 30px !important;
+            font-size: 0.75rem !important;
+            border-radius: 7px !important;
           }
           .audit-metric-val {
-            font-size: 1.15rem !important;
+            font-size: 1.25rem !important;
           }
           .audit-filter-controls {
             display: grid !important;
@@ -411,27 +411,40 @@ const MasterScoreViewer = () => {
         }
       `}</style>
 
-      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         
         {/* Navigation Breadcrumb & Action Bar */}
         <div className="audit-top-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#71717A' }}>
             <button
               onClick={() => navigate('/')}
-              style={{ background: 'none', border: 'none', color: 'var(--primary)', cursor: 'pointer', fontWeight: 700, padding: 0, fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+              style={{ background: 'none', border: 'none', color: '#09090B', cursor: 'pointer', fontWeight: 700, padding: 0, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
             >
               <i className="fas fa-arrow-left"></i> Back to Dashboard
             </button>
             <span>/</span>
-            <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>Master Scores Audit</span>
+            <span style={{ fontWeight: 600, color: '#09090B' }}>Master Scores Audit</span>
           </div>
 
-          <div className="audit-header-actions" style={{ display: 'flex', gap: '10px' }}>
+          <div className="audit-header-actions" style={{ display: 'flex', gap: '8px' }}>
             <button
               onClick={exportToCSV}
               disabled={filteredScores.length === 0}
-              className="btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', padding: '0.55rem 1.1rem' }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                padding: '0.5rem 0.95rem',
+                borderRadius: '8px',
+                border: '1px solid #E4E4E7',
+                background: '#FFFFFF',
+                color: '#09090B',
+                cursor: filteredScores.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: filteredScores.length === 0 ? 0.5 : 1,
+                transition: 'all 0.15s ease'
+              }}
             >
               <i className="fas fa-file-excel"></i> Export CSV
             </button>
@@ -439,8 +452,20 @@ const MasterScoreViewer = () => {
             <button
               onClick={loadData}
               disabled={refreshing}
-              className="btn-secondary"
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', padding: '0.55rem 1rem' }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                fontSize: '0.82rem',
+                fontWeight: 600,
+                padding: '0.5rem 0.95rem',
+                borderRadius: '8px',
+                border: '1px solid #E4E4E7',
+                background: '#FFFFFF',
+                color: '#09090B',
+                cursor: refreshing ? 'wait' : 'pointer',
+                transition: 'all 0.15s ease'
+              }}
             >
               <i className={`fas fa-sync-alt ${refreshing ? 'fa-spin' : ''}`}></i>
               Refresh
@@ -449,44 +474,44 @@ const MasterScoreViewer = () => {
         </div>
 
         {/* Executive Metric Cards */}
-        <div className="audit-metric-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
-          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.25rem' }}>
-            <div className="audit-metric-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(30,64,175,0.1)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+        <div className="audit-metric-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.85rem' }}>
+          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem 1.15rem', background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+            <div className="audit-metric-icon" style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', color: '#09090B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.82rem', flexShrink: 0 }}>
               <i className="fas fa-list-check"></i>
             </div>
             <div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Total Records</div>
-              <div className="audit-metric-val" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-main)', marginTop: '2px' }}>{metrics.total}</div>
+              <div style={{ fontSize: '0.72rem', color: '#71717A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total Records</div>
+              <div className="audit-metric-val" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#09090B', marginTop: '1px', lineHeight: 1.2 }}>{metrics.total}</div>
             </div>
           </div>
 
-          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.25rem' }}>
-            <div className="audit-metric-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#DCFCE7', color: '#15803D', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem 1.15rem', background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+            <div className="audit-metric-icon" style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', color: '#09090B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.82rem', flexShrink: 0 }}>
               <i className="fas fa-check-double"></i>
             </div>
             <div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Submitted</div>
-              <div className="audit-metric-val" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#15803D', marginTop: '2px' }}>{metrics.submitted}</div>
+              <div style={{ fontSize: '0.72rem', color: '#71717A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Submitted</div>
+              <div className="audit-metric-val" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#09090B', marginTop: '1px', lineHeight: 1.2 }}>{metrics.submitted}</div>
             </div>
           </div>
 
-          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.25rem' }}>
-            <div className="audit-metric-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#FEF9C3', color: '#A16207', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem 1.15rem', background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+            <div className="audit-metric-icon" style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', color: '#09090B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.82rem', flexShrink: 0 }}>
               <i className="fas fa-pen-ruler"></i>
             </div>
             <div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>In Draft</div>
-              <div className="audit-metric-val" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#A16207', marginTop: '2px' }}>{metrics.draft}</div>
+              <div style={{ fontSize: '0.72rem', color: '#71717A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>In Draft</div>
+              <div className="audit-metric-val" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#09090B', marginTop: '1px', lineHeight: 1.2 }}>{metrics.draft}</div>
             </div>
           </div>
 
-          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '1.25rem' }}>
-            <div className="audit-metric-icon" style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#E0F2FE', color: '#0369A1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+          <div className="card audit-metric-card" style={{ display: 'flex', alignItems: 'center', gap: '0.85rem', padding: '0.85rem 1.15rem', background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+            <div className="audit-metric-icon" style={{ width: '34px', height: '34px', borderRadius: '8px', background: '#F4F4F5', border: '1px solid #E4E4E7', color: '#09090B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.82rem', flexShrink: 0 }}>
               <i className="fas fa-chart-line"></i>
             </div>
             <div>
-              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Class Avg %</div>
-              <div className="audit-metric-val" style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0369A1', marginTop: '2px' }}>{metrics.avgScore}%</div>
+              <div style={{ fontSize: '0.72rem', color: '#71717A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Class Avg %</div>
+              <div className="audit-metric-val" style={{ fontSize: '1.45rem', fontWeight: 800, color: '#09090B', marginTop: '1px', lineHeight: 1.2 }}>{metrics.avgScore}%</div>
             </div>
           </div>
         </div>

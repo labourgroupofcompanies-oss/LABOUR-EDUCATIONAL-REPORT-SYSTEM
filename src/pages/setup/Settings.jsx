@@ -678,7 +678,7 @@ const Settings = () => {
   };
 
   const deleteSignature = async () => {
-    if (!window.confirm('Are you sure you want to delete your digital signature?')) return;
+    if (!await window.confirm('Are you sure you want to delete your digital signature?')) return;
     try {
       await db.profiles.update(user.id, {
         signature: null,
@@ -719,9 +719,9 @@ const Settings = () => {
     }
   };
 
-  const applyDefaultGradingPreset = () => {
+  const applyDefaultGradingPreset = async () => {
     if (settings.gradingScale && settings.gradingScale.length > 0) {
-      if (!window.confirm('Replace current grading scale with the Default Grading System?')) {
+      if (!await window.confirm('Replace current grading scale with the Default Grading System?')) {
         return;
       }
     }

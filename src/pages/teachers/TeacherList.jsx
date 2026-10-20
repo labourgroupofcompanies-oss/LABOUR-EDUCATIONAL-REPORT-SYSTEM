@@ -370,7 +370,7 @@ const TeacherList = () => {
 
 
   const handleDeleteTeacher = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
+    if (!await window.confirm('Are you sure you want to delete this teacher? All assignments for this teacher will be removed.')) return;
     try {
       await deletionManager.deleteTeacher(user.schoolId, id, user);
     } catch (err) {
@@ -479,91 +479,154 @@ const TeacherList = () => {
 
   return (
     <Layout title="Teacher Management">
-      <div className="fade-in">
-        {/* Teacher Onboarding & Email Activation Hint Banner */}
+      <style>{`
+        .teacher-action-btn {
+          width: 32px;
+          height: 32px;
+          border-radius: 8px;
+          border: 1px solid #E4E4E7;
+          background: #FFFFFF;
+          color: #09090B;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          font-size: 0.85rem;
+          padding: 0;
+        }
+        .teacher-action-btn:hover {
+          background: #F4F4F5;
+          border-color: #D4D4D8;
+        }
+        .teacher-action-btn.delete {
+          color: #71717A;
+        }
+        .teacher-action-btn.delete:hover {
+          color: #09090B;
+          background: #F4F4F5;
+          border-color: #D4D4D8;
+        }
+        .btn-register-teacher {
+          height: 38px;
+          padding: 0 1rem;
+          border-radius: 8px;
+          background: #09090B;
+          color: #FFFFFF;
+          border: 1px solid #09090B;
+          font-weight: 600;
+          font-size: 0.82rem;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+        .btn-register-teacher:hover {
+          background: #27272A;
+          border-color: #27272A;
+        }
+      `}</style>
+
+      <div className="fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* Top Briefing Bar */}
         <div style={{
-          background: '#EFF6FF',
-          border: '1.5px solid #BFDBFE',
-          borderRadius: '14px',
+          background: '#FFFFFF',
+          border: '1px solid #E4E4E7',
+          borderRadius: '12px',
           padding: '1rem 1.25rem',
-          marginBottom: '1.5rem',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
           flexWrap: 'wrap',
-          gap: '12px'
+          gap: '12px',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: '#2563eb', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', flexShrink: 0 }}>
-              <i className="fas fa-envelope-open-text"></i>
+          <div>
+            <div style={{ fontWeight: 700, color: '#09090B', fontSize: '1.05rem' }}>
+              Teachers Directory
             </div>
-            <div>
-              <div style={{ fontWeight: 800, color: '#1e40af', fontSize: '0.92rem' }}>
-                How Teachers Claim Their Accounts
-              </div>
-              <div style={{ color: '#3b82f6', fontSize: '0.8rem', marginTop: '2px' }}>
-                Teachers use their <strong>Registered Email</strong> to activate their account. Click the green <strong>"Invite"</strong> button on any teacher to send their WhatsApp activation link.
-              </div>
+            <div style={{ color: '#71717A', fontSize: '0.8rem', marginTop: '2px' }}>
+              {teachers?.length || 0} registered staff members &bull; Manage assignments and account activations
             </div>
           </div>
 
-          <button className="btn btn-primary" onClick={() => setIsModalOpen(true)} style={{ padding: '0.6rem 1.25rem', borderRadius: '10px', fontWeight: 800, fontSize: '0.88rem' }}>
+          <button className="btn-register-teacher" onClick={() => setIsModalOpen(true)}>
             <i className="fas fa-plus"></i>
             <span>Register Teacher</span>
           </button>
         </div>
 
-        <div className="card" data-tour="teachers-roster" style={{ padding: 0, overflow: 'hidden' }}>
+        {/* Teachers Table Card */}
+        <div className="card" data-tour="teachers-roster" style={{ padding: 0, overflow: 'hidden', background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
           <div className="table-wrapper">
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '500px' }}>
-              <thead style={{ background: 'var(--background)', color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
+              <thead style={{ background: '#FAFAFA', color: '#71717A', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700, borderBottom: '1px solid #E4E4E7' }}>
                 <tr>
-                  <th style={{ padding: '1rem 1.5rem' }}>Staff ID</th>
-                  <th style={{ padding: '1rem 1.5rem' }}>Full Name</th>
-                  <th style={{ padding: '1rem 1.5rem' }} className="hide-mobile">Email</th>
-                  <th style={{ padding: '1rem 1.5rem' }}>Actions</th>
+                  <th style={{ padding: '0.85rem 1.25rem' }}>Staff ID</th>
+                  <th style={{ padding: '0.85rem 1.25rem' }}>Full Name</th>
+                  <th style={{ padding: '0.85rem 1.25rem' }} className="hide-mobile">Email</th>
+                  <th style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody style={{ fontSize: '0.875rem' }}>
+              <tbody style={{ fontSize: '0.85rem' }}>
                 {teachers?.length > 0 ? teachers.map((teacher) => {
                   const teacherAssignCount = allAssignments?.filter(a => a.teacherId === teacher.id).length || 0;
                   return (
-                    <tr key={teacher.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '1rem 1.5rem', fontWeight: 600, fontFamily: 'monospace' }}>{teacher.staffId || '—'}</td>
-                      <td style={{ padding: '1rem 1.5rem' }}>
-                        <div style={{ fontWeight: 600 }}>{teacher.fullName}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <tr key={teacher.id} style={{ borderBottom: '1px solid #F4F4F5' }}>
+                      <td style={{ padding: '0.85rem 1.25rem' }}>
+                        <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.8rem', color: '#09090B', background: '#F4F4F5', padding: '2px 8px', borderRadius: '4px', border: '1px solid #E4E4E7' }}>
+                          {teacher.staffId || '—'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '0.85rem 1.25rem' }}>
+                        <div style={{ fontWeight: 600, color: '#09090B' }}>{teacher.fullName}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#71717A', marginTop: '1px' }}>
                           {teacherAssignCount === 0 ? (
-                            <span style={{ color: '#ef4444' }}>No classes assigned</span>
+                            <span>No classes assigned</span>
                           ) : (
                             <span>{teacherAssignCount} assignment{teacherAssignCount > 1 ? 's' : ''}</span>
                           )}
                         </div>
                       </td>
-                      <td style={{ padding: '1rem 1.5rem' }} className="hide-mobile">{teacher.email}</td>
-                      <td style={{ padding: '1rem 1.5rem', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        <button 
-                          className="btn" 
-                          style={{ padding: '0.4rem 0.8rem', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: '8px', cursor: 'pointer' }}
-                          title="Share Email & WhatsApp Activation Link"
-                          onClick={() => setNewlyRegisteredTeacher(teacher)}
-                        >
-                          <i className="fab fa-whatsapp" style={{ color: '#16A34A', marginRight: '5px' }}></i>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#15803D' }}>Invite</span>
-                        </button>
-                        <button className="btn" style={{ padding: '0.4rem 0.8rem', background: '#EFF6FF', border: '1px solid #DBEAFE', borderRadius: '8px', cursor: 'pointer' }} onClick={() => handleOpenAssignModal(teacher)}>
-                          <i className="fas fa-link" style={{ color: '#2563eb', marginRight: '5px' }}></i>
-                          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#2563eb' }}>Assign</span>
-                        </button>
-                        <button className="btn btn-danger" style={{ padding: '0.4rem 0.6rem', borderRadius: '8px' }} onClick={() => handleDeleteTeacher(teacher.id)}>
-                          <i className="fas fa-trash"></i>
-                        </button>
+                      <td style={{ padding: '0.85rem 1.25rem', color: '#52525B', fontSize: '0.82rem' }} className="hide-mobile">
+                        {teacher.email}
+                      </td>
+                      <td style={{ padding: '0.85rem 1.25rem', textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '6px', alignItems: 'center', justifyContent: 'flex-end' }}>
+                          <button 
+                            className="teacher-action-btn" 
+                            title="Share Email & WhatsApp Activation Link"
+                            aria-label="Share Email & WhatsApp Activation Link"
+                            onClick={() => setNewlyRegisteredTeacher(teacher)}
+                          >
+                            <i className="fab fa-whatsapp"></i>
+                          </button>
+                          <button 
+                            className="teacher-action-btn" 
+                            title="Assign Classes and Subjects"
+                            aria-label="Assign Classes and Subjects"
+                            onClick={() => handleOpenAssignModal(teacher)}
+                          >
+                            <i className="fas fa-link"></i>
+                          </button>
+                          <button 
+                            className="teacher-action-btn delete" 
+                            title="Delete Teacher"
+                            aria-label="Delete Teacher"
+                            onClick={() => handleDeleteTeacher(teacher.id)}
+                          >
+                            <i className="fas fa-trash"></i>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
                 }) : (
                   <tr>
-                    <td colSpan="4" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No teachers registered yet.</td>
+                    <td colSpan="4" style={{ textAlign: 'center', padding: '2.5rem', color: '#71717A' }}>
+                      No teachers registered yet.
+                    </td>
                   </tr>
                 )}
               </tbody>
@@ -575,24 +638,25 @@ const TeacherList = () => {
       {/* Modal for Registration */}
         {isModalOpen && (
           <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setIsModalOpen(false)}>
-            <div className="modal-box fade-in" style={{ maxWidth: '500px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2rem' }}>
-                <h3>Register New Teacher</h3>
-                <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem' }}>&times;</button>
+            <div className="modal-box fade-in" style={{ maxWidth: '480px', borderRadius: '14px', border: '1px solid #E4E4E7' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', borderBottom: '1px solid #E4E4E7', paddingBottom: '0.75rem' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#09090B' }}>Register New Teacher</h3>
+                <button onClick={() => setIsModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.25rem', color: '#71717A' }}>&times;</button>
               </div>
               <form onSubmit={handleRegister}>
-                <div className="form-group">
-                  <label className="form-label">Full Name</label>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase' }}>Full Name</label>
                   <input 
                     type="text" 
                     className="form-input" 
                     required 
+                    placeholder="e.g. John Doe"
                     value={newTeacher.fullName}
                     onChange={(e) => setNewTeacher({...newTeacher, fullName: e.target.value})}
                   />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Staff ID</label>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase' }}>Staff ID</label>
                   <input 
                     type="text" 
                     className="form-input" 
@@ -601,21 +665,22 @@ const TeacherList = () => {
                     onChange={(e) => setNewTeacher({...newTeacher, staffId: e.target.value})}
                   />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Email Address</label>
+                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                  <label className="form-label" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#71717A', textTransform: 'uppercase' }}>Email Address</label>
                   <input 
                     type="email" 
                     className="form-input" 
                     required 
+                    placeholder="e.g. teacher@school.com"
                     value={newTeacher.email}
                     onChange={(e) => setNewTeacher({...newTeacher, email: e.target.value})}
                   />
                 </div>
-                <div className="modal-actions" style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
-                  <button type="button" className="btn" style={{ flex: 1, background: 'var(--background)', border: '1px solid var(--border)' }} onClick={() => setIsModalOpen(false)}>Cancel</button>
-                  <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ flex: 1 }}>
+                <div className="modal-actions" style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button type="button" className="btn" style={{ flex: 1, background: '#FFFFFF', border: '1px solid #E4E4E7', color: '#09090B', height: '38px', borderRadius: '8px', fontWeight: 600, fontSize: '0.82rem' }} onClick={() => setIsModalOpen(false)}>Cancel</button>
+                  <button type="submit" disabled={isSaving} style={{ flex: 1, background: '#09090B', border: '1px solid #09090B', color: '#FFFFFF', height: '38px', borderRadius: '8px', fontWeight: 600, fontSize: '0.82rem', cursor: isSaving ? 'wait' : 'pointer' }}>
                     {isSaving ? <i className="fas fa-spinner fa-spin" style={{ marginRight: '6px' }} /> : null}
-                    {isSaving ? 'Registering...' : 'Register'}
+                    {isSaving ? 'Registering...' : 'Register Teacher'}
                   </button>
                 </div>
               </form>
@@ -626,35 +691,35 @@ const TeacherList = () => {
         {/* Modal for Teacher Registration Success & Quick Invite */}
         {newlyRegisteredTeacher && (
           <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setNewlyRegisteredTeacher(null)}>
-            <div className="modal-box fade-in" style={{ maxWidth: '460px', textAlign: 'center', padding: '2rem 1.5rem', borderRadius: '20px' }}>
-              <div style={{ width: '52px', height: '52px', borderRadius: '50%', background: '#F0FDF4', color: '#16A34A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', margin: '0 auto 1rem', border: '1px solid #BBF7D0' }}>
+            <div className="modal-box fade-in" style={{ maxWidth: '460px', textAlign: 'center', padding: '1.75rem 1.5rem', borderRadius: '16px', border: '1px solid #E4E4E7' }}>
+              <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: '#F4F4F5', color: '#09090B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem', margin: '0 auto 1rem', border: '1px solid #E4E4E7' }}>
                 <i className="fas fa-envelope-open-text"></i>
               </div>
-              <h3 style={{ margin: '0 0 6px', color: '#09090b', fontSize: '1.25rem', fontWeight: 800 }}>Teacher Portal Access</h3>
-              <p style={{ margin: '0 0 1.25rem', fontSize: '0.85rem', color: '#71717a' }}>
-                Send an invitation to <strong>{newlyRegisteredTeacher.fullName}</strong> so they can claim their portal using their email and enter scores.
+              <h3 style={{ margin: '0 0 6px', color: '#09090B', fontSize: '1.15rem', fontWeight: 700 }}>Teacher Portal Access</h3>
+              <p style={{ margin: '0 0 1.25rem', fontSize: '0.82rem', color: '#71717A' }}>
+                Send invitation to <strong>{newlyRegisteredTeacher.fullName}</strong> to activate their account.
               </p>
 
               {/* Email & Staff ID Credentials Box */}
-              <div style={{ background: '#F8FAFC', border: '2px dashed #CBD5E1', borderRadius: '14px', padding: '1.1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
-                <div style={{ marginBottom: '0.75rem' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Registered Email (For Account Activation)</div>
-                  <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#2563eb', marginTop: '2px', wordBreak: 'break-all' }}>
+              <div style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '10px', padding: '1rem', marginBottom: '1.25rem', textAlign: 'left' }}>
+                <div style={{ marginBottom: '0.65rem' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#71717A', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Registered Email</div>
+                  <div style={{ fontSize: '1rem', fontWeight: 700, color: '#09090B', marginTop: '2px', wordBreak: 'break-all' }}>
                     {newlyRegisteredTeacher.email}
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E2E8F0', paddingTop: '0.65rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid #E4E4E7', paddingTop: '0.65rem' }}>
                   <div>
-                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 700, textTransform: 'uppercase' }}>Staff ID: </span>
-                    <strong style={{ fontSize: '0.95rem', color: '#09090b' }}>{newlyRegisteredTeacher.staffId || '—'}</strong>
+                    <span style={{ fontSize: '0.7rem', color: '#71717A', fontWeight: 700, textTransform: 'uppercase' }}>Staff ID: </span>
+                    <strong style={{ fontSize: '0.9rem', color: '#09090B' }}>{newlyRegisteredTeacher.staffId || '—'}</strong>
                   </div>
-                  <span style={{ fontSize: '0.72rem', color: '#16A34A', fontWeight: 800, background: '#DCFCE7', padding: '2px 8px', borderRadius: '4px' }}>Ready to Claim</span>
+                  <span style={{ fontSize: '0.72rem', color: '#09090B', fontWeight: 600, background: '#F4F4F5', border: '1px solid #E4E4E7', padding: '2px 8px', borderRadius: '4px' }}>Ready to Claim</span>
                 </div>
               </div>
 
               {/* Action Buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {/* 1. Direct WhatsApp Share */}
                 {(() => {
                   const teacherName = newlyRegisteredTeacher.fullName || 'Teacher';
@@ -685,9 +750,9 @@ If you encounter any difficulty signing in, please let school administration kno
                       target="_blank"
                       rel="noopener noreferrer"
                       className="btn"
-                      style={{ width: '100%', padding: '0.75rem', borderRadius: '12px', fontSize: '0.88rem', fontWeight: 800, background: '#16A34A', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', border: 'none' }}
+                      style={{ width: '100%', height: '38px', borderRadius: '8px', fontSize: '0.82rem', fontWeight: 600, background: '#09090B', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', border: '1px solid #09090B', boxSizing: 'border-box' }}
                     >
-                      <i className="fab fa-whatsapp" style={{ fontSize: '1.1rem' }}></i>
+                      <i className="fab fa-whatsapp" style={{ fontSize: '0.95rem' }}></i>
                       <span>Send Invite on WhatsApp</span>
                     </a>
                   );
@@ -697,7 +762,7 @@ If you encounter any difficulty signing in, please let school administration kno
                 <button
                   type="button"
                   className="btn"
-                  style={{ width: '100%', padding: '0.7rem', borderRadius: '12px', fontSize: '0.85rem', fontWeight: 700, background: '#EFF6FF', color: '#2563eb', border: '1px solid #DBEAFE', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}
+                  style={{ width: '100%', height: '36px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, background: '#FFFFFF', color: '#09090B', border: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', boxSizing: 'border-box' }}
                   onClick={() => {
                     const teacherName = newlyRegisteredTeacher.fullName || 'Teacher';
                     const schoolTitle = currentSchool?.name || 'our school';
@@ -734,7 +799,7 @@ If you encounter any difficulty signing in, please let school administration kno
                 <button
                   type="button"
                   className="btn"
-                  style={{ width: '100%', padding: '0.65rem', borderRadius: '12px', fontSize: '0.82rem', fontWeight: 700, background: '#FAFAFA', color: '#09090b', border: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', cursor: 'pointer' }}
+                  style={{ width: '100%', height: '36px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 600, background: '#FAFAFA', color: '#52525B', border: '1px solid #E4E4E7', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', cursor: 'pointer', boxSizing: 'border-box' }}
                   onClick={() => {
                     navigator.clipboard.writeText(newlyRegisteredTeacher.email);
                     setCopiedInvite('email');
@@ -748,7 +813,7 @@ If you encounter any difficulty signing in, please let school administration kno
                 <button
                   type="button"
                   className="btn"
-                  style={{ width: '100%', padding: '0.65rem', background: 'transparent', border: 'none', color: '#71717a', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', marginTop: '4px' }}
+                  style={{ width: '100%', padding: '0.5rem', background: 'transparent', border: 'none', color: '#71717A', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', marginTop: '2px' }}
                   onClick={() => {
                     setNewlyRegisteredTeacher(null);
                     setCopiedInvite(false);
@@ -764,23 +829,23 @@ If you encounter any difficulty signing in, please let school administration kno
         {/* Modal for Teacher Assignments */}
         {isAssignModalOpen && selectedTeacher && (
           <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setIsAssignModalOpen(false)}>
-            <div className="modal-box fade-in" style={{ maxWidth: '650px', width: '90%' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+            <div className="modal-box fade-in" style={{ maxWidth: '650px', width: '90%', borderRadius: '14px', border: '1px solid #E4E4E7' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1.25rem', borderBottom: '1px solid #E4E4E7', paddingBottom: '0.85rem' }}>
                 <div>
-                  <h3 style={{ margin: 0 }}>Manage Assignments</h3>
-                  <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    Assigning subjects/classes to <strong>{selectedTeacher.fullName}</strong> ({selectedTeacher.staffId})
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#09090B' }}>Manage Assignments</h3>
+                  <p style={{ margin: '3px 0 0', fontSize: '0.8rem', color: '#71717A' }}>
+                    Assigning subjects/classes to <strong>{selectedTeacher.fullName}</strong> ({selectedTeacher.staffId || '—'})
                   </p>
                 </div>
-                <button onClick={() => setIsAssignModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem', height: 'fit-content' }}>&times;</button>
+                <button onClick={() => setIsAssignModalOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.4rem', color: '#71717A', lineHeight: 1 }}>&times;</button>
               </div>
 
               {/* Add Assignment Section */}
-              <div className="card" style={{ background: 'var(--background)', marginBottom: '1.5rem', padding: '1rem' }}>
-                <h4 style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', color: 'var(--text)' }}>
-                  <i className="fas fa-plus-circle" style={{ color: 'var(--accent)', marginRight: '5px' }}></i> Add New Assignment
+              <div style={{ background: '#FAFAFA', border: '1px solid #E4E4E7', borderRadius: '10px', marginBottom: '1.25rem', padding: '1rem' }}>
+                <h4 style={{ margin: '0 0 0.85rem 0', fontSize: '0.85rem', fontWeight: 700, color: '#09090B' }}>
+                  <i className="fas fa-plus" style={{ color: '#09090B', marginRight: '6px' }}></i> Add New Assignment
                 </h4>
-                <form onSubmit={handleAddAssignment} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <form onSubmit={handleAddAssignment} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                     <div style={{ flex: '1 1 200px' }}>
                       <select 
@@ -806,7 +871,7 @@ If you encounter any difficulty signing in, please let school administration kno
                           onChange={(e) => setAssignSubjectId(e.target.value)}
                         >
                           <option value="">-- Select Subject or Role --</option>
-                          <option value="advisor" style={{ fontWeight: 'bold', color: '#D97706' }}>
+                          <option value="advisor" style={{ fontWeight: 600 }}>
                             ★ {isSelectedClassTeacherMode ? 'Class Teacher (Teaches All Subjects & Remarks)' : 'Form Master / Class Advisor (Compiles Reports)'}
                           </option>
                           <optgroup label="Subjects">
@@ -818,7 +883,12 @@ If you encounter any difficulty signing in, please let school administration kno
                       </div>
                     )}
 
-                    <button type="submit" className="btn btn-primary" style={{ flex: '0 0 auto' }} disabled={!assignClassId || !assignSubjectId}>
+                    <button 
+                      type="submit" 
+                      className="btn" 
+                      style={{ flex: '0 0 auto', background: '#09090B', color: '#FFFFFF', border: '1px solid #09090B', height: '38px', borderRadius: '8px', padding: '0 1.25rem', fontWeight: 600, fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px', cursor: (!assignClassId || !assignSubjectId) ? 'not-allowed' : 'pointer' }} 
+                      disabled={!assignClassId || !assignSubjectId}
+                    >
                       <i className="fas fa-plus"></i> Assign
                     </button>
                   </div>
@@ -828,15 +898,15 @@ If you encounter any difficulty signing in, please let school administration kno
                     <div style={{ 
                       fontSize: '0.75rem', 
                       padding: '0.5rem 0.75rem', 
-                      borderRadius: '4px', 
+                      borderRadius: '6px', 
                       display: 'flex', 
                       alignItems: 'center', 
                       gap: '8px',
-                      background: isSelectedClassTeacherMode ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.1)',
-                      color: isSelectedClassTeacherMode ? '#d97706' : '#2563eb',
-                      border: isSelectedClassTeacherMode ? '1px solid rgba(245, 158, 11, 0.2)' : '1px solid rgba(59, 130, 246, 0.2)'
+                      background: '#F4F4F5',
+                      color: '#09090B',
+                      border: '1px solid #E4E4E7'
                     }}>
-                      <i className={`fas ${isSelectedClassTeacherMode ? 'fa-triangle-exclamation' : 'fa-circle-info'}`}></i>
+                      <i className="fas fa-circle-info" style={{ color: '#52525B' }}></i>
                       <span>
                         {isSelectedClassTeacherMode 
                           ? `"${selectedClassObj?.name}" is in Class Teacher Mode. This teacher will automatically teach ALL subjects for this class.` 
@@ -849,25 +919,25 @@ If you encounter any difficulty signing in, please let school administration kno
               </div>
 
               {/* Current Assignments List */}
-              <h4 style={{ margin: '0 0 0.75rem 0', fontSize: '0.95rem' }}>Active Assignments ({activeTeacherAssignments.length})</h4>
-              <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <h4 style={{ margin: '0 0 0.65rem 0', fontSize: '0.85rem', fontWeight: 700, color: '#09090B' }}>Active Assignments ({activeTeacherAssignments.length})</h4>
+              <div style={{ maxHeight: '250px', overflowY: 'auto', border: '1px solid #E4E4E7', borderRadius: '8px', background: '#FFFFFF' }}>
                 {activeTeacherAssignments.length > 0 ? (
                   activeTeacherAssignments.map((a) => {
                     const classObj = classes?.find(c => c.id === a.classId);
                     const subjectObj = subjects?.find(s => s.id === a.subjectId);
                     const isCT = a.subjectId === null;
                     return (
-                      <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)' }}>
+                      <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem 1rem', borderBottom: '1px solid #F4F4F5' }}>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{classObj?.name || 'Class ID: ' + a.classId}</span>
+                          <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#09090B' }}>{classObj?.name || 'Class ID: ' + a.classId}</span>
                           <span style={{ 
-                            fontSize: '0.65rem', 
-                            padding: '0.15rem 0.5rem', 
+                            fontSize: '0.7rem', 
+                            padding: '2px 8px', 
                             borderRadius: '4px',
                             fontWeight: 600,
-                            background: isCT ? 'rgba(245, 158, 11, 0.1)' : 'rgba(59, 130, 246, 0.05)',
-                            color: isCT ? '#d97706' : 'var(--text-muted)',
-                            border: isCT ? '1px solid rgba(245, 158, 11, 0.15)' : '1px solid var(--border)'
+                            background: '#F4F4F5',
+                            color: '#09090B',
+                            border: '1px solid #E4E4E7'
                           }}>
                             {isCT 
                               ? (classObj?.teachingMode === 'subject_teacher' ? '★ Class Advisor (Reports)' : 'Class Teacher (All Subjects)') 
@@ -875,17 +945,19 @@ If you encounter any difficulty signing in, please let school administration kno
                           </span>
                         </div>
                         <button 
-                          className="btn btn-danger" 
-                          style={{ padding: '0.25rem 0.4rem', background: 'none', border: 'none', cursor: 'pointer' }}
+                          className="teacher-action-btn delete" 
+                          title="Remove Assignment"
+                          aria-label="Remove Assignment"
+                          style={{ padding: 0 }}
                           onClick={() => handleDeleteAssignment(a)}
                         >
-                          <i className="fas fa-trash" style={{ color: '#ef4444' }}></i>
+                          <i className="fas fa-trash"></i>
                         </button>
                       </div>
                     );
                   })
                 ) : (
-                  <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem', margin: 0, fontSize: '0.85rem' }}>This teacher has no active assignments.</p>
+                  <p style={{ color: '#71717A', textAlign: 'center', padding: '2rem', margin: 0, fontSize: '0.85rem' }}>This teacher has no active assignments.</p>
                 )}
               </div>
             </div>

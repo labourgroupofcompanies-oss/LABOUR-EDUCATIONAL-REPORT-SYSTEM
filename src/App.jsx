@@ -14,6 +14,7 @@ import ScoreEntry from './pages/scores/ScoreEntry';
 import MasterScoreViewer from './pages/scores/MasterScoreViewer';
 import Reports from './pages/reports/Reports';
 import ClassTeacherEntry from './pages/teachers/ClassTeacherEntry';
+import PUpdate from './pages/teachers/PUpdate';
 import Financials from './pages/financials/Financials';
 import ScoreDiagnostic from './pages/setup/ScoreDiagnostic';
 import Promotions from './pages/learners/Promotions';
@@ -31,6 +32,7 @@ import ParentLogin from './pages/parent/ParentLogin';
 import ParentDashboard from './pages/parent/ParentDashboard';
 import ParentReportView from './pages/parent/ParentReportView';
 import ParentFeesView from './pages/parent/ParentFeesView';
+import LUpdate from './pages/parent/LUpdate';
 import HeadTeacherMessages from './pages/parent/HeadTeacherMessages';
 import PublicReceiptVerification from './pages/financials/PublicReceiptVerification';
 import authService from './services/authService';
@@ -224,6 +226,14 @@ function App() {
                 </ProtectedRoute>
               } 
             />
+            <Route 
+              path="/p-update" 
+              element={
+                <ProtectedRoute>
+                  <PUpdate />
+                </ProtectedRoute>
+              } 
+            />
             {/* Parent Portal Routes */}
             <Route path="/parent/login" element={<ParentLogin />} />
             <Route 
@@ -231,6 +241,14 @@ function App() {
               element={
                 <ParentProtectedRoute>
                   <ParentDashboard />
+                </ParentProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/parent/l-update" 
+              element={
+                <ParentProtectedRoute>
+                  <LUpdate />
                 </ParentProtectedRoute>
               } 
             />
