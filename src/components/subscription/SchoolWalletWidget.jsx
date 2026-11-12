@@ -87,17 +87,54 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
     ? referralEarningsFromHistory 
     : (resetAt ? 0 : Number(referralStats?.totalEarnings || 0));
 
+  const isReferralFreeTermActive = activeInfo.is_referral_free_term || billing_status === 'REFERRAL_FREE_TERM';
+
   const isPaidOrSubscribed = 
     billing_status === 'PAID' || 
     billing_status === 'ACTIVE' || 
     billing_status === 'SETTLED' || 
     Boolean(isFirstTermFreeActive) || 
+    Boolean(isReferralFreeTermActive) || 
     Boolean(is_exempt) || 
     Boolean(activeInfo.is_unlocked);
 
-  const termFee = isFirstTermFreeActive ? 0 : (amount_due || (effectiveLearners * rate_per_learner));
+  const termFee = (isFirstTermFreeActive || isReferralFreeTermActive) ? 0 : (amount_due || (effectiveLearners * rate_per_learner));
   const shortFall = Math.max(0, termFee - effectiveWalletBalance);
   const isShortage = !isPaidOrSubscribed && effectiveWalletBalance < termFee;
+
+  const referralCredits = activeInfo.referral_credits || {
+    totalReferrals: referralStats?.totalInvited || 0,
+    consumedReferrals: referralStats?.consumedForFreeTermsCount || 0,
+    availableReferrals: referralStats?.availableForFreeTerms || 0,
+    freeTermsAvailable: referralStats?.freeTermsEarned || 0,
+    canClaimFreeTerm: Boolean(referralStats?.canClaimFreeTerm),
+    remainingAfterClaim: referralStats?.remainingAfterNextTerm || 0
+  };
+
+  const [claimingReferralTerm, setClaimingReferralTerm] = useState(false);
+  const [referralClaimMsg, setReferralClaimMsg] = useState(null);
+
+  const handleClaimReferralFreeTerm = async () => {
+    setClaimingReferralTerm(true);
+    setReferralClaimMsg(null);
+    try {
+      const res = await subscriptionService.claimReferralFreeTerm(schoolId, academic_year, term, 'School Admin');
+      if (res?.success) {
+        setReferralClaimMsg({ 
+          type: 'success', 
+          text: `🎉 100% Free Term Activated! 2 referred schools deducted. ${res.remaining_referrals} referral(s) remain in your bank for future terms.` 
+        });
+        if (onRefresh) onRefresh();
+        await fetchHistory();
+      } else {
+        setReferralClaimMsg({ type: 'error', text: res?.message || 'Failed to claim referral free term.' });
+      }
+    } catch (err) {
+      setReferralClaimMsg({ type: 'error', text: err.message || 'Error claiming referral free term.' });
+    } finally {
+      setClaimingReferralTerm(false);
+    }
+  };
 
   const handleApprovePayment = async () => {
     setApproving(true);
@@ -314,7 +351,11 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
           {/* Right Header Status & Top Up Button */}
           <div className="school-wallet-right-actions">
             {/* Status Pill */}
-            {isFirstTermFreeActive ? (
+            {isReferralFreeTermActive ? (
+              <span style={{ padding: '0.35rem 0.85rem', borderRadius: '999px', background: 'rgba(16, 185, 129, 0.25)', color: '#34D399', fontSize: '0.78rem', fontWeight: 800, border: '1px solid rgba(16, 185, 129, 0.5)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                🎉 Free Term via Referrals
+              </span>
+            ) : isFirstTermFreeActive ? (
               <span style={{ padding: '0.35rem 0.85rem', borderRadius: '999px', background: 'rgba(59, 130, 246, 0.2)', color: '#93C5FD', fontSize: '0.78rem', fontWeight: 800, border: '1px solid rgba(59, 130, 246, 0.4)', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 🎁 Free Onboarding Term
               </span>
@@ -334,6 +375,31 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
 
             {/* Quick Actions */}
             <div className="school-wallet-btn-group">
+              {referralCredits.canClaimFreeTerm && !isPaidOrSubscribed && !isFirstTermFreeActive && (
+                <button
+                  type="button"
+                  onClick={handleClaimReferralFreeTerm}
+                  disabled={claimingReferralTerm}
+                  style={{
+                    background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
+                    color: '#FFFFFF',
+                    border: '1px solid #34D399',
+                    borderRadius: '10px',
+                    padding: '0.6rem 1.15rem',
+                    fontSize: '0.85rem',
+                    fontWeight: 800,
+                    cursor: claimingReferralTerm ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.45)'
+                  }}
+                >
+                  {claimingReferralTerm ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-gift" />}
+                  Claim Free Term (2 Referrals)
+                </button>
+              )}
+
               {!isPaidOrSubscribed && !isFirstTermFreeActive && (
                 <button
                   type="button"
@@ -384,20 +450,166 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
           </div>
         </div>
 
-        {approvalMsg && (
+        {(approvalMsg || referralClaimMsg) && (
           <div style={{
             marginTop: '1rem',
             padding: '0.6rem 0.9rem',
             borderRadius: '8px',
             fontSize: '0.82rem',
-            background: approvalMsg.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-            border: `1px solid ${approvalMsg.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
-            color: approvalMsg.type === 'success' ? '#6EE7B7' : '#FCA5A5',
+            background: (referralClaimMsg || approvalMsg)?.type === 'success' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+            border: `1px solid ${(referralClaimMsg || approvalMsg)?.type === 'success' ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)'}`,
+            color: (referralClaimMsg || approvalMsg)?.type === 'success' ? '#6EE7B7' : '#FCA5A5',
           }}>
-            {approvalMsg.text}
+            {referralClaimMsg?.text || approvalMsg?.text}
           </div>
         )}
       </div>
+
+      {/* ── REFERRAL REWARD FREE TERM NOTIFICATION & CARRIER CARD ── */}
+      {isReferralFreeTermActive ? (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(5, 150, 105, 0.03) 100%)',
+          border: '1.5px solid #10B981',
+          borderRadius: '16px',
+          padding: '1.15rem 1.4rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          boxShadow: '0 4px 16px -4px rgba(16, 185, 129, 0.15)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#10B981', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+              <i className="fas fa-gift" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#065F46' }}>
+                  🎉 100% Free Term Granted via Referral Reward!
+                </span>
+                <span style={{ background: '#D1FAE5', color: '#047857', padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800 }}>
+                  2 Referrals Deducted
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#047857', lineHeight: 1.4 }}>
+                Your school referred 2 institutions and unlocked 100% free terminal access.
+                {referralCredits.availableReferrals > 0 ? (
+                  <> You have <strong style={{ textDecoration: 'underline' }}>{referralCredits.availableReferrals} referred school(s)</strong> remaining in your bank to be used for future terms!</>
+                ) : (
+                  <> Refer 2 more schools to use another term 100% free!</>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('referrals')}
+            style={{
+              background: '#065F46',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '0.5rem 1rem',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            View Referral Bank
+          </button>
+        </div>
+      ) : (!isPaidOrSubscribed && !isFirstTermFreeActive && referralCredits.canClaimFreeTerm) ? (
+        <div style={{
+          background: 'linear-gradient(135deg, #FEF3C7 0%, #FFFBEB 100%)',
+          border: '1.5px solid #F59E0B',
+          borderRadius: '16px',
+          padding: '1.15rem 1.4rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          boxShadow: '0 4px 16px -4px rgba(245, 158, 11, 0.2)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#F59E0B', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+              <i className="fas fa-award" />
+            </div>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.98rem', fontWeight: 800, color: '#92400E' }}>
+                  🎁 You Have Earned a 100% FREE Term via Referrals!
+                </span>
+                <span style={{ background: '#FDE68A', color: '#78350F', padding: '0.15rem 0.55rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: 800 }}>
+                  {referralCredits.availableReferrals} Available Referrals
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#78350F', lineHeight: 1.4 }}>
+                In this term you are supposed to pay, 2 referred schools will be deducted to give you complete free access (GH₵ 0.00 fee).
+                The remaining <strong>{referralCredits.remainingAfterClaim} school(s)</strong> will stay safely in your bank for future terms!
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleClaimReferralFreeTerm}
+            disabled={claimingReferralTerm}
+            style={{
+              background: '#D97706',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '10px',
+              padding: '0.65rem 1.25rem',
+              fontSize: '0.85rem',
+              fontWeight: 800,
+              cursor: claimingReferralTerm ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              boxShadow: '0 4px 12px rgba(217, 119, 6, 0.35)'
+            }}
+          >
+            {claimingReferralTerm ? <i className="fas fa-spinner fa-spin" /> : <i className="fas fa-check" />}
+            Apply 2 Referrals for Free Term
+          </button>
+        </div>
+      ) : (!isPaidOrSubscribed && !isFirstTermFreeActive && referralCredits.availableReferrals === 1) ? (
+        <div style={{
+          background: '#F8FAFC',
+          border: '1px solid #E2E8F0',
+          borderRadius: '14px',
+          padding: '0.9rem 1.2rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '0.75rem'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <i className="fas fa-users" style={{ color: '#2563eb', fontSize: '1.1rem' }} />
+            <span style={{ fontSize: '0.85rem', color: '#334155', fontWeight: 600 }}>
+              🤝 <strong>1 of 2 Referrals Needed:</strong> Refer just 1 more school this term to enjoy your entire term 100% FREE!
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('referrals')}
+            style={{
+              background: '#2563eb',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '8px',
+              padding: '0.4rem 0.85rem',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            Invite a School
+          </button>
+        </div>
+      ) : null}
 
       {/* ── 2. METRIC SUMMARY BAR ─────────────────────────────────────────── */}
       <div className="school-wallet-kpi-grid">
@@ -440,6 +652,22 @@ const SchoolWalletWidget = ({ statusInfo, schoolId, onRefresh }) => {
           </div>
           <div style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 600, marginTop: '2px' }}>
             {referralStats?.rewardedCount || 0} verified institutions rewarded
+          </div>
+        </div>
+
+        {/* Card: Free Term Referral Bank */}
+        <div style={{ background: '#FFFFFF', border: '1px solid #E4E4E7', borderRadius: '14px', padding: '1rem 1.15rem', boxShadow: '0 2px 8px -2px rgba(0, 0, 0, 0.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.75rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Free Term Bank</span>
+            <i className="fas fa-graduation-cap" style={{ color: '#059669', fontSize: '0.9rem' }} />
+          </div>
+          <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.45rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+            {referralCredits.availableReferrals} <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#71717a' }}>Schools Banked</span>
+          </div>
+          <div style={{ fontSize: '0.72rem', color: referralCredits.canClaimFreeTerm ? '#059669' : '#71717a', fontWeight: 600, marginTop: '2px' }}>
+            {referralCredits.canClaimFreeTerm 
+              ? `🎉 Free Term Ready! (${referralCredits.remainingAfterClaim} carryover)` 
+              : `${referralCredits.consumedReferrals} used • 2 needed per free term`}
           </div>
         </div>
       </div>

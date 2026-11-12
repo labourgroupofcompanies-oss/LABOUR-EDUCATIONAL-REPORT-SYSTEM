@@ -217,22 +217,26 @@ const subscriptionService = {
         }
       } catch (_) {}
 
+      // Referral credit balance and reward status
+      const refCredits = await this.getSchoolReferralCreditInfo(schoolId).catch(() => null);
+      const isReferralFreeTerm = data.billing_status === 'REFERRAL_FREE_TERM' || Boolean(data.is_referral_free_term);
+
       return {
         ...data,
         // Authoritative entitlement decisions — do NOT override from client-side logic
-        is_unlocked:               isUnlocked,
-        reports_locked:            Boolean(data.reports_locked ?? data.report_cards_locked),
-        report_cards_locked:       Boolean(data.report_cards_locked ?? data.reports_locked),
-        billing_status:            data.billing_status || 'UNKNOWN',
+        is_unlocked:               isUnlocked || isReferralFreeTerm,
+        reports_locked:            isReferralFreeTerm ? false : Boolean(data.reports_locked ?? data.report_cards_locked),
+        report_cards_locked:       isReferralFreeTerm ? false : Boolean(data.report_cards_locked ?? data.reports_locked),
+        billing_status:            isReferralFreeTerm ? 'REFERRAL_FREE_TERM' : (data.billing_status || 'UNKNOWN'),
         // Enriched / reconciled fields
         wallet_balance:            walletBal,
         wallet_available:          walletBal - Number(data.wallet_reserved || 0),
         learner_count:             effectiveLearnerCount,
         active_learner_count:      effectiveLearnerCount,
         rate_per_learner:          finalRate,
-        required_amount:           finalAmountDue,
-        amount_due:                finalAmountDue,
-        outstanding_amount:        isUnlocked ? 0 : Math.max(0, finalAmountDue - walletBal),
+        required_amount:           isReferralFreeTerm ? 0 : finalAmountDue,
+        amount_due:                isReferralFreeTerm ? 0 : finalAmountDue,
+        outstanding_amount:        (isUnlocked || isReferralFreeTerm) ? 0 : Math.max(0, finalAmountDue - walletBal),
         // Free-term metadata
         is_first_term_free:        isFirstTermFree,
         is_first_term_free_active: isFirstTermFree,
@@ -241,6 +245,8 @@ const subscriptionService = {
         onboarding_term_label:     data.onboarding_term     || null,
         free_term_reason:          data.free_term_reason    || null,
         resolution_source:         data.resolution_source   || null,
+        referral_credits:          data.referral_credits || refCredits,
+        is_referral_free_term:     isReferralFreeTerm,
       };
     } catch (err) {
       console.error('[subscriptionService] getSchoolSubscriptionStatus exception:', err);
@@ -437,6 +443,9 @@ const subscriptionService = {
       let billingStatus = 'NO_BILL';
       let lockReason = null;
 
+      // Check referral credits
+      const refCredits = await this.getSchoolReferralCreditInfo(schoolId).catch(() => null);
+
       if (isFirstTermFreeActive) {
         isUnlocked = true;
         reportsLocked = false;
@@ -445,10 +454,14 @@ const subscriptionService = {
         isUnlocked = true;
         reportsLocked = false;
         billingStatus = 'EXEMPT';
+      } else if (termBill && termBill.status === 'REFERRAL_FREE_TERM') {
+        isUnlocked = true;
+        reportsLocked = false;
+        billingStatus = 'REFERRAL_FREE_TERM';
       } else if (termBill) {
         // Admin has explicitly triggered a billing cycle for this term!
         billingStatus = termBill.status || 'AWAITING_APPROVAL';
-        const hasPaidTermBill = termBill.status === 'PAID' || termBill.status === 'FIRST_TERM_FREE' || termBill.status === 'EXEMPT';
+        const hasPaidTermBill = termBill.status === 'PAID' || termBill.status === 'FIRST_TERM_FREE' || termBill.status === 'EXEMPT' || termBill.status === 'REFERRAL_FREE_TERM';
         const isSubscribedActive = school?.subscription_status === 'Active' || hasPaidTermBill;
         if (isSubscribedActive || walletBal >= reqAmount) {
           isUnlocked = true;
@@ -465,6 +478,8 @@ const subscriptionService = {
         billingStatus = 'NO_BILL';
       }
 
+      const isReferralFreeTerm = billingStatus === 'REFERRAL_FREE_TERM';
+
       return {
         is_unlocked:               isUnlocked,
         billing_status:            billingStatus,
@@ -480,9 +495,9 @@ const subscriptionService = {
         wallet_balance:            walletBal,
         wallet_reserved:           walletRes,
         wallet_available:          walletBal - walletRes,
-        required_amount:           termBill ? reqAmount : 0,
-        amount_due:                termBill ? reqAmount : 0,
-        outstanding_amount:        reportsLocked ? Math.max(0, reqAmount - walletBal) : 0,
+        required_amount:           (termBill && !isReferralFreeTerm) ? reqAmount : 0,
+        amount_due:                (termBill && !isReferralFreeTerm) ? reqAmount : 0,
+        outstanding_amount:        (reportsLocked && !isReferralFreeTerm) ? Math.max(0, reqAmount - walletBal) : 0,
         learner_count:             learnerCnt,
         active_learner_count:      learnerCnt,
         rate_per_learner:          rate,
@@ -499,6 +514,8 @@ const subscriptionService = {
         bill_id:                   termBill?.id || null,
         approval_status:           termBill?.approval_status || 'PENDING',
         lock_reason:               lockReason,
+        referral_credits:          refCredits,
+        is_referral_free_term:     isReferralFreeTerm,
       };
     } catch (err) {
       console.error('[subscriptionService] Fallback error:', err);
@@ -750,11 +767,310 @@ const subscriptionService = {
   },
 
   /**
+   * Get Authoritative Referral Credit Balance & Free Term Bank for a School
+   * Every 2 non-rejected referrals = 1 Free Term.
+   * When over 2 schools are referred, 2 are deducted for a free term,
+   * leaving the remaining number of schools in the bank for future terms.
+   */
+  async getSchoolReferralCreditInfo(schoolId) {
+    if (!schoolId) {
+      return {
+        totalReferrals: 0,
+        consumedReferrals: 0,
+        availableReferrals: 0,
+        freeTermsAvailable: 0,
+        canClaimFreeTerm: false,
+        remainingAfterClaim: 0,
+        consumedTerms: []
+      };
+    }
+
+    const cleanId = String(schoolId).trim();
+    let allRefs = [];
+
+    // 1. Try Supabase
+    if (navigator.onLine) {
+      try {
+        const { data, error } = await supabase
+          .from('report_referrals')
+          .select('*')
+          .eq('referrer_school_id', cleanId);
+
+        if (!error && Array.isArray(data)) {
+          allRefs = data;
+          // Keep local Dexie cache synced
+          for (const r of data) {
+            await db.referrals.put({
+              id: r.id,
+              referrerSchoolId: r.referrer_school_id,
+              referredSchoolId: r.referred_school_id,
+              referralCodeUsed: r.referral_code_used,
+              status: r.status,
+              consumedForFreeTerm: Boolean(r.consumed_for_free_term),
+              consumedTerm: r.consumed_term,
+              consumedAcademicYear: r.consumed_academic_year,
+              consumedAt: r.consumed_at,
+              createdAt: r.created_at,
+              updatedAt: r.updated_at
+            }).catch(() => null);
+          }
+        }
+      } catch (err) {
+        console.warn('[subscriptionService] Supabase referral credit fetch notice:', err);
+      }
+    }
+
+    // 2. Fallback to Dexie if offline or empty
+    if (allRefs.length === 0) {
+      const localRefs = await db.referrals.where('referrerSchoolId').equals(cleanId).toArray().catch(() => []);
+      allRefs = (localRefs || []).map(r => ({
+        id: r.id,
+        referrer_school_id: r.referrerSchoolId,
+        referred_school_id: r.referredSchoolId,
+        status: r.status,
+        fraud_flag: r.fraudFlag,
+        consumed_for_free_term: Boolean(r.consumedForFreeTerm || r.consumed_for_free_term),
+        consumed_term: r.consumedTerm || r.consumed_term,
+        consumed_academic_year: r.consumedAcademicYear || r.consumed_academic_year,
+        consumed_at: r.consumedAt || r.consumed_at,
+        created_at: r.createdAt
+      }));
+    }
+
+    // Filter valid non-rejected, non-fraud referrals
+    const validRefs = allRefs.filter(r => 
+      (r.status || '').toUpperCase() !== 'REJECTED' && 
+      !r.fraud_flag &&
+      !r.fraudFlag
+    );
+
+    const totalReferrals = validRefs.length;
+    const consumedRefs = validRefs.filter(r => Boolean(r.consumed_for_free_term));
+    const consumedReferrals = consumedRefs.length;
+    const availableReferrals = Math.max(0, totalReferrals - consumedReferrals);
+    const freeTermsAvailable = Math.floor(availableReferrals / 2);
+    const canClaimFreeTerm = availableReferrals >= 2;
+    const remainingAfterClaim = availableReferrals >= 2 ? availableReferrals - 2 : availableReferrals;
+
+    return {
+      totalReferrals,
+      consumedReferrals,
+      availableReferrals,
+      freeTermsAvailable,
+      canClaimFreeTerm,
+      remainingAfterClaim,
+      consumedTerms: consumedRefs.map(r => ({
+        id: r.id,
+        term: r.consumed_term || 'Previous Term',
+        academicYear: r.consumed_academic_year || '',
+        consumedAt: r.consumed_at
+      }))
+    };
+  },
+
+  /**
+   * Claim a Free Term using 2 Referral Credits.
+   * Deducts exactly 2 referrals and leaves the remainder for future terms.
+   * Sets school term bill to REFERRAL_FREE_TERM, unlocks reports, and records transaction/notification.
+   */
+  async claimReferralFreeTerm(schoolId, academicYear = null, term = null, userId = 'School Admin') {
+    if (!schoolId) throw new Error('School ID is required to claim referral free term.');
+    const cleanId = String(schoolId).trim();
+
+    // 1. Resolve running term if not explicitly provided
+    let targetYear = academicYear;
+    let targetTerm = term;
+    if (!targetYear || !targetTerm) {
+      const running = await this.getSchoolCurrentRunningTerm(cleanId);
+      targetYear = running.year;
+      targetTerm = running.term;
+    }
+
+    // 2. Guard: If currently on Onboarding Free Term, preserve referrals!
+    const subStatus = await this.getSchoolSubscriptionStatus(cleanId, targetYear, targetTerm).catch(() => null);
+    if (subStatus?.is_onboarding_term || subStatus?.is_first_term_free) {
+      return {
+        success: false,
+        already_free: true,
+        message: 'Your school is currently enjoying your First Term Free! Referral credits are preserved for future terms when payment is due.'
+      };
+    }
+
+    // 3. Try Supabase RPC first
+    if (navigator.onLine) {
+      try {
+        const { data, error } = await supabase.rpc('claim_referral_free_term', {
+          p_school_id: cleanId,
+          p_academic_year: targetYear,
+          p_term: targetTerm,
+          p_claimed_by: userId
+        });
+
+        if (!error && data && data.success) {
+          await this.syncLocalReferralConsumption(cleanId, targetYear, targetTerm);
+          return data;
+        }
+      } catch (rpcErr) {
+        console.warn('[subscriptionService] RPC claim_referral_free_term notice, running direct fallback:', rpcErr);
+      }
+    }
+
+    // 4. Direct Fallback: Find 2 unconsumed referrals and consume them
+    const nowIso = new Date().toISOString();
+    let unconsumed = [];
+
+    if (navigator.onLine) {
+      try {
+        const { data: cloudRefs } = await supabase
+          .from('report_referrals')
+          .select('id, status, fraud_flag, consumed_for_free_term')
+          .eq('referrer_school_id', cleanId)
+          .neq('status', 'REJECTED')
+          .order('created_at', { ascending: true });
+
+        unconsumed = (cloudRefs || []).filter(r => !r.consumed_for_free_term && !r.fraud_flag);
+      } catch (_) {}
+    }
+
+    if (unconsumed.length < 2) {
+      const localRefs = await db.referrals.where('referrerSchoolId').equals(cleanId).toArray().catch(() => []);
+      unconsumed = (localRefs || []).filter(r => 
+        (r.status || '').toUpperCase() !== 'REJECTED' && 
+        !r.fraudFlag && 
+        !r.consumedForFreeTerm && 
+        !r.consumed_for_free_term
+      );
+    }
+
+    if (unconsumed.length < 2) {
+      return {
+        success: false,
+        insufficient_referrals: true,
+        available_referrals: unconsumed.length,
+        required_referrals: 2,
+        message: `A minimum of 2 referred schools is required to earn a free term. Currently available: ${unconsumed.length}.`
+      };
+    }
+
+    const toDeduct = unconsumed.slice(0, 2);
+    const toDeductIds = toDeduct.map(r => r.id);
+    const remainingCount = unconsumed.length - 2;
+
+    // Update in Supabase
+    if (navigator.onLine) {
+      try {
+        await supabase
+          .from('report_referrals')
+          .update({
+            consumed_for_free_term: true,
+            consumed_academic_year: targetYear,
+            consumed_term: targetTerm,
+            consumed_at: nowIso,
+            updated_at: nowIso
+          })
+          .in('id', toDeductIds);
+
+        // Update or insert school_term_bills
+        await supabase
+          .from('school_term_bills')
+          .update({
+            status: 'REFERRAL_FREE_TERM',
+            approval_status: 'APPROVED',
+            amount_due: 0.00,
+            outstanding_amount: 0.00,
+            approved_by: userId,
+            approved_at: nowIso,
+            paid_at: nowIso
+          })
+          .eq('school_id', cleanId)
+          .eq('academic_year', targetYear)
+          .eq('term', targetTerm)
+          .catch(() => null);
+      } catch (cErr) {
+        console.warn('[subscriptionService] Cloud referral consumption update notice:', cErr);
+      }
+    }
+
+    // Update in Dexie
+    for (const ref of toDeduct) {
+      const local = await db.referrals.get(ref.id);
+      if (local) {
+        await db.referrals.update(ref.id, {
+          consumedForFreeTerm: true,
+          consumed_for_free_term: true,
+          consumedTerm: targetTerm,
+          consumedAcademicYear: targetYear,
+          consumedAt: nowIso
+        });
+      }
+    }
+
+    // Add local notification
+    if (db.notifications) {
+      await db.notifications.add({
+        schoolId: cleanId,
+        title: '🎉 Free Term Granted via Referrals!',
+        content: `Your school successfully used 2 referral credits to unlock 100% free access for ${targetTerm} (${targetYear}). You have ${remainingCount} referral(s) remaining for future terms!`,
+        created_at: nowIso,
+        isRead: false
+      }).catch(() => null);
+    }
+
+    // Dispatch event
+    if (typeof window !== 'undefined') {
+      try {
+        window.dispatchEvent(new CustomEvent('school-referral-event', {
+          detail: {
+            type: 'FREE_TERM_CLAIMED',
+            schoolId: cleanId,
+            academicYear: targetYear,
+            term: targetTerm,
+            referralsDeducted: 2,
+            remainingReferrals: remainingCount
+          }
+        }));
+      } catch (_) {}
+    }
+
+    return {
+      success: true,
+      status: 'REFERRAL_FREE_TERM',
+      academic_year: targetYear,
+      term: targetTerm,
+      referrals_deducted: 2,
+      remaining_referrals: remainingCount,
+      message: `Free Term granted via Referral Reward! 2 schools deducted, ${remainingCount} school(s) remaining for future terms.`
+    };
+  },
+
+  async syncLocalReferralConsumption(schoolId, academicYear, term) {
+    try {
+      const cleanId = String(schoolId).trim();
+      const localRefs = await db.referrals.where('referrerSchoolId').equals(cleanId).toArray().catch(() => []);
+      const unconsumed = (localRefs || []).filter(r => !r.consumedForFreeTerm && !r.consumed_for_free_term && (r.status || '').toUpperCase() !== 'REJECTED');
+      for (const r of unconsumed.slice(0, 2)) {
+        await db.referrals.update(r.id, {
+          consumedForFreeTerm: true,
+          consumed_for_free_term: true,
+          consumedTerm: term,
+          consumedAcademicYear: academicYear,
+          consumedAt: new Date().toISOString()
+        });
+      }
+    } catch (_) {}
+  },
+
+  /**
    * School Payment Approval & Atomic Wallet Deduction
    * Reliably deducts term subscription fees from wallet balance (including referral rewards).
    */
   async approveAndPayTermBill(billId, userId = 'School Admin', options = {}) {
-    const { schoolId, termFee = 0, academicYear, term } = options;
+    const { schoolId, termFee = 0, academicYear, term, useReferralReward = false } = options;
+
+    // Handle payment using 2 Referral Credits
+    if (useReferralReward) {
+      return await this.claimReferralFreeTerm(schoolId, academicYear, term, userId);
+    }
 
     // 1. Try stored procedure if billId is available
     if (billId) {

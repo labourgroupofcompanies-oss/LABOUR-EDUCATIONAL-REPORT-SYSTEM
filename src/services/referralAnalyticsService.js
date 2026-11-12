@@ -187,6 +187,10 @@ export const referralAnalyticsService = {
               referralCodeUsed: r.referral_code_used,
               status: r.status,
               rewardAmount: Number(r.reward_amount) || 20.00,
+              consumedForFreeTerm: Boolean(r.consumed_for_free_term),
+              consumedTerm: r.consumed_term,
+              consumedAcademicYear: r.consumed_academic_year,
+              consumedAt: r.consumed_at,
               createdAt: r.created_at,
               updatedAt: r.updated_at
             };
@@ -218,6 +222,10 @@ export const referralAnalyticsService = {
           referralCodeUsed: r.referralCodeUsed,
           status: r.status || 'UNDER_VERIFICATION',
           rewardAmount: Number(r.rewardAmount) || 20.00,
+          consumedForFreeTerm: Boolean(r.consumedForFreeTerm || r.consumed_for_free_term),
+          consumedTerm: r.consumedTerm || r.consumed_term,
+          consumedAcademicYear: r.consumedAcademicYear || r.consumed_academic_year,
+          consumedAt: r.consumedAt || r.consumed_at,
           createdAt: r.createdAt
         };
       });
@@ -234,6 +242,12 @@ export const referralAnalyticsService = {
       .filter(r => r.status === 'REWARDED')
       .reduce((sum, r) => sum + (Number(r.rewardAmount) || 20.00), 0);
 
+    const validReferrals = referrals.filter(r => (r.status || '').toUpperCase() !== 'REJECTED');
+    const consumedForFreeTermsCount = validReferrals.filter(r => Boolean(r.consumedForFreeTerm)).length;
+    const availableForFreeTerms = Math.max(0, validReferrals.length - consumedForFreeTermsCount);
+    const freeTermsEarned = Math.floor(availableForFreeTerms / 2);
+    const remainingAfterNextTerm = availableForFreeTerms >= 2 ? availableForFreeTerms - 2 : availableForFreeTerms;
+
     return {
       code,
       totalInvited,
@@ -243,6 +257,12 @@ export const referralAnalyticsService = {
       rewardedCount: rewarded,
       rejectedCount: rejected,
       totalEarnings: earnings,
+      // Referral Free Term Metrics
+      consumedForFreeTermsCount,
+      availableForFreeTerms,
+      freeTermsEarned,
+      canClaimFreeTerm: availableForFreeTerms >= 2,
+      remainingAfterNextTerm,
       pipeline: referrals
     };
   }

@@ -270,6 +270,112 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
         )}
       </div>
 
+      {/* ── Referral Free Term Reward Progression & Carryover Tracker ─────── */}
+      <div style={{
+        background: '#FFFFFF',
+        borderRadius: '16px',
+        padding: '1.25rem 1.5rem',
+        border: '1.5px solid #E4E4E7',
+        boxShadow: '0 4px 14px -2px rgba(0, 0, 0, 0.04)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1rem' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '1.05rem', fontWeight: 800, color: '#09090b', fontFamily: 'Outfit, sans-serif' }}>
+                🎓 Free Term Subscription Reward Program
+              </span>
+              <span style={{ background: '#ECFDF5', color: '#059669', border: '1px solid #A7F3D0', padding: '0.15rem 0.6rem', borderRadius: '999px', fontSize: '0.72rem', fontWeight: 800 }}>
+                2 Referrals = 1 Free Term
+              </span>
+            </div>
+            <p style={{ margin: '4px 0 0', fontSize: '0.84rem', color: '#71717a', lineHeight: 1.45, maxWidth: '780px' }}>
+              When your school refers <strong>2 schools</strong> in a term you are supposed to pay, you get to use the application <strong>100% free of charge</strong> for that term.
+              When you refer more than 2 schools, 2 referrals are deducted for that term, and all remaining schools stay in your bank to be used for future terms!
+            </p>
+          </div>
+        </div>
+
+        {/* 4 Stat Badges Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+          gap: '0.75rem',
+          background: '#FAFAFA',
+          padding: '1rem',
+          borderRadius: '12px',
+          border: '1px solid #F4F4F5'
+        }}>
+          <div>
+            <div style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Total Referred</div>
+            <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.35rem', fontWeight: 900, color: '#09090b', marginTop: '2px' }}>
+              {stats?.totalInvited || 0} <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#71717a' }}>Schools</span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Deducted for Free Terms</div>
+            <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.35rem', fontWeight: 900, color: '#059669', marginTop: '2px' }}>
+              {stats?.consumedForFreeTermsCount || 0} <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#71717a' }}>Used</span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Available in Bank</div>
+            <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.35rem', fontWeight: 900, color: (stats?.availableForFreeTerms || 0) >= 2 ? '#059669' : '#09090b', marginTop: '2px' }}>
+              {stats?.availableForFreeTerms ?? (stats?.totalInvited || 0)} <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#71717a' }}>Available</span>
+            </div>
+          </div>
+
+          <div>
+            <div style={{ fontSize: '0.72rem', color: '#71717a', fontWeight: 700, textTransform: 'uppercase' }}>Carryover Next Term</div>
+            <div style={{ fontFamily: 'Outfit, sans-serif', fontSize: '1.35rem', fontWeight: 900, color: '#2563eb', marginTop: '2px' }}>
+              {stats?.remainingAfterNextTerm ?? ((stats?.totalInvited || 0) >= 2 ? (stats?.totalInvited - 2) : (stats?.totalInvited || 0))} <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#71717a' }}>Carryover</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Contextual Callout */}
+        {(stats?.availableForFreeTerms || 0) >= 2 ? (
+          <div style={{
+            marginTop: '0.85rem',
+            padding: '0.75rem 1rem',
+            borderRadius: '10px',
+            background: '#ECFDF5',
+            border: '1px solid #A7F3D0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '0.5rem'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', color: '#065F46' }}>
+              <i className="fas fa-check-circle" style={{ color: '#059669', fontSize: '1rem' }} />
+              <span>
+                <strong>Free Term Reward Ready:</strong> You have {stats.availableForFreeTerms} available referrals! 2 can be deducted for your next paid term, leaving {stats.remainingAfterNextTerm} school(s) for following terms.
+              </span>
+            </div>
+          </div>
+        ) : (stats?.availableForFreeTerms === 1) ? (
+          <div style={{
+            marginTop: '0.85rem',
+            padding: '0.75rem 1rem',
+            borderRadius: '10px',
+            background: '#EFF6FF',
+            border: '1px solid #BFDBFE',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '0.84rem',
+            color: '#1E40AF'
+          }}>
+            <i className="fas fa-info-circle" style={{ color: '#2563eb', fontSize: '1rem' }} />
+            <span>
+              <strong>Almost there!</strong> You have 1 referral in your bank. Refer just 1 more school to get your next paid term 100% free!
+            </span>
+          </div>
+        ) : null}
+      </div>
+
       {/* ── Redesigned Revoked Referral Notice Card (Appears only when clicking a revoked referral) ── */}
       {selectedRevokedItem && (
         <div style={{
@@ -564,6 +670,41 @@ const ReferralRewardsWidget = ({ schoolId, schoolName = 'Your School' }) => {
                           )}
                         </div>
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px' }}>{subtext}</div>
+                        {item.consumedForFreeTerm ? (
+                          <div style={{ marginTop: '5px' }}>
+                            <span style={{
+                              background: '#ECFDF5',
+                              color: '#059669',
+                              border: '1px solid #A7F3D0',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '6px',
+                              fontSize: '0.7rem',
+                              fontWeight: '800',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              <i className="fas fa-check-circle" /> Deducted for Free Term ({item.consumedTerm || 'Terminal Waiver'})
+                            </span>
+                          </div>
+                        ) : item.status !== 'REJECTED' && !item.fraudFlag ? (
+                          <div style={{ marginTop: '5px' }}>
+                            <span style={{
+                              background: '#F1F5F9',
+                              color: '#334155',
+                              border: '1px solid #CBD5E1',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: '6px',
+                              fontSize: '0.7rem',
+                              fontWeight: '700',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}>
+                              <i className="fas fa-piggy-bank" style={{ color: '#059669' }} /> Available in Free Term Bank
+                            </span>
+                          </div>
+                        ) : null}
                       </td>
                       <td style={{ padding: '1rem 1.25rem', textAlign: 'right', fontWeight: '800', color: item.status === 'REWARDED' ? 'var(--success)' : 'var(--text-muted)', fontSize: '0.95rem' }}>
                         {item.status === 'REWARDED' ? `+GH₵ ${(item.rewardAmount || 20).toFixed(2)}` : 'GH₵ 20.00 (Pending)'}

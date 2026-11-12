@@ -253,10 +253,10 @@ const TeacherReferralCard = ({ schoolId, schoolName }) => {
         <div style={{ background: '#FAFAFA', borderRadius: '10px', padding: '0.85rem 1rem', border: '1px solid #E4E4E7' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
             <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#09090B', color: '#FFFFFF', fontSize: '0.72rem', fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
-            <strong style={{ fontSize: '0.82rem', color: '#09090B' }}>First Term Free</strong>
+            <strong style={{ fontSize: '0.82rem', color: '#09090B' }}>Free Term Reward</strong>
           </div>
           <p style={{ margin: 0, fontSize: '0.78rem', color: '#71717a', lineHeight: 1.45 }}>
-            The new school immediately unlocks their first academic term free of charge to create report cards.
+            Every 2 schools referred unlocks a 100% Free Term for your school when payment is due! Extra referrals carry over for future terms.
           </p>
         </div>
       </div>

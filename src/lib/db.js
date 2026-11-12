@@ -517,7 +517,13 @@ db.version(24).stores({
   dailyLogs: '++id, schoolId, classId, learnerId, date, teacherId, synced, supabaseId, updatedAt, [schoolId+learnerId+date], [schoolId+classId+date]'
 });
 
+// v25 — adds referral consumption tracking for term free trial rewards
+db.version(25).stores({
+  referrals: 'id, referrerSchoolId, referredSchoolId, referralCodeUsed, status, rewardAmount, welcomeBonusAmount, fraudScore, fraudFlag, consumedForFreeTerm, consumedTerm, createdAt, [referrerSchoolId+status], [referrerSchoolId+consumedForFreeTerm], [referredSchoolId]'
+});
+
 export default db;
+
 
 
 

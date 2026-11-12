@@ -757,3 +757,298 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 GRANT EXECUTE ON FUNCTION public.deposit_school_wallet(TEXT, NUMERIC, TEXT, TEXT, TEXT) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.process_wallet_credit(UUID, TEXT, NUMERIC, TEXT, TEXT, TEXT, TEXT, TIMESTAMPTZ, JSONB) TO service_role;
+
+-- ─── 14. REFERRAL FREE TERM REWARD UPGRADE ─────────────────────────────────
+-- Add referral consumption tracking columns
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'report_referrals' 
+      AND column_name = 'consumed_for_free_term'
+  ) THEN
+    ALTER TABLE public.report_referrals ADD COLUMN consumed_for_free_term BOOLEAN DEFAULT FALSE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'report_referrals' 
+      AND column_name = 'consumed_academic_year'
+  ) THEN
+    ALTER TABLE public.report_referrals ADD COLUMN consumed_academic_year TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'report_referrals' 
+      AND column_name = 'consumed_term'
+  ) THEN
+    ALTER TABLE public.report_referrals ADD COLUMN consumed_term TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'report_referrals' 
+      AND column_name = 'consumed_at'
+  ) THEN
+    ALTER TABLE public.report_referrals ADD COLUMN consumed_at TIMESTAMPTZ;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'report_referrals' 
+      AND column_name = 'consumed_bill_id'
+  ) THEN
+    ALTER TABLE public.report_referrals ADD COLUMN consumed_bill_id UUID;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+      AND table_name = 'report_schools' 
+      AND column_name = 'referral_free_terms_count'
+  ) THEN
+    ALTER TABLE public.report_schools ADD COLUMN referral_free_terms_count INTEGER DEFAULT 0;
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_report_referrals_consumed ON public.report_referrals(referrer_school_id, consumed_for_free_term);
+
+-- Update check constraint on school_term_bills
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.table_constraints 
+    WHERE table_schema = 'public' 
+      AND table_name = 'school_term_bills' 
+      AND constraint_name = 'school_term_bills_status_check'
+  ) THEN
+    ALTER TABLE public.school_term_bills DROP CONSTRAINT school_term_bills_status_check;
+  END IF;
+
+  ALTER TABLE public.school_term_bills ADD CONSTRAINT school_term_bills_status_check
+    CHECK (status IN (
+      'FIRST_TERM_FREE',
+      'REFERRAL_FREE_TERM',
+      'AWAITING_APPROVAL',
+      'APPROVED',
+      'PAID',
+      'INSUFFICIENT_FUNDS',
+      'EXPIRED',
+      'EXEMPT'
+    ));
+EXCEPTION
+  WHEN OTHERS THEN
+    NULL;
+END $$;
+
+-- RPC: get_school_referral_credits
+CREATE OR REPLACE FUNCTION public.get_school_referral_credits(
+  p_school_id TEXT
+)
+RETURNS JSONB AS $$
+DECLARE
+  v_total_refs     INTEGER := 0;
+  v_consumed_refs  INTEGER := 0;
+  v_available_refs INTEGER := 0;
+  v_free_terms     INTEGER := 0;
+  v_remaining      INTEGER := 0;
+BEGIN
+  IF p_school_id IS NULL OR TRIM(p_school_id) = '' THEN
+    RETURN jsonb_build_object(
+      'total_referrals', 0,
+      'consumed_referrals', 0,
+      'available_referrals', 0,
+      'free_terms_available', 0,
+      'can_claim_free_term', false,
+      'remaining_after_claim', 0
+    );
+  END IF;
+
+  SELECT COUNT(*) INTO v_total_refs
+  FROM public.report_referrals
+  WHERE referrer_school_id = TRIM(p_school_id)
+    AND status != 'REJECTED'
+    AND COALESCE(fraud_flag, false) = false;
+
+  SELECT COUNT(*) INTO v_consumed_refs
+  FROM public.report_referrals
+  WHERE referrer_school_id = TRIM(p_school_id)
+    AND consumed_for_free_term = true;
+
+  v_available_refs := GREATEST(0, v_total_refs - v_consumed_refs);
+  v_free_terms     := FLOOR(v_available_refs / 2);
+  v_remaining      := CASE WHEN v_available_refs >= 2 THEN v_available_refs - 2 ELSE v_available_refs END;
+
+  RETURN jsonb_build_object(
+    'total_referrals',         v_total_refs,
+    'consumed_referrals',      v_consumed_refs,
+    'available_referrals',     v_available_refs,
+    'free_terms_available',    v_free_terms,
+    'can_claim_free_term',     (v_available_refs >= 2),
+    'remaining_after_claim',   v_remaining
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+GRANT EXECUTE ON FUNCTION public.get_school_referral_credits(TEXT) TO authenticated, anon, service_role;
+
+-- RPC: claim_referral_free_term
+CREATE OR REPLACE FUNCTION public.claim_referral_free_term(
+  p_school_id     TEXT,
+  p_academic_year TEXT DEFAULT NULL,
+  p_term          TEXT DEFAULT NULL,
+  p_claimed_by    TEXT DEFAULT 'School Admin'
+)
+RETURNS JSONB AS $$
+DECLARE
+  v_year             TEXT;
+  v_term             TEXT;
+  v_src              TEXT;
+  v_bill             RECORD;
+  v_free_eval        JSONB;
+  v_is_onboarding    BOOLEAN := FALSE;
+  v_available_count  INTEGER := 0;
+  v_ref_ids          UUID[];
+  v_remaining_count  INTEGER := 0;
+  v_cycle_id         UUID;
+BEGIN
+  IF p_school_id IS NULL OR TRIM(p_school_id) = '' THEN
+    RAISE EXCEPTION 'School ID is required to claim a referral free term.';
+  END IF;
+
+  IF p_academic_year IS NULL OR p_term IS NULL THEN
+    SELECT resolved_year, resolved_term, resolution_source
+    INTO v_year, v_term, v_src
+    FROM public.resolve_school_running_term(p_school_id)
+    LIMIT 1;
+  ELSE
+    v_year := TRIM(p_academic_year);
+    v_term := TRIM(p_term);
+  END IF;
+
+  v_free_eval := public.evaluate_free_term_eligibility(p_school_id, v_year, v_term);
+  v_is_onboarding := COALESCE((v_free_eval->>'eligible')::boolean, false);
+
+  IF v_is_onboarding THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'already_free', true,
+      'reason', 'School is currently enjoying their Onboarding First Term Free. Referral credits are preserved for when payment is due.',
+      'academic_year', v_year,
+      'term', v_term
+    );
+  END IF;
+
+  SELECT ARRAY_AGG(id) INTO v_ref_ids
+  FROM (
+    SELECT id
+    FROM public.report_referrals
+    WHERE referrer_school_id = TRIM(p_school_id)
+      AND COALESCE(consumed_for_free_term, false) = false
+      AND status != 'REJECTED'
+      AND COALESCE(fraud_flag, false) = false
+    ORDER BY created_at ASC
+    LIMIT 2
+  ) t;
+
+  v_available_count := COALESCE(ARRAY_LENGTH(v_ref_ids, 1), 0);
+
+  IF v_available_count < 2 THEN
+    RETURN jsonb_build_object(
+      'success', false,
+      'insufficient_referrals', true,
+      'available_referrals', v_available_count,
+      'required_referrals', 2,
+      'message', format('A minimum of 2 referred schools is required to earn a free term. Currently available: %s', v_available_count)
+    );
+  END IF;
+
+  UPDATE public.report_referrals
+  SET consumed_for_free_term = TRUE,
+      consumed_academic_year = v_year,
+      consumed_term          = v_term,
+      consumed_at            = NOW(),
+      updated_at             = NOW()
+  WHERE id = ANY(v_ref_ids);
+
+  SELECT COUNT(*) INTO v_remaining_count
+  FROM public.report_referrals
+  WHERE referrer_school_id = TRIM(p_school_id)
+    AND COALESCE(consumed_for_free_term, false) = false
+    AND status != 'REJECTED'
+    AND COALESCE(fraud_flag, false) = false;
+
+  UPDATE public.report_schools
+  SET referral_free_terms_count = COALESCE(referral_free_terms_count, 0) + 1,
+      updated_at = NOW()
+  WHERE id = TRIM(p_school_id);
+
+  SELECT * INTO v_bill
+  FROM public.school_term_bills
+  WHERE school_id = TRIM(p_school_id)
+    AND LOWER(TRIM(academic_year)) = LOWER(TRIM(v_year))
+    AND LOWER(TRIM(term))          = LOWER(TRIM(v_term));
+
+  IF v_bill.id IS NOT NULL THEN
+    UPDATE public.school_term_bills
+    SET status             = 'REFERRAL_FREE_TERM',
+        approval_status    = 'APPROVED',
+        amount_due         = 0.00,
+        amount_paid        = 0.00,
+        outstanding_amount = 0.00,
+        approved_by        = COALESCE(p_claimed_by, 'Referral Reward Engine'),
+        approved_at        = NOW(),
+        paid_at            = NOW(),
+        updated_at         = NOW()
+    WHERE id = v_bill.id;
+  ELSE
+    SELECT id INTO v_cycle_id
+    FROM public.billing_cycles
+    WHERE LOWER(TRIM(academic_year)) = LOWER(TRIM(v_year))
+      AND LOWER(TRIM(term))          = LOWER(TRIM(v_term))
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    IF v_cycle_id IS NOT NULL THEN
+      INSERT INTO public.school_term_bills (
+        billing_cycle_id, school_id, academic_year, term,
+        active_learner_count, rate_per_learner, amount_due,
+        amount_paid, outstanding_amount, status, approval_status,
+        approved_by, approved_at, paid_at
+      ) VALUES (
+        v_cycle_id, TRIM(p_school_id), v_year, v_term,
+        0, 0.00, 0.00,
+        0.00, 0.00, 'REFERRAL_FREE_TERM', 'APPROVED',
+        COALESCE(p_claimed_by, 'Referral Reward Engine'), NOW(), NOW()
+      )
+      ON CONFLICT (school_id, academic_year, term) 
+      DO UPDATE SET status = 'REFERRAL_FREE_TERM',
+                    amount_due = 0.00,
+                    outstanding_amount = 0.00,
+                    approval_status = 'APPROVED',
+                    approved_by = COALESCE(p_claimed_by, 'Referral Reward Engine'),
+                    paid_at = NOW(),
+                    updated_at = NOW();
+    END IF;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success',             true,
+    'status',              'REFERRAL_FREE_TERM',
+    'academic_year',       v_year,
+    'term',                v_term,
+    'referrals_deducted',  2,
+    'remaining_referrals', v_remaining_count,
+    'message',             format('Free Term granted via Referral Reward! 2 schools deducted, %s school(s) remaining for future terms.', v_remaining_count)
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+GRANT EXECUTE ON FUNCTION public.claim_referral_free_term(TEXT, TEXT, TEXT, TEXT) TO authenticated, anon, service_role;
+
